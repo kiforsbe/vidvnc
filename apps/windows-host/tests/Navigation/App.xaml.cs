@@ -392,13 +392,6 @@ public partial class App : Application
                             }
                             if (name == "Overview")
                             {
-                                var placeholders = Descendants(window.Content).OfType<Control>()
-                                    .Where(c => c.Tag as string == "backend-pending").ToArray();
-                                if (placeholders.Length < 1 || placeholders.Any(c => c.IsEnabled))
-                                    throw new Exception("Planned controls must be visible but disabled until their backend exists");
-                            }
-                            if (name == "Overview")
-                            {
                                 var statusRow = Descendants(window.Content).OfType<Grid>().Single(g => g.Name == "OverviewStatusRow");
                                 var statusCards = statusRow.Children.OfType<Border>().ToArray();
                                 if (statusCards.Length != 2 || Grid.GetRow(statusCards[0]) != Grid.GetRow(statusCards[1]) ||

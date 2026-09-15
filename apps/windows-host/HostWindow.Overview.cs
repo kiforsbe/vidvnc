@@ -18,13 +18,6 @@ public sealed partial class HostWindow
         return control;
     }
 
-    static StackPanel PendingWithLabel(Control control, string feature)
-    {
-        var group = new StackPanel { Spacing = 4 };
-        group.Children.Add(Pending(control, feature));
-        return group;
-    }
-
     static TextBlock Secondary(string text, double size = 13)
     {
         var label = Label(text, size);
@@ -72,10 +65,16 @@ public sealed partial class HostWindow
         if (!sharing) host.Children.Add(new ScrollViewer { Content = Label(detail.Text), MaxHeight = 70 });
         var hostCard = Card(IconRow("\uE7F4", host));
 
-        var session = new StackPanel { Spacing = 8 };
+        var session = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         overviewSessionSummary = Label(summary.Text);
         session.Children.Add(overviewSessionSummary);
-        session.Children.Add(Command("View sessions  ›", () => navigation.SelectedItem = navigation.MenuItems.OfType<NavigationViewItem>().Single(i => i.Tag as string == "Sessions")));
+        var sessionActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related };
+        sessionActions.Children.Add(Command("View sessions  ›", () => navigation.SelectedItem = navigation.MenuItems.OfType<NavigationViewItem>().Single(i => i.Tag as string == "Sessions")));
+        var connect = new Button { Content = "Connect a device", IsEnabled = sharing };
+        connect.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        connect.Click += async (_, _) => await ShowConnection("connect-once");
+        sessionActions.Children.Add(connect);
+        session.Children.Add(sessionActions);
         var sessionCard = Card(IconRow("\uE716", session));
         var statusRow = new Grid { Name = "OverviewStatusRow", ColumnSpacing = 16 };
         statusRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -123,16 +122,6 @@ public sealed partial class HostWindow
         if (displayInventory.Length == 0) displays.Children.Add(Secondary("Display information appears when sharing starts."));
         page.Children.Add(Card(displays));
 
-        var pairing = new StackPanel { Spacing = 8 };
-        pairing.Children.Add(Label("Connect your iPhone or another device", 18));
-        pairing.Children.Add(Secondary(connectionMode switch {
-            "one-time-keys" => "Open the connection dialog to create a single-use connection key.",
-            "approved-only" => "Only approved clients can sign in. New clients can request approval with a setup key.",
-            _ => "Open a connection link and enter your session password."
-        }));
-        pairing.Children.Add(PendingWithLabel(new Button { Content = "Show QR code" }, "QR pairing"));
-        var copy = CopyButton("Copy connection link", () => address.Text); copy.IsEnabled = sharing; pairing.Children.Add(copy);
-        page.Children.Add(Card(IconRow("\uE8EA", pairing)));
         page.Children.Add(new Expander { Header = "Connection security", Content = Label(notice.Message), HorizontalAlignment = HorizontalAlignment.Stretch });
     }
 }
