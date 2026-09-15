@@ -21,19 +21,23 @@ public sealed partial class HostWindow
 
     void UpdateClients(JsonElement status)
     {
-        pendingClients = status.TryGetProperty("pending", out var pending) && pending.ValueKind == JsonValueKind.Array
+        PendingClient[] nextPending = status.TryGetProperty("pending", out var pending) && pending.ValueKind == JsonValueKind.Array
             ? pending.EnumerateArray().Select(row => new PendingClient(
                 Text(row, "id"), Text(row, "deviceName", "Unknown device"), Text(row, "username", "Unknown user"),
                 Text(row, "client", "Unknown client"), Text(row, "network", "Unknown network"))).ToArray()
             : [];
-        approvedClients = status.TryGetProperty("approved", out var approved) && approved.ValueKind == JsonValueKind.Array
+        ApprovedClient[] nextApproved = status.TryGetProperty("approved", out var approved) && approved.ValueKind == JsonValueKind.Array
             ? approved.EnumerateArray().Select(row => new ApprovedClient(
                 Text(row, "id"), Text(row, "deviceName", "Unknown device"), Text(row, "username", "Unknown user"),
                 Text(row, "client", "Unknown client"), Text(row, "network", ""),
                 row.TryGetProperty("connected", out var connected) && connected.ValueKind == JsonValueKind.True,
-                Text(row, "permission", "view-only"), LastConnectedLabel(row))).ToArray()
+                Text(row, "permission", "default"), LastConnectedLabel(row))).ToArray()
             : [];
-        if (pendingClients.Length > 0) { clientSetupKey = null; clientSetupExpiresAt = null; }
+        if (nextPending.Length > 0) { clientSetupKey = null; clientSetupExpiresAt = null; }
+        // The server reports clients every second; rebuilding unchanged rows would dismiss open dropdowns and menus.
+        if (nextPending.SequenceEqual(pendingClients) && nextApproved.SequenceEqual(approvedClients)) return;
+        pendingClients = nextPending;
+        approvedClients = nextApproved;
         if (currentPage == "Clients") RenderPage();
     }
 
@@ -142,14 +146,25 @@ public sealed partial class HostWindow
 
     static string Plural(int count) => count == 1 ? "" : "s";
 
+    // "default" follows the Access page setting; the rest override it for one client.
+    static readonly string[] ClientPermissions = ["default", "approval", "available", "view-only"];
+
+    static string ControlLabel(string value) => value switch
+    {
+        "available" => "Allow when available",
+        "view-only" => "View only",
+        _ => "Require host approval",
+    };
+
     Grid PendingClientRow(PendingClient client)
     {
         var row = ClientRow(client.DeviceName, client.Username, client.Client, client.Network, "pending-client-row");
         var state = Label("Waiting for approval");
         state.Foreground = ThemeStatusBrush(state, "warning");
+        state.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(state, 2); row.Children.Add(state);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related, VerticalAlignment = VerticalAlignment.Center };
         var approve = new Button { Content = "Approve", IsEnabled = server is not null };
         approve.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         approve.Click += async (_, _) => await SendClientCommand("client-request-command", "approve", client.Id);
@@ -167,17 +182,19 @@ public sealed partial class HostWindow
         var state = Label(client.Connected ? "● Connected" : client.LastConnectedLabel, 12);
         if (client.Connected) state.Foreground = ThemeStatusBrush(state, "success");
         else state.Opacity = .76;
+        state.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(state, 2); row.Children.Add(state);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related };
-        var permission = new ComboBox { MinWidth = 170, Tag = "client-permission" };
-        permission.Items.Add("View only"); permission.Items.Add("Can request control");
-        permission.SelectedIndex = client.Permission == "request-control" ? 1 : 0;
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related, VerticalAlignment = VerticalAlignment.Center };
+        var permission = new ComboBox { MinWidth = 170, Tag = "client-permission", VerticalAlignment = VerticalAlignment.Center };
+        permission.Items.Add("Use Access default");
+        foreach (var value in ClientPermissions.Skip(1)) permission.Items.Add(ControlLabel(value));
+        permission.SelectedIndex = Math.Max(0, Array.IndexOf(ClientPermissions, client.Permission));
         permission.IsEnabled = server is not null;
         permission.SelectionChanged += async (_, _) => await SendClientCommand("approved-client-command", "permission",
-            client.Id, permission.SelectedIndex == 1 ? "request-control" : "view-only");
+            client.Id, ClientPermissions[permission.SelectedIndex]);
         actions.Children.Add(permission);
-        var more = new Button { Content = "⋯", IsEnabled = server is not null };
+        var more = new Button { Content = "⋯", IsEnabled = server is not null, VerticalAlignment = VerticalAlignment.Center };
         var menu = new MenuFlyout();
         var remove = new MenuFlyoutItem { Text = "Remove approved client" };
         remove.Click += async (_, _) => await SendClientCommand("approved-client-command", "remove", client.Id);

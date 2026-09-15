@@ -7,7 +7,7 @@ import { NativeMedia } from '../src/native-media.mjs';
 import { DisplayInventory } from '../src/displays.mjs';
 import { defaultStreamPolicy } from '../src/stream-policy.mjs';
 
-async function setup(t, defaultControl = 'approval') {
+async function setup(t, defaultControl = 'approval', approvedClients = undefined) {
   const { StreamRuntime } = await import('../src/stream-runtime.mjs');
   const sessions = new SessionStore({ maxSessions: 2 });
   const media = new NativeMedia({
@@ -40,6 +40,7 @@ async function setup(t, defaultControl = 'approval') {
     media,
     inventory,
     access: { snapshot: () => ({ ...access }) },
+    approvedClients,
     policy: { snapshot: () => structuredClone(policy) },
   });
   t.after(() => runtime.shutdown());
@@ -88,6 +89,25 @@ test('access default is captured at admission, not when a client selects its str
   const next = await offer(fresh);
   await runtime.selectStream(fresh, next.streamId);
   assert.equal(runtime.control.owner?.sessionId, fresh);
+});
+
+test('approved-client overrides replace the Access default for that client', async (t) => {
+  const permissions = { allowed: 'available', watcher: 'view-only' };
+  const approvedClients = { permission: (id) => permissions[id] ?? null };
+  const { runtime, sessions, a, b, offer } = await setup(t, 'approval', approvedClients);
+  for (const id of [a, b]) {
+    sessions.disconnect(id);
+    await runtime.stopSession(id);
+  }
+  const allowed = sessions.connectApproved({ id: 'allowed' }, 'allowed').sessionId;
+  const watcher = sessions.connectApproved({ id: 'watcher' }, 'watcher').sessionId;
+  const watched = await offer(watcher);
+  await runtime.selectStream(watcher, watched.streamId);
+  await assert.rejects(() => runtime.command({ action: 'grant', sessionId: watcher }), /view only/i);
+  assert.equal(runtime.control.owner, null);
+  const stream = await offer(allowed);
+  await runtime.selectStream(allowed, stream.streamId);
+  assert.equal(runtime.control.owner?.sessionId, allowed);
 });
 
 test('simultaneous automatic clients cannot transfer control from the first grantee', async (t) => {

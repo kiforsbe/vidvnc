@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ApprovedClientStore } from '../src/approved-clients.mjs';
@@ -116,4 +116,31 @@ test('approved-client password attempts are rate limited per client and source',
   assert.equal((await store.authenticate(input, 'source-b')).username, 'kim');
   now += 5_001;
   assert.equal((await store.authenticate(input, 'source-a')).username, 'kim');
+});
+
+test('approved clients follow the Access default until given an override', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vidvnc-approved-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filename = join(directory, 'approved-clients.json');
+  const keys = new ConnectionKeyRegistry();
+  const store = await ApprovedClientStore.open(filename, { keys });
+  const registration = await store.submit({
+    key: keys.createSetup({ ttlMs: 60_000 }).key,
+    deviceName: 'Work laptop',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-installation-4',
+    client: 'Edge on Windows',
+  });
+  await store.approve(registration.requestId);
+  const [client] = store.status().approved;
+  assert.equal(client.permission, 'default');
+  await store.setPermission(client.id, 'available');
+  assert.equal((await ApprovedClientStore.open(filename, { keys })).permission(client.id), 'available');
+  await assert.rejects(() => store.setPermission(client.id, 'request-control'), /invalid/i);
+
+  const saved = JSON.parse(await readFile(filename, 'utf8'));
+  saved.clients[0].permission = 'request-control';
+  await writeFile(filename, JSON.stringify(saved));
+  assert.equal((await ApprovedClientStore.open(filename, { keys })).permission(client.id), 'approval');
 });

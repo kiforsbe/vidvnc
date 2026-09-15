@@ -12,6 +12,9 @@ import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 
 const scrypt = promisify(scryptCallback);
 const EMPTY = Object.freeze({ version: 1, clients: [] });
+// 'default' follows the Access page's keyboard-and-mouse setting; the others override it per client.
+export const CLIENT_PERMISSIONS = Object.freeze(['default', 'approval', 'available', 'view-only']);
+const LEGACY_PERMISSIONS = { 'request-control': 'approval' };
 
 function hash(value) {
   return createHash('sha256').update(value).digest('base64url');
@@ -54,7 +57,10 @@ function validate(value) {
         typeof row.password.hash !== 'string'
       )
         throw new Error('Invalid approved client');
-      return structuredClone(row);
+      const client = structuredClone(row);
+      client.permission = LEGACY_PERMISSIONS[client.permission] ?? client.permission;
+      if (!CLIENT_PERMISSIONS.includes(client.permission)) client.permission = 'default';
+      return client;
     }),
   };
 }
@@ -173,7 +179,7 @@ export class ApprovedClientStore {
         installationId: row.installationId,
         client: row.client,
         network: row.network,
-        permission: 'view-only',
+        permission: 'default',
         createdAt: this.clock(),
         lastConnectedAt: null,
         password: row.password,
@@ -244,9 +250,12 @@ export class ApprovedClientStore {
     this.#queue = operation.catch(() => {});
     return operation;
   }
+  permission(clientId) {
+    return this.#value.clients.find((candidate) => candidate.id === clientId)?.permission ?? null;
+  }
   setPermission(clientId, permission) {
     const operation = this.#queue.then(async () => {
-      if (!['view-only', 'request-control'].includes(permission))
+      if (!CLIENT_PERMISSIONS.includes(permission))
         throw new Error('Invalid client permission');
       const row = this.#value.clients.find((candidate) => candidate.id === clientId);
       if (!row) throw new Error('Unknown approved client');

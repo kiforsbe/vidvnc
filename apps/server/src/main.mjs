@@ -63,7 +63,14 @@ async function serve() {
     const approvedClients = await ApprovedClientStore.open(files.approvedClients, {
       keys: store.keys,
     });
-    runtime = new StreamRuntime({ sessions: store, media, inventory, policy, access });
+    runtime = new StreamRuntime({
+      sessions: store,
+      media,
+      inventory,
+      policy,
+      access,
+      approvedClients,
+    });
     const server = createHttpApp({
       runtime,
       serverName: hostname(),

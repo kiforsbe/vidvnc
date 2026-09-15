@@ -11,10 +11,11 @@ export class StreamRuntime {
     inventory,
     policy,
     access,
+    approvedClients,
     registry = new StreamRegistry(),
     clock = Date.now,
   }) {
-    Object.assign(this, { sessions, media, inventory, policy, registry, clock });
+    Object.assign(this, { sessions, media, inventory, policy, approvedClients, registry, clock });
     this.stopping = false;
     this.sessionStops = new Map();
     this.telemetryTimes = new Map();
@@ -24,7 +25,11 @@ export class StreamRuntime {
     const onConnect = sessions.onConnect;
     sessions.onConnect = (id) => {
       onConnect?.(id);
-      if (access?.snapshot().defaultControl === 'available') this.automaticControl.add(id);
+      const approvedClientId = sessions.get(id)?.approvedClientId;
+      const permission = approvedClientId ? approvedClients?.permission(approvedClientId) : null;
+      const control =
+        permission && permission !== 'default' ? permission : access?.snapshot().defaultControl;
+      if (control === 'available') this.automaticControl.add(id);
     };
     this.control = new ControlLease({
       media,
@@ -77,10 +82,16 @@ export class StreamRuntime {
     if (!this.sessions.list().some((session) => session.sessionId === sessionId))
       throw new Error('Device disconnected');
     if (action === 'grant' || action === 'revoke') this.automaticControl.delete(sessionId);
+    if (action === 'grant' && this.#viewOnly(sessionId))
+      throw new Error('This approved client is set to view only');
     if (action === 'grant') return this.control.grant(sessionId, this.selected.get(sessionId));
     if (action === 'revoke') return this.control.revoke(sessionId);
     if (action === 'stop-stream') return this.stopStream(sessionId, streamId);
     throw new Error('Unknown session action');
+  }
+  #viewOnly(sessionId) {
+    const approvedClientId = this.sessions.get(sessionId)?.approvedClientId;
+    return !!approvedClientId && this.approvedClients?.permission(approvedClientId) === 'view-only';
   }
   status() {
     const owner = this.control.owner;

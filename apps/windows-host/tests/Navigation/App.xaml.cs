@@ -100,8 +100,8 @@ public partial class App : Application
                                     throw new Exception("Clients must sit between Sessions and Access");
                                 using var clientsFixture = JsonDocument.Parse("""
                                 {"pending":[{"id":"pending-1","deviceName":"Alex’s iPhone","username":"alex","client":"Safari on iOS","network":"Local network","requestedAt":0,"password":"must-not-render"}],
-                                 "approved":[{"id":"approved-1","deviceName":"Kim’s iPhone","username":"kim","client":"Safari on iOS","connected":true,"permission":"view-only","lastConnectedAt":0,"clientSecret":"must-not-render"},
-                                             {"id":"approved-2","deviceName":"Work laptop","username":"kim-work","client":"Edge on Windows","connected":false,"permission":"request-control","lastConnectedLabel":"Last connected yesterday"}]}
+                                 "approved":[{"id":"approved-1","deviceName":"Kim’s iPhone","username":"kim","client":"Safari on iOS","connected":true,"permission":"default","lastConnectedAt":0,"clientSecret":"must-not-render"},
+                                             {"id":"approved-2","deviceName":"Work laptop","username":"kim-work","client":"Edge on Windows","connected":false,"permission":"view-only","lastConnectedLabel":"Last connected yesterday"}]}
                                 """);
                                 updateClients.Invoke(window, new object[] { clientsFixture.RootElement });
                                 await Task.Delay(80);

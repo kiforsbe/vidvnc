@@ -126,7 +126,7 @@ The setup request contains only useful, explainable information:
 
 The host adds request time, remote address or local-network label, and setup-key verification state. Language, screen resolution, fonts, and other fingerprinting-oriented browser data are not collected for approval.
 
-The approval row emphasizes device name and username, then shows concise supporting metadata such as `Safari on iOS · Local network`. Approval defaults to **View only**; control remains a separate permission.
+The approval row emphasizes device name and username, then shows concise supporting metadata such as `Safari on iOS · Local network`. Approval defaults to **Use Access default**, which follows the Access page's keyboard-and-mouse setting until the host overrides it for that client with **Require host approval**, **Allow when available**, or **View only**.
 
 ## Shared Connect a device dialog
 
