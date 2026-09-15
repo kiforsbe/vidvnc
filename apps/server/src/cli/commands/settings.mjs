@@ -1,6 +1,12 @@
 import { UsageError } from '../usage-error.mjs';
 import { capitalize, expectArguments, onOff, outcome } from '../arguments.mjs';
-import { clean, displayLabel, formatAccess, formatDisplays } from '../format.mjs';
+import {
+  clean,
+  displayLabel,
+  formatAccess,
+  formatConnectionMode,
+  formatDisplays,
+} from '../format.mjs';
 import { resolveDisplay, resolveProfile } from '../resolve.mjs';
 import * as edits from '../policy-edits.mjs';
 
@@ -125,6 +131,25 @@ export const settingsCommands = [
         ? await context.saveAccess(positionals[0])
         : context.access();
       return { text: formatAccess(access), data: access };
+    },
+  },
+  {
+    name: 'connection-mode',
+    usage: 'connection-mode [session-key|one-time-keys|approved-only]',
+    summary: 'Show or set how ordinary clients may connect.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      if (
+        positionals.length &&
+        !['session-key', 'one-time-keys', 'approved-only'].includes(positionals[0])
+      )
+        throw new UsageError('Use session-key, one-time-keys, or approved-only.');
+      const access = positionals.length
+        ? await context.saveConnectionMode(positionals[0])
+        : context.access();
+      return { text: formatConnectionMode(access), data: access };
     },
   },
 ];

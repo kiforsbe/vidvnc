@@ -7,6 +7,7 @@ import { StreamPolicyStore } from '../../../server/src/stream-policy-store.mjs';
 import { PolicyController } from '../../../server/src/policy-controller.mjs';
 import { SessionStore } from '../../../server/src/session-store.mjs';
 import { AccessSettings } from '../../../server/src/access-settings.mjs';
+import { ConnectionKeyRegistry } from '../../../server/src/connection-keys.mjs';
 
 const directory = await mkdtemp(join(tmpdir(), 'vidvnc-native-policy-test-'));
 try {
@@ -15,11 +16,32 @@ try {
   const accessFile = join(directory, 'access.json');
   const access = await AccessSettings.open(accessFile);
   const controller = new PolicyController(store, new SessionStore(), { shutdown: async () => {} });
+  const keys = new ConnectionKeyRegistry();
   for await (const line of createInterface({ input: process.stdin })) {
     const message = JSON.parse(line);
+    if (message.type === 'client-setup-create') {
+      const setup = keys.createSetup({ ttlMs: 10 * 60_000 });
+      console.log(JSON.stringify({ type: 'client-setup-result', requestId: message.requestId,
+        ok: true, key: setup.key, expiresAt: setup.expiresAt,
+        received: { type: message.type } }));
+      continue;
+    }
+    if (message.type === 'connection-once-create') {
+      const once = keys.createOneTimeConnection({ ttlMs: 10 * 60_000 });
+      console.log(JSON.stringify({ type: 'connection-once-result', requestId: message.requestId,
+        ok: true, key: once.key, expiresAt: once.expiresAt,
+        received: { type: message.type } }));
+      continue;
+    }
+    if (message.type === 'client-request-command' || message.type === 'approved-client-command') {
+      console.log(JSON.stringify({ type: 'client-command-result', requestId: message.requestId,
+        ok: true, received: { type: message.type, action: message.action, id: message.id,
+          permission: message.permission } }));
+      continue;
+    }
     if (message.type === 'access-set') {
       try {
-        await access.replace(message.defaultControl, message.revision);
+        await access.replace(message.defaultControl, message.revision, message.connectionMode);
         console.log(JSON.stringify({ type: 'access-result', requestId: message.requestId, ok: true,
           access: (await AccessSettings.open(accessFile)).snapshot() }));
       } catch (error) {

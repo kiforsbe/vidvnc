@@ -12,13 +12,29 @@ test('access defaults persist atomically and stale or invalid changes do not ove
   const store = await AccessSettings.open(file);
   const stale = await AccessSettings.open(file);
   assert.equal(store.snapshot().defaultControl, 'approval');
-  await store.replace('available', 0);
+  assert.equal(store.snapshot().connectionMode, 'session-key');
+  await store.replace('available', 0, 'one-time-keys');
   assert.equal((await AccessSettings.open(file)).snapshot().defaultControl, 'available');
+  assert.equal((await AccessSettings.open(file)).snapshot().connectionMode, 'one-time-keys');
   await assert.rejects(store.replace('always', 1), /invalid/i);
+  await assert.rejects(store.replace('available', 1, 'anything'), /invalid/i);
   await assert.rejects(stale.replace('approval', 0), /changed/i);
   assert.equal((await AccessSettings.open(file)).snapshot().defaultControl, 'available');
-  await store.replace('approval', 1);
+  await store.replace('approval', 1, 'approved-only');
   assert.equal((await AccessSettings.open(file)).snapshot().defaultControl, 'approval');
-  await writeFile(file, '{"revision":2,"defaultControl":"unknown"}');
+  assert.equal((await AccessSettings.open(file)).snapshot().connectionMode, 'approved-only');
+  await writeFile(file, '{"revision":2,"defaultControl":"unknown","connectionMode":"session-key"}');
   await assert.rejects(AccessSettings.open(file), /invalid/i);
+});
+
+test('old access settings default to session-key admission', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vidvnc-access-old-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'access.json');
+  await writeFile(file, '{"revision":3,"defaultControl":"approval"}');
+  assert.deepEqual((await AccessSettings.open(file)).snapshot(), {
+    revision: 3,
+    defaultControl: 'approval',
+    connectionMode: 'session-key',
+  });
 });

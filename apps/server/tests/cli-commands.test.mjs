@@ -189,8 +189,24 @@ test('access shows and saves the default for new connections', async (t) => {
   );
   const saved = await run('access available --json');
   assert.equal(saved.json, true);
-  assert.deepEqual(saved.data, { revision: 1, defaultControl: 'available' });
+  assert.deepEqual(saved.data, {
+    revision: 1,
+    defaultControl: 'available',
+    connectionMode: 'session-key',
+  });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
+});
+
+test('connection-mode shows and saves the ordinary admission policy', async (t) => {
+  const { run } = await offline(t);
+  assert.equal((await run('connection-mode')).text, 'Ordinary connections: Reusable session key');
+  const saved = await run('connection-mode one-time-keys --json');
+  assert.equal(saved.data.connectionMode, 'one-time-keys');
+  assert.equal(saved.text, 'Ordinary connections: One-time connection keys');
+  await assert.rejects(
+    run('connection-mode anything'),
+    usage(/^Use session-key, one-time-keys, or approved-only\./),
+  );
 });
 
 test('offline changes refuse while a server instance is alive but reads still work', async (t) => {

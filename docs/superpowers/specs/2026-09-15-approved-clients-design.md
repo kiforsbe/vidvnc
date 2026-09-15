@@ -1,6 +1,6 @@
 # Approved clients and remembered sign-in design
 
-Status: concept design only. This document does not claim that approved-client sign-in or platform passkeys are implemented.
+Status: milestone 1 implemented. QR transfer and platform passkeys remain future work.
 
 ![Connect a device approved-client previz](../../design/windows-host-previz/clients-v5.png)
 
@@ -9,6 +9,16 @@ Status: concept design only. This document does not claim that approved-client s
 Let the host approve a client once so that client can later choose **Sign in** without entering another shared connection key. Keep the existing unremembered connection path available and clearly separate from client approval.
 
 Milestone 1 uses human-readable pre-shared keys. QR transfer is out of scope. Apple passkeys, Windows Hello, and other platform passkeys are a later authentication option.
+
+## Host connection modes
+
+The Access page selects one ordinary-connection policy for the host:
+
+- **Reusable session key** accepts the sharing-instance Session key and also allows the host to create an explicit One-time connection key when preferred.
+- **One-time connection keys** rejects the Session key and lets the host create short-lived single-use connection keys from the shared connection dialog.
+- **Approved clients only** rejects both ordinary key types.
+
+Approved-client sign-in and host-issued Client setup keys remain available in every mode. Changing modes immediately revokes undispatched One-time connection keys and rotates the Session key so a previously displayed key cannot become valid again if reusable keys are later re-enabled. Existing authenticated media sessions are not disconnected merely because this setting changes. The active mode is returned by server information, enforced by key inspection and admission, and reflected in the host Overview, Access page, connection dialog, and web-client instructions.
 
 ## Milestone 1: three key types in one format
 
@@ -55,9 +65,7 @@ The server owns one authoritative in-memory registry containing only currently a
 - a non-reversible lookup value for the normalized eight-letter key;
 - **purpose:** `session`, `approved-client-setup`, or `one-time-connection`;
 - **createdAt** and **expiresAt**;
-- **usage:** multi-client for the sharing instance or single successful use;
-- the owning sharing-instance ID; and
-- for setup keys, the setup-attempt ID and eventual pending-request ID.
+- **usage:** multi-client for the sharing instance or single successful use.
 
 The Session key record lives only for its sharing instance and may be used by multiple clients subject to normal session limits. Client setup and One-time connection records have short expiries and one permitted successful use. The server atomically removes a single-use record while claiming it so two clients cannot use it concurrently. Cancel, sharing shutdown, and expiry remove active records. Consumed keys are not retained as registry tombstones; later reuse receives the same generic invalid-key response as any unknown key.
 
@@ -65,14 +73,14 @@ The short human-readable keys are not persisted as durable approved-client crede
 
 ## Web-client key dispatch
 
-The web client keeps one field labeled **Connection key** and accepts exactly eight letters with an optional presentation dash. After all eight normalized letters are present, it can use the shared alphabet-index rule as an immediate UI hint:
+The web client keeps one field labeled **Connection key** and accepts exactly eight letters with an optional presentation dash. After all eight normalized letters are present, the server uses the shared alphabet-index rule to select and authorize the flow:
 
 - Session purpose opens **Connect once** and submits to ordinary session admission.
 - Setup purpose opens the approved-client form for device name, required username, password, and password confirmation.
 - One-time connection purpose opens **Connect once** and submits to ordinary session admission, where the server consumes it only if admission succeeds.
 - Invalid characters or length show **Check the connection key and try again** without probing both server operations.
 
-Client-side dispatch is only presentation logic. On **Continue**, the client sends the complete key to one admission operation. The server decodes the purpose bits, finds the exact active registry record, checks expiry and usage, and returns the authoritative result:
+On **Continue**, the client sends the complete key to one dispatch operation. The server decodes the purpose bits, finds the exact active registry record, checks the current host connection mode, expiry, and usage, and returns the authoritative result:
 
 - a valid Session or One-time connection key returns `connect-once`, its usage policy, the sharing-instance context, and the resulting short-lived session data;
 - a valid Client setup key returns `approved-client-setup`, the setup-attempt reference, and `expiresAt`; and
@@ -124,12 +132,15 @@ The approval row emphasizes device name and username, then shows concise support
 
 The existing **Connect a device** dialog owns both connection-key experiences. It has a **Connection type** selector:
 
-- **Connect once** shows the existing connection address and Session key while reusable admission is enabled. When it is disabled, this mode creates and shows one short-lived One-time connection key per requested connection.
+- **Use session key** shows the existing connection address and Session key while reusable admission is enabled.
+- **Create one-time key** creates and shows one short-lived One-time connection key while ordinary key admission is enabled.
 - **Approve this client** creates a new setup attempt and shows the same address plus that attempt's Client setup key.
 
-Opening the dialog from Overview defaults to **Connect once**. Opening it from the Clients page defaults to **Approve this client**. Switching into the approval mode creates the setup attempt only when one is not already active.
+The selector contains only choices allowed by the current Access policy. Reusable-session mode shows all three choices, One-time mode shows One-time and approval, and Approved-only mode shows only approval.
 
-A setup attempt has its own server-side identifier, key, creation time, expiry, and state. The first valid client submission atomically consumes the key and attaches exactly one client-information payload plus password verifier to the attempt. The plaintext password is discarded as soon as the verifier is derived and is never presented to the host. The modal then changes from the key view to a review view with Approve/Reject actions. If the modal is closed, a submitted request remains under **Needs your approval** on the Clients page. **Cancel setup** invalidates an unsubmitted key immediately; otherwise an unused key expires after ten minutes.
+Opening the dialog from Overview defaults to **Connect once**. Opening it from the Clients page defaults to **Approve this client**. Switching into the approval mode creates the setup key only when one is not already active.
+
+The first valid client submission atomically consumes the setup key and creates exactly one pending client-information payload plus password verifier. The plaintext password is discarded as soon as the verifier is derived and is never presented to the host. If the modal is closed, a submitted request remains under **Needs your approval** on the Clients page; an unused key remains active only until its ten-minute expiry or host shutdown.
 
 The modal never shows both the Session key and Client setup key at once. Its explanatory copy states that the setup key is short-lived, valid for one setup attempt, still requires host approval, and that the client creates a password during setup. The password field and password value exist only on the client side.
 

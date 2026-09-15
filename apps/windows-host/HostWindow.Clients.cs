@@ -12,6 +12,12 @@ public sealed partial class HostWindow
 
     PendingClient[] pendingClients = [];
     ApprovedClient[] approvedClients = [];
+    readonly Dictionary<string, TaskCompletionSource<JsonElement>> clientReplies = [];
+    string? clientSetupKey;
+    long? clientSetupExpiresAt;
+    string? oneTimeConnectionKey;
+    long? oneTimeConnectionExpiresAt;
+    string? clientError;
 
     void UpdateClients(JsonElement status)
     {
@@ -25,8 +31,9 @@ public sealed partial class HostWindow
                 Text(row, "id"), Text(row, "deviceName", "Unknown device"), Text(row, "username", "Unknown user"),
                 Text(row, "client", "Unknown client"), Text(row, "network", ""),
                 row.TryGetProperty("connected", out var connected) && connected.ValueKind == JsonValueKind.True,
-                Text(row, "permission", "view-only"), Text(row, "lastConnectedLabel", "Not connected yet"))).ToArray()
+                Text(row, "permission", "view-only"), LastConnectedLabel(row))).ToArray()
             : [];
+        if (pendingClients.Length > 0) { clientSetupKey = null; clientSetupExpiresAt = null; }
         if (currentPage == "Clients") RenderPage();
     }
 
@@ -35,6 +42,73 @@ public sealed partial class HostWindow
             ? value.GetString() ?? fallback
             : fallback;
 
+    static string LastConnectedLabel(JsonElement row)
+    {
+        var supplied = Text(row, "lastConnectedLabel");
+        if (!string.IsNullOrWhiteSpace(supplied)) return supplied;
+        if (!row.TryGetProperty("lastConnectedAt", out var connected) || connected.ValueKind != JsonValueKind.Number ||
+            !connected.TryGetInt64(out var timestamp)) return "Not connected yet";
+        var minutes = Math.Max(0, (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - timestamp) / 60000);
+        if (minutes == 0) return "Last connected just now";
+        if (minutes < 60) return $"Last connected {minutes} min ago";
+        if (minutes < 24 * 60) return $"Last connected {minutes / 60} hr ago";
+        return $"Last connected {minutes / (24 * 60)} day{(minutes < 48 * 60 ? "" : "s")} ago";
+    }
+
+    void ReceiveClientResult(JsonElement result)
+    {
+        if (!result.TryGetProperty("requestId", out var id)) return;
+        var requestId = id.GetString();
+        if (requestId is not null && clientReplies.TryGetValue(requestId, out var reply))
+            reply.TrySetResult(result.Clone());
+    }
+
+    async Task<JsonElement> SendClientOwnerCommand(Dictionary<string, object?> command)
+    {
+        var child = server ?? throw new IOException("Start sharing before managing approved clients.");
+        var requestId = Guid.NewGuid().ToString("N");
+        command["requestId"] = requestId;
+        var reply = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        clientReplies[requestId] = reply;
+        try
+        {
+            await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(command));
+            await child.StandardInput.FlushAsync();
+            var result = await reply.Task;
+            if (!result.TryGetProperty("ok", out var ok) || !ok.GetBoolean())
+                throw new IOException(Text(result, "error", "The server could not complete the client action."));
+            return result;
+        }
+        finally { clientReplies.Remove(requestId); }
+    }
+
+    async Task RequestClientSetupKey()
+    {
+        var result = await SendClientOwnerCommand(new() { ["type"] = "client-setup-create" });
+        clientSetupKey = Text(result, "key");
+        clientSetupExpiresAt = result.TryGetProperty("expiresAt", out var expires) && expires.TryGetInt64(out var timestamp)
+            ? timestamp : null;
+        clientError = null;
+    }
+
+    async Task RequestOneTimeConnectionKey()
+    {
+        var result = await SendClientOwnerCommand(new() { ["type"] = "connection-once-create" });
+        oneTimeConnectionKey = Text(result, "key");
+        oneTimeConnectionExpiresAt = result.TryGetProperty("expiresAt", out var expires) && expires.TryGetInt64(out var timestamp)
+            ? timestamp : null;
+        clientError = null;
+    }
+
+    async Task SendClientCommand(string type, string action, string id, string? permission = null)
+    {
+        var command = new Dictionary<string, object?> { ["type"] = type, ["action"] = action, ["id"] = id };
+        if (permission is not null) command["permission"] = permission;
+        try { await SendClientOwnerCommand(command); clientError = null; }
+        catch (Exception error) when (error is IOException or InvalidOperationException)
+        { clientError = error.Message; if (currentPage == "Clients") RenderPage(); }
+    }
+
     void RenderClients()
     {
         var connect = new Button { Content = "Connect a device", Tag = "approved-client", IsEnabled = sharing };
@@ -42,6 +116,8 @@ public sealed partial class HostWindow
         connect.Click += async (_, _) => await ShowConnection("approved-client");
         pageAction.Content = connect;
         page.Children.Add(Secondary("Manage devices that can sign in to this host", 16));
+        if (clientError is not null) page.Children.Add(new InfoBar { IsOpen = true, IsClosable = true,
+            Severity = InfoBarSeverity.Error, Message = clientError });
 
         var summaryContent = new StackPanel { Spacing = HostSpacing.Small };
         summaryContent.Children.Add(Label($"{approvedClients.Length} approved client{Plural(approvedClients.Length)} · " +
@@ -74,8 +150,13 @@ public sealed partial class HostWindow
         Grid.SetColumn(state, 2); row.Children.Add(state);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related };
-        actions.Children.Add(Pending(new Button { Content = "Approve" }, "Approve client"));
-        actions.Children.Add(Pending(new Button { Content = "Reject" }, "Reject client"));
+        var approve = new Button { Content = "Approve", IsEnabled = server is not null };
+        approve.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        approve.Click += async (_, _) => await SendClientCommand("client-request-command", "approve", client.Id);
+        actions.Children.Add(approve);
+        var reject = new Button { Content = "Reject", IsEnabled = server is not null };
+        reject.Click += async (_, _) => await SendClientCommand("client-request-command", "reject", client.Id);
+        actions.Children.Add(reject);
         Grid.SetColumn(actions, 3); row.Children.Add(actions);
         return row;
     }
@@ -92,8 +173,15 @@ public sealed partial class HostWindow
         var permission = new ComboBox { MinWidth = 170, Tag = "client-permission" };
         permission.Items.Add("View only"); permission.Items.Add("Can request control");
         permission.SelectedIndex = client.Permission == "request-control" ? 1 : 0;
-        actions.Children.Add(Pending(permission, "Change client permission"));
-        var more = Pending(new Button { Content = "⋯" }, "More client actions");
+        permission.IsEnabled = server is not null;
+        permission.SelectionChanged += async (_, _) => await SendClientCommand("approved-client-command", "permission",
+            client.Id, permission.SelectedIndex == 1 ? "request-control" : "view-only");
+        actions.Children.Add(permission);
+        var more = new Button { Content = "⋯", IsEnabled = server is not null };
+        var menu = new MenuFlyout();
+        var remove = new MenuFlyoutItem { Text = "Remove approved client" };
+        remove.Click += async (_, _) => await SendClientCommand("approved-client-command", "remove", client.Id);
+        menu.Items.Add(remove); more.Flyout = menu;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(more, "More client actions");
         actions.Children.Add(more);
         Grid.SetColumn(actions, 3); row.Children.Add(actions);

@@ -259,6 +259,56 @@ label {
   font-size: 15px;
   min-height: 46px;
 }
+.account-card label {
+  margin-top: 16px;
+}
+.account-input {
+  position: static;
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--soft);
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+  caret-color: auto;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+}
+.account-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.account-card > button[type='submit'],
+.account-card > .secondary {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+}
+.account-card > button[type='submit'] {
+  margin-top: 20px;
+}
+.form-secondary {
+  margin-top: 10px;
+}
+.text-button {
+  display: block;
+  margin: 14px auto 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.text-button:hover {
+  background: transparent;
+  color: var(--text);
+}
 button {
   font-family: inherit;
   font-size: 13px;

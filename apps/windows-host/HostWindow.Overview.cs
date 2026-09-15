@@ -125,9 +125,13 @@ public sealed partial class HostWindow
 
         var pairing = new StackPanel { Spacing = 8 };
         pairing.Children.Add(Label("Connect your iPhone or another device", 18));
-        pairing.Children.Add(Secondary("Open a connection link and enter your session password."));
+        pairing.Children.Add(Secondary(connectionMode switch {
+            "one-time-keys" => "Open the connection dialog to create a single-use connection key.",
+            "approved-only" => "Only approved clients can sign in. New clients can request approval with a setup key.",
+            _ => "Open a connection link and enter your session password."
+        }));
         pairing.Children.Add(PendingWithLabel(new Button { Content = "Show QR code" }, "QR pairing"));
-        var copy = Command("Copy connection link", () => Copy(address.Text)); copy.IsEnabled = sharing; pairing.Children.Add(copy);
+        var copy = CopyButton("Copy connection link", () => address.Text); copy.IsEnabled = sharing; pairing.Children.Add(copy);
         page.Children.Add(Card(IconRow("\uE8EA", pairing)));
         page.Children.Add(new Expander { Header = "Connection security", Content = Label(notice.Message), HorizontalAlignment = HorizontalAlignment.Stretch });
     }

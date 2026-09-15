@@ -1,4 +1,9 @@
 const ACCESS_LABELS = { approval: 'Require host approval', available: 'Allow when available' };
+const CONNECTION_MODE_LABELS = {
+  'session-key': 'Reusable session key',
+  'one-time-keys': 'One-time connection keys',
+  'approved-only': 'Approved clients only',
+};
 const MODE_LABELS = { profiles: 'Approved profiles only', options: 'Approved options' };
 
 // Display names come from the OS; never pass terminal control sequences through.
@@ -27,6 +32,7 @@ export function pairs(rows) {
 export const mbps = (kbps) => `${Number((kbps / 1000).toFixed(3))} Mbit/s`;
 export const size = ({ width, height }) => `${width}×${height}`;
 export const accessLabel = (value) => ACCESS_LABELS[value];
+export const connectionModeLabel = (value) => CONNECTION_MODE_LABELS[value];
 export const modeLabel = (mode) => MODE_LABELS[mode];
 
 export function profileName(policy, id) {
@@ -63,6 +69,8 @@ export function formatDisplays(displays, policy) {
 
 export const formatAccess = (access) =>
   `Keyboard and mouse for new connections: ${accessLabel(access.defaultControl)}`;
+export const formatConnectionMode = (access) =>
+  `Ordinary connections: ${connectionModeLabel(access.connectionMode)}`;
 
 export function formatProfiles(profiles, policy) {
   const rows = profiles.map((profile, index) => [

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 import { createHttpApp } from '@vidvnc/server/http-app.mjs';
+import { ApprovedClientStore } from '../../server/src/approved-clients.mjs';
+import { SessionStore } from '../../server/src/session-store.mjs';
 import { defaultStreamPolicy } from '../../server/src/stream-policy.mjs';
 import { DisplayInventory } from '../../server/src/displays.mjs';
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
@@ -105,18 +107,22 @@ const media = {
     }, id);
   },
 };
+const sessionStore = new SessionStore();
+const approvedStore = await ApprovedClientStore.open(null, { keys: sessionStore.keys });
 const server = createHttpApp({
   inventory: new DisplayInventory(displays),
   serverName: 'Thor',
   display: { width: 2560, height: 1440 },
   media,
   policy: { snapshot: () => structuredClone(policy), busy: false },
+  sessionStore,
+  approvedClients: approvedStore,
 });
-server.sessionStore._password = 'ABCD-EFGH'; // Isolated fixture only.
+const sessionPassword = server.sessionStore.password;
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}`;
 if (process.argv.includes('--preview')) {
-  console.log(`UI test fixture: ${url} — test password ABCD-EFGH (no desktop capture)`);
+  console.log(`UI test fixture: ${url} — test password ${sessionPassword} (no desktop capture)`);
   await new Promise((resolve) => {
     process.on('SIGINT', resolve);
     process.on('SIGTERM', resolve);
@@ -190,7 +196,7 @@ try {
   await page.waitForFunction(() =>
     document.getElementById('passwordError').textContent.includes('not recognized'),
   );
-  await page.locator('#password').fill('abcd-efgh');
+  await page.locator('#password').fill(sessionPassword);
   await page.locator('#connect').click();
   await page.waitForFunction(() => document.getElementById('video').videoWidth > 0, null, {
     timeout: 20000,
@@ -300,6 +306,48 @@ try {
   await page.locator('#disconnect').click();
   await page.locator('#connect').waitFor({ state: 'visible' });
   assert.equal(server.sessionStore.list().length, 0);
+
+  const setup = server.sessionStore.keys.createSetup({ ttlMs: 60_000 });
+  await page.locator('#password').fill(setup.key);
+  await page.locator('#connect').click();
+  await page.locator('#registerForm').waitFor({ state: 'visible' });
+  await page.locator('#deviceName').fill("Kim's browser");
+  await page.locator('#registerUsername').fill('kim');
+  await page.locator('#registerPassword').fill('correct horse battery staple');
+  await page.locator('#confirmPassword').fill('correct horse battery staple');
+  await page.locator('#requestApproval').click();
+  await page.locator('#approvalPending').waitFor({ state: 'visible' });
+  const pending = approvedStore.status().pending;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].username, 'kim');
+  await approvedStore.approve(pending[0].id);
+  await page.locator('#signInForm').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('#signInUsername').inputValue(), 'kim');
+  const savedCredential = await page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('vidvnc-approved-client', 1);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const request = open.result.transaction('values').objectStore('values').get('credential');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+        };
+      }),
+  );
+  assert.equal(savedCredential.username, 'kim');
+  assert.equal(JSON.stringify(savedCredential).includes('correct horse'), false);
+  await page.locator('#signInPassword').fill('correct horse battery staple');
+  await page.locator('#signIn').click();
+  await page.waitForFunction(() => document.getElementById('video').videoWidth > 0, null, {
+    timeout: 20000,
+  });
+  await page.locator('#disconnect').click();
+  await page.locator('#signInForm').waitFor({ state: 'visible' });
+  assert.equal(approvedStore.status().approved[0].connected, false);
+  await page.locator('#useConnectionKey').click();
+  await page.locator('#connectForm').waitFor({ state: 'visible' });
+
   const diagnosticsPage = await browser.newPage();
   let source = { ...displays[1], number: 2 };
   let sourceAge = 0;
@@ -334,7 +382,7 @@ try {
   await diagnosticsPage.close();
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: single-input pairing/editing/error recovery; responsive system/light/dark; width/height-fitted real WebRTC reception; automatic/approved profile reconnect; remote control release; fullscreen; disconnect.',
+    'PASS: connection-key editing/error recovery; approved-client registration and sign-in; responsive system/light/dark; width/height-fitted real WebRTC reception; automatic/approved profile reconnect; remote control release; fullscreen; disconnect.',
   );
 } finally {
   await new Promise((resolve) => server.close(resolve));

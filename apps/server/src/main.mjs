@@ -17,6 +17,8 @@ import { createLiveContext, startConsole } from './cli/console.mjs';
 import { accessLabel } from './cli/format.mjs';
 import { runOffline } from './cli/offline.mjs';
 import { seedDisplaySharing } from './cli/policy-edits.mjs';
+import { ApprovedClientStore } from './approved-clients.mjs';
+import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 
 if (process.argv[2] === 'config') {
   process.exitCode = await runOffline(process.argv.slice(3), {
@@ -58,6 +60,9 @@ async function serve() {
       await policy.replace(seedDisplaySharing(initial, inventory.rows), initial.revision);
     }
     const access = await AccessSettings.open(files.access);
+    const approvedClients = await ApprovedClientStore.open(files.approvedClients, {
+      keys: store.keys,
+    });
     runtime = new StreamRuntime({ sessions: store, media, inventory, policy, access });
     const server = createHttpApp({
       runtime,
@@ -68,6 +73,8 @@ async function serve() {
       policy,
       inventory,
       profileOrderFile: files.profileOrder,
+      approvedClients,
+      access,
       display: { name: 'Primary display', width: info.width, height: info.height, refreshHz: 30 },
     });
     const port = Number(process.env.VIDVNC_PORT || 4382);
@@ -148,8 +155,10 @@ async function serve() {
     }, 2000).unref();
     if (desktop) {
       statusTimer = setInterval(() => {
-        if (!stopping && !process.stdout.writableNeedDrain)
+        if (!stopping && !process.stdout.writableNeedDrain) {
           console.log(JSON.stringify(runtime.status()));
+          console.log(JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }));
+        }
       }, 1000).unref();
       owner = createInterface({ input: process.stdin });
       owner.on('line', (line) => {
@@ -158,12 +167,149 @@ async function serve() {
           try {
             const command = JSON.parse(line);
             if (
+              command.type === 'connection-once-create' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              !stopping
+            ) {
+              try {
+                if (access.snapshot().connectionMode === 'approved-only')
+                  throw new Error('Ordinary connection keys are not enabled');
+                const once = store.keys.createOneTimeConnection({ ttlMs: 10 * 60_000 });
+                console.log(
+                  JSON.stringify({
+                    type: 'connection-once-result',
+                    requestId: command.requestId,
+                    ok: true,
+                    key: once.key,
+                    expiresAt: once.expiresAt,
+                  }),
+                );
+              } catch (error) {
+                console.log(
+                  JSON.stringify({
+                    type: 'connection-once-result',
+                    requestId: command.requestId,
+                    ok: false,
+                    error: error.message,
+                  }),
+                );
+              }
+            }
+            if (
+              command.type === 'client-setup-create' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              !stopping
+            ) {
+              try {
+                const setup = store.keys.createSetup({ ttlMs: 10 * 60_000 });
+                console.log(
+                  JSON.stringify({
+                    type: 'client-setup-result',
+                    requestId: command.requestId,
+                    ok: true,
+                    key: setup.key,
+                    expiresAt: setup.expiresAt,
+                  }),
+                );
+              } catch (error) {
+                console.log(
+                  JSON.stringify({
+                    type: 'client-setup-result',
+                    requestId: command.requestId,
+                    ok: false,
+                    error: error.message,
+                  }),
+                );
+              }
+            }
+            if (
+              command.type === 'client-request-command' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              typeof command.id === 'string' &&
+              !stopping
+            ) {
+              const operation =
+                command.action === 'approve'
+                  ? approvedClients.approve(command.id)
+                  : command.action === 'reject'
+                    ? Promise.resolve(approvedClients.reject(command.id))
+                    : Promise.reject(new Error('Invalid client request action'));
+              operation.then(
+                () => {
+                  console.log(
+                    JSON.stringify({
+                      type: 'client-command-result',
+                      requestId: command.requestId,
+                      ok: true,
+                    }),
+                  );
+                  console.log(
+                    JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }),
+                  );
+                },
+                (error) =>
+                  console.log(
+                    JSON.stringify({
+                      type: 'client-command-result',
+                      requestId: command.requestId,
+                      ok: false,
+                      error: error.message,
+                    }),
+                  ),
+              );
+            }
+            if (
+              command.type === 'approved-client-command' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              typeof command.id === 'string' &&
+              !stopping
+            ) {
+              const operation =
+                command.action === 'remove'
+                  ? approvedClients.remove(command.id).then(() => {
+                      for (const session of store.list())
+                        if (session.approvedClientId === command.id)
+                          store.disconnect(session.sessionId);
+                    })
+                  : command.action === 'permission'
+                    ? approvedClients.setPermission(command.id, command.permission)
+                    : Promise.reject(new Error('Invalid approved-client action'));
+              operation.then(
+                () => {
+                  console.log(
+                    JSON.stringify({
+                      type: 'client-command-result',
+                      requestId: command.requestId,
+                      ok: true,
+                    }),
+                  );
+                  console.log(
+                    JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }),
+                  );
+                },
+                (error) =>
+                  console.log(
+                    JSON.stringify({
+                      type: 'client-command-result',
+                      requestId: command.requestId,
+                      ok: false,
+                      error: error.message,
+                    }),
+                  ),
+              );
+            }
+            if (
               command.type === 'access-set' &&
               typeof command.requestId === 'string' &&
               command.requestId.length <= 64 &&
               !stopping
             ) {
-              const reply = (ok, error) =>
+              const previousMode = access.snapshot().connectionMode;
+              const reply = (ok, error, sessionKey) =>
                 console.log(
                   JSON.stringify({
                     type: 'access-result',
@@ -171,10 +317,18 @@ async function serve() {
                     ok,
                     error,
                     access: access.snapshot(),
+                    sessionKey,
                   }),
                 );
-              access.replace(command.defaultControl, command.revision).then(
-                () => reply(true),
+              access.replace(command.defaultControl, command.revision, command.connectionMode).then(
+                () => {
+                  let sessionKey;
+                  if (access.snapshot().connectionMode !== previousMode) {
+                    store.keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
+                    sessionKey = store.rotateConnectionKey();
+                  }
+                  reply(true, undefined, sessionKey);
+                },
                 (error) => reply(false, error.message),
               );
             }
@@ -241,6 +395,7 @@ async function serve() {
             displays: info.displays || [],
             policy: policy.snapshot(),
             access: access.snapshot(),
+            clients: approvedClients.status(store.list()),
           }),
         );
         return;

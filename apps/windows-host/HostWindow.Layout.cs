@@ -52,6 +52,15 @@ public sealed partial class HostWindow
     {
         var button = new Button { Content = label }; button.Click += (_, _) => action(); return button;
     }
+    static Button CopyButton(string name, Func<string> value)
+    {
+        var button = new Button { Content = new FontIcon { Glyph = "\uE8C8", FontSize = 16 }, Width = 42,
+            Height = 34, Padding = new Thickness(0) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
+        ToolTipService.SetToolTip(button, name);
+        button.Click += (_, _) => Copy(value());
+        return button;
+    }
     static void Copy(string text) { if (string.IsNullOrEmpty(text)) return; var data = new DataPackage(); data.SetText(text); Clipboard.SetContent(data); }
 
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr window);
@@ -178,51 +187,113 @@ public sealed partial class HostWindow
         dialogOpen = true;
         try
         {
-            await CreateConnectionDialog(initialMode).ShowAsync();
+            var effectiveMode = initialMode == "approved-client" || connectionMode == "approved-only"
+                ? "approved-client" : connectionMode == "one-time-keys" ? "one-time-key" : "session-key";
+            if (effectiveMode == "approved-client" && !HasCurrentClientSetupKey())
+            {
+                try { await RequestClientSetupKey(); }
+                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
+            }
+            if (effectiveMode == "one-time-key")
+            {
+                oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
+                try { await RequestOneTimeConnectionKey(); }
+                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
+            }
+            await CreateConnectionDialog(effectiveMode).ShowAsync();
         }
-        finally { dialogOpen = false; }
+        finally { dialogOpen = false; oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null; }
     }
+
+    bool HasCurrentClientSetupKey() => !string.IsNullOrWhiteSpace(clientSetupKey) && clientSetupExpiresAt is long expires &&
+        expires > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    bool HasCurrentOneTimeKey() => !string.IsNullOrWhiteSpace(oneTimeConnectionKey) && oneTimeConnectionExpiresAt is long expires &&
+        expires > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     ContentDialog CreateConnectionDialog(string initialMode)
     {
         var body = new StackPanel { Spacing = HostSpacing.Row };
         body.Children.Add(Label("Use Safari on your iPhone, or a browser on another device on your local network."));
         var type = new ComboBox { Header = "Connection type", Tag = "connection-type", HorizontalAlignment = HorizontalAlignment.Stretch };
-        type.Items.Add("Connect once"); type.Items.Add("Approve this client");
+        if (connectionMode == "session-key") type.Items.Add(new ComboBoxItem { Content = "Use session key", Tag = "session-key" });
+        if (connectionMode != "approved-only") type.Items.Add(new ComboBoxItem { Content = "Create one-time key", Tag = "one-time-key" });
+        type.Items.Add(new ComboBoxItem { Content = "Approve this client", Tag = "approved-client" });
         body.Children.Add(type);
         var mode = new StackPanel { Spacing = HostSpacing.Row, Tag = "connection-mode" };
         body.Children.Add(mode);
 
-        void AddAddress()
+        void AddCopyField(string header, string value, bool prominent = false)
         {
-            var link = new TextBox { Header = "Connection address", Text = address.Text, IsReadOnly = true };
-            mode.Children.Add(link); mode.Children.Add(Command("Copy address", () => Copy(link.Text)));
+            var row = new Grid { ColumnSpacing = HostSpacing.Related, RowSpacing = HostSpacing.Small };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var label = Label(header, 13); Grid.SetColumnSpan(label, 2); row.Children.Add(label);
+            var fieldHeight = prominent ? 42d : 34d;
+            var field = new TextBox { Text = value, IsReadOnly = true, Tag = header, Height = fieldHeight,
+                VerticalContentAlignment = VerticalAlignment.Center };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(field, header);
+            if (prominent) { field.FontSize = 24; field.FontFamily = new FontFamily("Cascadia Mono"); }
+            Grid.SetRow(field, 1);
+            row.Children.Add(field);
+            var copy = CopyButton($"Copy {header.ToLowerInvariant()}", () => field.Text ?? "");
+            copy.Height = fieldHeight; copy.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(copy, 1); Grid.SetRow(copy, 1); row.Children.Add(copy);
+            mode.Children.Add(row);
         }
 
         void RenderMode()
         {
-            mode.Children.Clear(); AddAddress();
-            if (type.SelectedIndex == 0)
+            mode.Children.Clear(); AddCopyField("Connection address", address.Text);
+            var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
+            if (selectedMode == "session-key")
             {
-                var code = new TextBox { Header = "Session password", Text = password.Text, IsReadOnly = true,
-                    FontSize = 24, FontFamily = new FontFamily("Cascadia Mono") };
-                mode.Children.Add(code); mode.Children.Add(Command("Copy password", () => Copy(code.Text)));
-                mode.Children.Add(Secondary("Use this password for an ordinary connection. It does not approve the client."));
+                AddCopyField("Session password", password.Text, true);
+                mode.Children.Add(Secondary("Use this password for an ordinary connection. It remains valid while this sharing instance runs."));
+            }
+            else if (selectedMode == "one-time-key")
+            {
+                AddCopyField("One-time connection key", oneTimeConnectionKey ?? "Unavailable", true);
+                mode.Children.Add(Secondary("This key expires in 10 minutes and is removed after one successful connection."));
             }
             else
             {
-                mode.Children.Add(new TextBox { Header = "Client setup key", Text = "Not available", IsReadOnly = true,
-                    IsEnabled = false, FontSize = 24, FontFamily = new FontFamily("Cascadia Mono") });
-                mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Informational,
-                    Message = "Client setup keys will appear here when approved-client server support is available." });
+                if (HasCurrentClientSetupKey())
+                {
+                    AddCopyField("Client setup key", clientSetupKey ?? "Unavailable", true);
+                    mode.Children.Add(Secondary("This key expires in 10 minutes and can be used once. The client still needs your approval."));
+                }
+                else
+                {
+                    mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Error,
+                        Message = clientError ?? "A client setup key could not be created. Start sharing and try again." });
+                }
             }
             mode.Children.Add(Secondary("Trusted networks only: connections currently use HTTP."));
         }
 
-        type.SelectionChanged += (_, _) => RenderMode();
-        type.SelectedIndex = initialMode == "approved-client" ? 1 : 0;
+        type.SelectionChanged += async (_, _) =>
+        {
+            var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
+            if (selectedMode == "one-time-key" && !HasCurrentOneTimeKey())
+            {
+                try { await RequestOneTimeConnectionKey(); }
+                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
+            }
+            if (selectedMode == "approved-client" && !HasCurrentClientSetupKey())
+            {
+                try { await RequestClientSetupKey(); }
+                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
+            }
+            RenderMode();
+        };
+        var selectedMode = initialMode == "connect-once"
+            ? connectionMode == "one-time-keys" ? "one-time-key" : connectionMode == "approved-only" ? "approved-client" : "session-key"
+            : initialMode;
+        type.SelectedItem = type.Items.OfType<ComboBoxItem>().First(item => item.Tag as string == selectedMode);
         RenderMode();
-        var dialog = new ContentDialog { Title = "Connect a device", Content = new ScrollViewer { Content = body, MaxHeight = 460 },
+        var dialog = new ContentDialog { Title = "Connect a device", Content = body,
             CloseButtonText = "Done", XamlRoot = navigation.XamlRoot };
         dialog.Resources["ContentDialogMaxWidth"] = 560d;
         return dialog;

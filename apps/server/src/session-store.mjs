@@ -45,6 +45,10 @@ export class SessionStore {
 
   rotatePassword() {
     for (const id of this._sessions.keys()) this.disconnect(id);
+    return this.rotateConnectionKey();
+  }
+
+  rotateConnectionKey() {
     this._password = this.keys.rotateSession();
     return this._password;
   }
@@ -74,8 +78,7 @@ export class SessionStore {
     }
 
     if (this._sessions.size >= this.maxSessions) return { ok: false, reason: 'busy' };
-    if (!this.keys.use(password, record.purpose))
-      return { ok: false, reason: 'invalid-password' };
+    if (!this.keys.use(password, record.purpose)) return { ok: false, reason: 'invalid-password' };
     this._failedAttempts.delete(clientKey);
     return this.#createSession(clientKey, userAgent);
   }

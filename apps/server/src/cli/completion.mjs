@@ -46,6 +46,7 @@ const ARGUMENTS = {
   'default-profile': [(context) => ['auto', ...profiles(context)]],
   audio: [() => ON_OFF],
   access: [() => ['approval', 'available']],
+  'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
   'profile edit': profile,
   'profile duplicate': profile,
   'profile remove': profile,

@@ -3,7 +3,8 @@ import { applyProfileOrder, saveProfileOrder } from '../profile-order.mjs';
 import { executeLine } from './commands.mjs';
 import { complete } from './completion.mjs';
 import { withConflictAdvice } from './conflict-advice.mjs';
-import { accessLabel, promptState } from './format.mjs';
+import { accessLabel, connectionModeLabel, promptState } from './format.mjs';
+import { CONNECTION_KEY_PURPOSES } from '../connection-keys.mjs';
 import { SessionNumbers } from './resolve.mjs';
 import { createTerminal } from './terminal.mjs';
 
@@ -69,6 +70,16 @@ export function createLiveContext({
     },
     access: () => access.snapshot(),
     saveAccess: (value) => saving(() => access.replace(value, access.snapshot().revision)),
+    saveConnectionMode: (value) =>
+      saving(async () => {
+        const current = access.snapshot();
+        const result = await access.replace(current.defaultControl, current.revision, value);
+        if (result.connectionMode !== current.connectionMode) {
+          sessionStore.keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
+          sessionStore.rotateConnectionKey();
+        }
+        return result;
+      }),
     orderedProfiles: () => applyProfileOrder(profileOrderFile, policy.snapshot().profiles),
     saveProfileOrder: (ids) => saveProfileOrder(profileOrderFile, ids),
     displays: async () => inventory.rows,
@@ -80,6 +91,7 @@ export function createLiveContext({
         ['Data folder', directory],
         ['Log folder', logDirectory],
         ['Default control', accessLabel(access.snapshot().defaultControl)],
+        ['Connection method', connectionModeLabel(access.snapshot().connectionMode)],
       ];
     },
     sessions: {

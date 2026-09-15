@@ -49,3 +49,12 @@ test('expired keys disappear and rotating the sharing instance removes the old s
   assert.equal(keys.inspect(oldSession), null);
   assert.equal(keys.inspect(nextSession).purpose, 'session');
 });
+
+test('revoking a purpose removes undispatched one-time keys without affecting setup keys', () => {
+  const keys = new ConnectionKeyRegistry();
+  const once = keys.createOneTimeConnection({ ttlMs: 10_000 });
+  const setup = keys.createSetup({ ttlMs: 10_000 });
+  keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
+  assert.equal(keys.inspect(once.key), null);
+  assert.equal(keys.inspect(setup.key).purpose, CONNECTION_KEY_PURPOSES.setup);
+});

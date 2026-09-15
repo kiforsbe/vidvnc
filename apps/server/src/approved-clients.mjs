@@ -71,16 +71,27 @@ async function read(filename) {
 export class ApprovedClientStore {
   #value;
   #pending = new Map();
+  #attempts = new Map();
   #queue = Promise.resolve();
-  constructor(filename, value, { keys, clock }) {
+  constructor(filename, value, { keys, clock, maxAttempts, windowMs }) {
     this.filename = filename;
     this.#value = value;
     this.keys = keys;
     this.clock = clock;
+    this.maxAttempts = maxAttempts;
+    this.windowMs = windowMs;
   }
-  static async open(filename, { keys, clock = () => Date.now() } = {}) {
+  static async open(
+    filename,
+    { keys, clock = () => Date.now(), maxAttempts = 5, windowMs = 60_000 } = {},
+  ) {
     if (!keys) throw new Error('Connection-key registry is required');
-    return new ApprovedClientStore(filename, await read(filename), { keys, clock });
+    return new ApprovedClientStore(filename, await read(filename), {
+      keys,
+      clock,
+      maxAttempts,
+      windowMs,
+    });
   }
   async submit(input) {
     const deviceName = text(input.deviceName, 'device name', { max: 120 });
@@ -88,9 +99,7 @@ export class ApprovedClientStore {
     const installationId = text(input.installationId, 'installation ID', { max: 128 });
     const client = text(input.client, 'client', { max: 120 });
     const network =
-      typeof input.network === 'string'
-        ? text(input.network, 'network', { min: 0, max: 120 })
-        : '';
+      typeof input.network === 'string' ? text(input.network, 'network', { min: 0, max: 120 }) : '';
     const password = await passwordVerifier(input.password);
     if (!this.keys.use(input.key, CONNECTION_KEY_PURPOSES.setup))
       throw new Error('Invalid client setup key');
@@ -142,12 +151,14 @@ export class ApprovedClientStore {
     if (row.state === 'rejected') return { state: 'rejected' };
     if (row.claimed) return { state: 'approved', claimed: true };
     row.claimed = true;
-    return {
+    const result = {
       state: 'approved',
       clientId: row.clientId,
       clientSecret: row.clientSecret,
       username: row.username,
     };
+    row.clientSecret = null;
+    return result;
   }
   approve(requestId) {
     const operation = this.#queue.then(async () => {
@@ -180,19 +191,48 @@ export class ApprovedClientStore {
     row.state = 'rejected';
     row.password = null;
   }
-  async authenticate(input) {
+  async authenticate(input, clientKey = 'unknown') {
+    const attemptKey = `${String(input.clientId).slice(0, 128)}:${clientKey}`;
+    const now = this.clock();
+    if (this.#attempts.size >= 1024 && !this.#attempts.has(attemptKey)) return null;
+    const attempts = (this.#attempts.get(attemptKey) ?? []).filter(
+      (time) => now - time < this.windowMs,
+    );
+    if (attempts.length >= this.maxAttempts) {
+      this.#attempts.set(attemptKey, attempts);
+      return null;
+    }
     const row = this.#value.clients.find(
       (candidate) => candidate.id === input.clientId && candidate.username === input.username,
     );
-    if (!row || !safeEqual(row.secretHash, hash(String(input.clientSecret)))) return null;
+    if (!row || !safeEqual(row.secretHash, hash(String(input.clientSecret)))) {
+      attempts.push(now);
+      this.#attempts.set(attemptKey, attempts);
+      return null;
+    }
     const candidate = await passwordVerifier(input.password, row.password.salt).catch(() => null);
-    if (!candidate || !safeEqual(row.password.hash, candidate.hash)) return null;
+    if (!candidate || !safeEqual(row.password.hash, candidate.hash)) {
+      attempts.push(now);
+      this.#attempts.set(attemptKey, attempts);
+      return null;
+    }
+    this.#attempts.delete(attemptKey);
     return {
       id: row.id,
       deviceName: row.deviceName,
       username: row.username,
       permission: row.permission,
     };
+  }
+  markConnected(clientId) {
+    const operation = this.#queue.then(async () => {
+      const row = this.#value.clients.find((candidate) => candidate.id === clientId);
+      if (!row) throw new Error('Unknown approved client');
+      row.lastConnectedAt = this.clock();
+      await this.#write();
+    });
+    this.#queue = operation.catch(() => {});
+    return operation;
   }
   remove(clientId) {
     const operation = this.#queue.then(async () => {

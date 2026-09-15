@@ -62,7 +62,8 @@ test('setup claim is isolated, single-use, and approval persists only verifiers'
     { ...credential, username: 'someone-else' },
     { ...credential, password: 'wrong password' },
     { ...credential, clientSecret: 'wrong-secret' },
-  ]) assert.equal(await reopened.authenticate(changed), null);
+  ])
+    assert.equal(await reopened.authenticate(changed), null);
   await reopened.remove(completed.clientId);
   assert.equal(await reopened.authenticate(credential), null);
 });
@@ -83,4 +84,36 @@ test('rejected requests never receive a client secret', async () => {
   assert.deepEqual(store.registrationStatus(registration.requestId, registration.claimToken), {
     state: 'rejected',
   });
+});
+
+test('approved-client password attempts are rate limited per client and source', async () => {
+  let now = 1_000;
+  const keys = new ConnectionKeyRegistry({ clock: () => now });
+  const store = await ApprovedClientStore.open(null, {
+    keys,
+    clock: () => now,
+    maxAttempts: 2,
+    windowMs: 5_000,
+  });
+  const setup = keys.createSetup({ ttlMs: 60_000 });
+  const registration = await store.submit({
+    key: setup.key,
+    deviceName: 'Browser',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-installation-3',
+    client: 'Browser',
+  });
+  await store.approve(registration.requestId);
+  const credential = store.registrationStatus(registration.requestId, registration.claimToken);
+  const input = { ...credential, password: 'correct horse battery staple' };
+  assert.equal(
+    await store.authenticate({ ...input, password: 'wrong password' }, 'source-a'),
+    null,
+  );
+  assert.equal(await store.authenticate({ ...input, password: 'wrong again' }, 'source-a'), null);
+  assert.equal(await store.authenticate(input, 'source-a'), null);
+  assert.equal((await store.authenticate(input, 'source-b')).username, 'kim');
+  now += 5_001;
+  assert.equal((await store.authenticate(input, 'source-a')).username, 'kim');
 });

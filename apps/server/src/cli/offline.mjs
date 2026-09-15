@@ -65,6 +65,10 @@ export async function createOfflineContext({
       }),
     access: () => access.snapshot(),
     saveAccess: (value) => saving(() => access.replace(value, access.snapshot().revision)),
+    saveConnectionMode: (value) =>
+      saving(() =>
+        access.replace(access.snapshot().defaultControl, access.snapshot().revision, value),
+      ),
     orderedProfiles: () => applyProfileOrder(files.profileOrder, store.snapshot().profiles),
     saveProfileOrder: (ids) => saving(() => saveProfileOrder(files.profileOrder, ids)),
     async displays() {

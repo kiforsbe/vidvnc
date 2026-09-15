@@ -3,6 +3,7 @@ import { expectArguments, outcome, parseSize, parseWhole } from '../arguments.mj
 import {
   clean,
   formatAccess,
+  formatConnectionMode,
   formatOptions,
   formatProfiles,
   modeLabel,
@@ -264,7 +265,7 @@ export const profileCommands = [
         text: [
           formatProfiles(profiles, policy),
           formatOptions(policy),
-          `${formatAccess(access)}\nDesktop audio: ${policy.allowAudio ? 'on' : 'off'}`,
+          `${formatAccess(access)}\n${formatConnectionMode(access)}\nDesktop audio: ${policy.allowAudio ? 'on' : 'off'}`,
         ].join('\n\n'),
         data: { policy, access, profileOrder: profiles.map((profile) => profile.id) },
       };

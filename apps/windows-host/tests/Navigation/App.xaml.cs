@@ -62,6 +62,10 @@ public partial class App : Application
                     if (updateClients is null) throw new Exception("Approved clients administration view is missing");
                     var createConnectionDialog = typeof(HostWindow).GetMethod("CreateConnectionDialog", flags);
                     if (createConnectionDialog is null) throw new Exception("Shared connection dialog modes are missing");
+                    var requestClientSetup = typeof(HostWindow).GetMethod("RequestClientSetupKey", flags);
+                    var receiveClientResult = typeof(HostWindow).GetMethod("ReceiveClientResult", flags);
+                    if (requestClientSetup is null || receiveClientResult is null)
+                        throw new Exception("Desktop owner client command protocol is missing");
                     using var inventory = JsonDocument.Parse("""
                     [{"id":"landscape","name":"Main display","primary":true,"x":0,"y":0,"width":2560,"height":1440,"refreshHz":144,"rotation":0},
                      {"id":"portrait","name":"Portrait display","primary":false,"x":-1080,"y":-480,"width":1080,"height":1920,"refreshHz":60,"rotation":90}]
@@ -127,23 +131,46 @@ public partial class App : Application
                                 ((TextBox)typeof(HostWindow).GetField("address", flags)!.GetValue(window)!).Text = "http://192.168.50.47:4382";
                                 ((TextBox)typeof(HostWindow).GetField("password", flags)!.GetValue(window)!).Text = "NLYJ-LGFN";
                                 var onceDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "connect-once" })!;
-                                var onceBody = (StackPanel)((ScrollViewer)onceDialog.Content).Content;
+                                var onceBody = (StackPanel)onceDialog.Content;
                                 var onceSelector = onceBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
                                 var oncePanel = onceBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
-                                if (onceSelector.SelectedIndex != 0 ||
-                                    !oncePanel.Children.OfType<TextBox>().Any(control => control.Header as string == "Connection address" && control.Text == "http://192.168.50.47:4382") ||
-                                    !oncePanel.Children.OfType<TextBox>().Any(control => control.Header as string == "Session password" && control.Text == "NLYJ-LGFN"))
+                                if (!onceSelector.Items.OfType<ComboBoxItem>().Select(item => item.Tag as string).SequenceEqual(new[] { "session-key", "one-time-key", "approved-client" }) ||
+                                    ((onceSelector.SelectedItem as ComboBoxItem)?.Tag as string) != "session-key" ||
+                                    !Descendants(oncePanel).OfType<TextBox>().Any(control => control.Tag as string == "Connection address" && control.Text == "http://192.168.50.47:4382") ||
+                                    !Descendants(oncePanel).OfType<TextBox>().Any(control => control.Tag as string == "Session password" && control.Text == "NLYJ-LGFN"))
                                     throw new Exception("Connect-once mode lost the current address or Session password");
+                                if (Descendants(oncePanel).OfType<Button>().Count(button =>
+                                    Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button)?.StartsWith("Copy ") == true && button.Content is FontIcon) != 2)
+                                    throw new Exception("Copy actions must be compact accessible icon buttons beside their fields");
 
+                                var ownerStart = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
+                                    RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                                ownerStart.ArgumentList.Add(Path.GetFullPath("apps/windows-host/tests/Navigation/owner-fixture.mjs"));
+                                using var clientOwner = System.Diagnostics.Process.Start(ownerStart)!;
+                                var clientServerField = typeof(HostWindow).GetField("server", flags)!;
+                                clientServerField.SetValue(window, clientOwner);
+                                var setupTask = (Task)requestClientSetup.Invoke(window, null)!;
+                                var setupLine = await clientOwner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                using (var setupResult = JsonDocument.Parse(setupLine!))
+                                {
+                                    if (setupResult.RootElement.GetProperty("received").GetProperty("type").GetString() != "client-setup-create")
+                                        throw new Exception("Host requested the wrong client setup operation");
+                                    receiveClientResult.Invoke(window, new object[] { setupResult.RootElement });
+                                }
+                                await setupTask;
                                 var approvalDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "approved-client" })!;
-                                var approvalBody = (StackPanel)((ScrollViewer)approvalDialog.Content).Content;
+                                var approvalBody = (StackPanel)approvalDialog.Content;
                                 var approvalSelector = approvalBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
                                 var approvalPanel = approvalBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
-                                var setupKey = approvalPanel.Children.OfType<TextBox>().SingleOrDefault(control => control.Header as string == "Client setup key");
-                                if (approvalSelector.SelectedIndex != 1 || setupKey is null || setupKey.IsEnabled ||
-                                    approvalPanel.Children.OfType<TextBox>().Any(control => control.Text == "NLYJ-LGFN") ||
-                                    !approvalPanel.Children.OfType<InfoBar>().Any(info => info.Message.Contains("server support")))
-                                    throw new Exception("Approved-client mode must hide the Session password and report unavailable setup-key support");
+                                var setupKey = Descendants(approvalPanel).OfType<TextBox>().SingleOrDefault(control => control.Tag as string == "Client setup key");
+                                if (((approvalSelector.SelectedItem as ComboBoxItem)?.Tag as string) != "approved-client" || setupKey is null || !setupKey.IsReadOnly ||
+                                    !System.Text.RegularExpressions.Regex.IsMatch(setupKey.Text, "^[A-Z]{4}-[A-Z]{4}$") ||
+                                    Descendants(approvalPanel).OfType<TextBox>().Any(control => control.Text == "NLYJ-LGFN") ||
+                                    !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("used once")))
+                                    throw new Exception("Approved-client mode must hide the Session password and show its server-issued single-use key");
+                                clientServerField.SetValue(window, null);
+                                clientOwner.StandardInput.Close();
+                                if (!clientOwner.WaitForExit(5000)) clientOwner.Kill();
                                 var clientsBitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
                                 await clientsBitmap.RenderAsync(window.Content);
                                 var clientPixels = await clientsBitmap.GetPixelsAsync();
@@ -170,7 +197,7 @@ public partial class App : Application
                                 try
                                 {
                                     serverField.SetValue(window, owner);
-                                    using var initialAccess = JsonDocument.Parse("{\"revision\":0,\"defaultControl\":\"approval\"}");
+                                    using var initialAccess = JsonDocument.Parse("{\"revision\":0,\"defaultControl\":\"approval\",\"connectionMode\":\"session-key\"}");
                                     typeof(HostWindow).GetMethod("UpdateAccess", flags)!.Invoke(window, new object[] { initialAccess.RootElement });
                                     foreach (var index in new[] { 1, 0 })
                                     {
@@ -186,6 +213,23 @@ public partial class App : Application
                                         await Task.Delay(80);
                                         picker = Descendants(shell).OfType<ComboBox>().Single(c => c.Tag as string == "default-control");
                                         if (picker.SelectedIndex != index || !picker.IsEnabled) throw new Exception("Saved access default was not reflected in the UI");
+                                    }
+                                    foreach (var index in new[] { 1, 2, 0 })
+                                    {
+                                        var method = Descendants(shell).OfType<ComboBox>().Single(c => c.Tag as string == "connection-mode");
+                                        if (!method.IsEnabled) throw new Exception("Connection method is disabled with a ready owner");
+                                        method.SelectedIndex = index;
+                                        var line = await owner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                        using var reply = JsonDocument.Parse(line!);
+                                        var expected = index == 1 ? "one-time-keys" : index == 2 ? "approved-only" : "session-key";
+                                        if (!reply.RootElement.GetProperty("ok").GetBoolean() ||
+                                            reply.RootElement.GetProperty("access").GetProperty("connectionMode").GetString() != expected)
+                                            throw new Exception("Connection method was not persisted through owner pipe");
+                                        typeof(HostWindow).GetMethod("ReceiveAccessResult", flags)!.Invoke(window, new object[] { reply.RootElement });
+                                        await Task.Delay(80);
+                                        method = Descendants(shell).OfType<ComboBox>().Single(c => c.Tag as string == "connection-mode");
+                                        if (method.SelectedIndex != index || !method.IsEnabled)
+                                            throw new Exception("Saved connection method was not reflected in the UI");
                                     }
                                 }
                                 finally { serverField.SetValue(window, null); owner.StandardInput.Close(); if (!owner.WaitForExit(5000)) owner.Kill(); }

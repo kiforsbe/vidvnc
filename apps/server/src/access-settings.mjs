@@ -3,22 +3,27 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 function validate(value) {
+  const connectionMode = value?.connectionMode ?? 'session-key';
   if (
     !value ||
     !Number.isSafeInteger(value.revision) ||
     value.revision < 0 ||
     value.revision >= Number.MAX_SAFE_INTEGER ||
     !['approval', 'available'].includes(value.defaultControl) ||
-    Object.keys(value).some((key) => !['revision', 'defaultControl'].includes(key))
+    !['session-key', 'one-time-keys', 'approved-only'].includes(connectionMode) ||
+    Object.keys(value).some(
+      (key) => !['revision', 'defaultControl', 'connectionMode'].includes(key),
+    )
   )
     throw new Error('Invalid access settings');
-  return { ...value };
+  return { ...value, connectionMode };
 }
 async function read(filename) {
   try {
     return validate(JSON.parse(await readFile(filename, 'utf8')));
   } catch (error) {
-    if (error.code === 'ENOENT') return { revision: 0, defaultControl: 'approval' };
+    if (error.code === 'ENOENT')
+      return { revision: 0, defaultControl: 'approval', connectionMode: 'session-key' };
     throw error;
   }
 }
@@ -38,9 +43,9 @@ export class AccessSettings {
   snapshot() {
     return { ...this.#value };
   }
-  replace(defaultControl, revision) {
+  replace(defaultControl, revision, connectionMode = this.#value.connectionMode) {
     const operation = this.#queue.then(async () => {
-      const next = validate({ defaultControl, revision });
+      const next = validate({ defaultControl, revision, connectionMode });
       if (revision !== this.#value.revision)
         throw new Error('Access settings changed; reload before saving');
       await mkdir(dirname(this.#filename), { recursive: true });

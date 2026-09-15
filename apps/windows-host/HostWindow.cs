@@ -59,6 +59,8 @@ public sealed partial class HostWindow : Window
                 if (ready.GetProperty("type").GetString() == "policy-result") { ReceivePolicyResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "access-result") { ReceiveAccessResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "session-result") { ReceiveSessionResult(ready); continue; }
+                if (ready.GetProperty("type").GetString() is "client-setup-result" or "connection-once-result" or "client-command-result") { ReceiveClientResult(ready); continue; }
+                if (ready.GetProperty("type").GetString() == "clients") { UpdateClients(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "status") { UpdateSessions(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "displays") { UpdateDisplays(ready.GetProperty("displays")); continue; }
                 if (ready.GetProperty("type").GetString() != "ready") continue;
@@ -70,6 +72,7 @@ public sealed partial class HostWindow : Window
                 if (ready.TryGetProperty("displays", out var displays)) UpdateDisplays(displays);
                 if (ready.TryGetProperty("policy", out var policy)) UpdatePolicy(policy);
                 if (ready.TryGetProperty("access", out var access)) UpdateAccess(access);
+                if (ready.TryGetProperty("clients", out var clients)) UpdateClients(clients);
                 previewUrl = ready.GetProperty("urls").EnumerateArray().Select(x => x.GetString()).FirstOrDefault(x => x?.StartsWith("http://127.0.0.1:") == true);
                 SetSharing(true);
                 action.Content = "Stop sharing"; action.IsEnabled = true;
@@ -101,6 +104,7 @@ public sealed partial class HostWindow : Window
             accessReady = false;
             accessReply?.TrySetException(new IOException("Server stopped before acknowledging access settings."));
             foreach (var reply in sessionReplies.Values) reply.TrySetException(new IOException("Server stopped before acknowledging the session action."));
+            foreach (var reply in clientReplies.Values) reply.TrySetException(new IOException("Server stopped before acknowledging the client action."));
             SetSharing(false);
         }
     }

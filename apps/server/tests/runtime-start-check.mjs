@@ -66,6 +66,7 @@ try {
   );
   assert.equal(status.capabilities.hostControl, true);
   assert.equal(ready.access.defaultControl, 'approval');
+  assert.equal(ready.access.connectionMode, 'session-key');
   child.stdin.write(
     JSON.stringify({
       type: 'access-set',
@@ -79,6 +80,31 @@ try {
   );
   assert.equal(savedAccess.ok, true);
   assert.equal(savedAccess.access.defaultControl, 'available');
+  child.stdin.write(
+    JSON.stringify({
+      type: 'access-set',
+      requestId: 'connection-mode-check',
+      revision: savedAccess.access.revision,
+      defaultControl: savedAccess.access.defaultControl,
+      connectionMode: 'one-time-keys',
+    }) + '\n',
+  );
+  const savedMode = await until(
+    (message) => message.type === 'access-result' && message.requestId === 'connection-mode-check',
+  );
+  assert.equal(savedMode.ok, true);
+  assert.equal(savedMode.access.connectionMode, 'one-time-keys');
+  assert.notEqual(savedMode.sessionKey, ready.password);
+  assert.equal((await post('connect', { password: ready.password })).status, 401);
+  child.stdin.write(
+    JSON.stringify({ type: 'connection-once-create', requestId: 'once-check' }) + '\n',
+  );
+  const once = await until(
+    (message) => message.type === 'connection-once-result' && message.requestId === 'once-check',
+  );
+  assert.equal(once.ok, true);
+  assert.match(once.key, /^[A-Z]{4}-[A-Z]{4}$/);
+  assert.equal((await post('connection-key', { key: once.key })).status, 200);
   assert.equal(
     (await post('heartbeat', {}, first.sessionId)).status,
     200,

@@ -26,6 +26,7 @@ test('settings live in the per-user VidVNC data folder', () => {
   assert.deepEqual(settingsFiles('D'), {
     policy: join('D', 'stream-policy.json'),
     access: join('D', 'access-settings.json'),
+    approvedClients: join('D', 'approved-clients.json'),
     profileOrder: join('D', 'profile-order.json'),
     instances: join('D', 'instances'),
   });

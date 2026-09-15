@@ -43,9 +43,14 @@ export function createHttpApp({
   runtime = null,
   sessionStore = new SessionStore(),
   approvedClients = null,
+  access = null,
 } = {}) {
   const reconnecting = new Set();
   const telemetryTimes = new Map();
+  const connectionMode = () => access?.snapshot().connectionMode ?? 'session-key';
+  const ordinaryKeyAllowed = (purpose) =>
+    (purpose === 'session' && connectionMode() === 'session-key') ||
+    (purpose === 'one-time-connection' && connectionMode() !== 'approved-only');
   const allowedHosts = new Set([
     'localhost',
     '127.0.0.1',
@@ -57,11 +62,7 @@ export function createHttpApp({
   function connectionPlan(body, request) {
     let effective, selectedDisplay;
     if (inventory)
-      selectedDisplay = inventory.select(
-        policy.snapshot(),
-        body.displayId,
-        body.inventoryRevision,
-      );
+      selectedDisplay = inventory.select(policy.snapshot(), body.displayId, body.inventoryRevision);
     if (policy)
       effective = resolveStreamPolicy(policy.snapshot(), {
         profileId: typeof body.profile === 'string' ? body.profile : 'auto',
@@ -149,6 +150,7 @@ export function createHttpApp({
         [
           '/',
           '/app.js',
+          '/approved-client.js',
           '/password-entry.js',
           '/receiver-stats.js',
           '/stream-subscriptions.js',
@@ -189,6 +191,7 @@ export function createHttpApp({
             transport: 'WebRTC',
           },
           control: { available: !!media },
+          connectionMode: connectionMode(),
         });
       if (
         request.method !== 'POST' ||
@@ -226,7 +229,11 @@ export function createHttpApp({
           typeof body.key === 'string' && body.key.length <= 64
             ? sessionStore.keys.inspect(body.key)
             : null;
-        if (!record) return send(response, 401, { error: 'Connection key is invalid or expired.' });
+        if (
+          !record ||
+          (record.purpose !== 'approved-client-setup' && !ordinaryKeyAllowed(record.purpose))
+        )
+          return send(response, 401, { error: 'Connection key is invalid or expired.' });
         return send(response, 200, {
           purpose: record.purpose,
           usage: record.usage,
@@ -249,11 +256,11 @@ export function createHttpApp({
             }),
           );
         } catch (error) {
-          return send(
-            response,
-            /setup key/i.test(error.message) ? 401 : 400,
-            { error: /setup key/i.test(error.message) ? 'Connection key is invalid or expired.' : error.message },
-          );
+          return send(response, /setup key/i.test(error.message) ? 401 : 400, {
+            error: /setup key/i.test(error.message)
+              ? 'Connection key is invalid or expired.'
+              : error.message,
+          });
         }
       }
       if (route === '/api/approved-clients/status') {
@@ -269,29 +276,38 @@ export function createHttpApp({
           return send(response, 503, { error: 'Approved-client sign-in is unavailable.' });
         if (policy?.busy)
           return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
-        const approved = await approvedClients.authenticate(body);
-        if (!approved) return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
+        const approved = await approvedClients.authenticate(body, request.socket.remoteAddress);
+        if (!approved)
+          return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
         let plan;
         try {
           plan = connectionPlan(body, request);
         } catch (error) {
           return send(response, 403, { error: error.message });
         }
-        return sendAdmission(
-          response,
-          sessionStore.connectApproved(
-            approved,
-            request.socket.remoteAddress,
-            request.headers['user-agent'] || '',
-          ),
-          plan,
+        const admission = sessionStore.connectApproved(
+          approved,
+          request.socket.remoteAddress,
+          request.headers['user-agent'] || '',
         );
+        if (admission.ok) {
+          try {
+            await approvedClients.markConnected(approved.id);
+          } catch (error) {
+            sessionStore.disconnect(admission.sessionId);
+            throw error;
+          }
+        }
+        return sendAdmission(response, admission, plan);
       }
       if (route === '/api/connect') {
         if (policy?.busy)
           return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
         if (typeof body.password !== 'string' || body.password.length > 64)
           return send(response, 400, { error: 'Password is required' });
+        const key = sessionStore.keys.inspect(body.password);
+        if (!key || !ordinaryKeyAllowed(key.purpose))
+          return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
         let plan;
         try {
           plan = connectionPlan(body, request);

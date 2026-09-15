@@ -38,8 +38,10 @@
             <path d="M8 21h8M12 17v4" />
           </svg>
           <h1>Connect to <span id="serverName">your computer</span></h1>
-          <p class="pairing-intro">Enter the session password shown on your computer.</p>
-          <label for="password">Session password</label>
+          <p id="keyIntro" class="pairing-intro">
+            Enter the connection key shown on your computer.
+          </p>
+          <label for="password">Connection key</label>
           <div class="code-entry">
             <div class="code-cells" aria-hidden="true">
               <span></span><span></span><span></span><span></span><b class="code-dash">-</b
@@ -57,11 +59,108 @@
               maxlength="64"
               required
               aria-describedby="passwordError"
-              aria-label="Session password"
+              aria-label="Connection key"
             />
           </div>
           <p id="passwordError" class="form-error" role="alert"></p>
-          <button id="connect" type="submit">Connect</button>
+          <button id="connect" type="submit">Continue</button>
+        </form>
+        <form id="registerForm" class="pairing-card account-card" autocomplete="off" hidden>
+          <svg class="computer-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+          <h1>Request approval</h1>
+          <p class="pairing-intro">
+            Choose the username and password you’ll use to sign in to
+            <span class="server-name">this computer</span>.
+          </p>
+          <label for="deviceName">Device name</label>
+          <input
+            id="deviceName"
+            class="account-input"
+            autocomplete="name"
+            maxlength="120"
+            required
+          />
+          <label for="registerUsername">Username</label>
+          <input
+            id="registerUsername"
+            class="account-input"
+            autocomplete="username"
+            maxlength="64"
+            required
+          />
+          <label for="registerPassword">Password</label>
+          <input
+            id="registerPassword"
+            class="account-input"
+            type="password"
+            autocomplete="new-password"
+            minlength="10"
+            maxlength="256"
+            required
+          />
+          <label for="confirmPassword">Confirm password</label>
+          <input
+            id="confirmPassword"
+            class="account-input"
+            type="password"
+            autocomplete="new-password"
+            minlength="10"
+            maxlength="256"
+            required
+          />
+          <p id="registerError" class="form-error" role="alert"></p>
+          <button id="requestApproval" type="submit">Request approval</button>
+          <button id="cancelRegistration" class="secondary form-secondary" type="button">
+            Use another key
+          </button>
+        </form>
+        <section id="approvalPending" class="pairing-card account-card" hidden>
+          <svg class="computer-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          <h1>Waiting for approval</h1>
+          <p class="pairing-intro">
+            Approve this device in Clients on <span class="server-name">your computer</span>. Keep
+            this page open.
+          </p>
+          <button id="cancelPending" class="secondary" type="button">Cancel</button>
+        </section>
+        <form id="signInForm" class="pairing-card account-card" autocomplete="on" hidden>
+          <svg class="computer-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+          <h1>Sign in to <span class="server-name">your computer</span></h1>
+          <p class="pairing-intro">This browser is an approved client.</p>
+          <label for="signInUsername">Username</label>
+          <input
+            id="signInUsername"
+            class="account-input"
+            autocomplete="username"
+            maxlength="64"
+            required
+          />
+          <label for="signInPassword">Password</label>
+          <input
+            id="signInPassword"
+            class="account-input"
+            type="password"
+            autocomplete="current-password"
+            maxlength="256"
+            required
+          />
+          <p id="signInError" class="form-error" role="alert"></p>
+          <button id="signIn" type="submit">Sign in</button>
+          <button id="useConnectionKey" class="secondary form-secondary" type="button">
+            Use a connection key
+          </button>
+          <button id="forgetClient" class="text-button" type="button">
+            Forget this approved client
+          </button>
         </form>
         <p class="network-note">
           Use only on a trusted network.<br /><span>Pairing uses HTTP.</span>

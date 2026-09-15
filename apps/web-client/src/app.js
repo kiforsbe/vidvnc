@@ -1,4 +1,10 @@
 import { bindPasswordEntry, normalizePassword } from './password-entry.js';
+import {
+  browserInstallationId,
+  forgetApprovedCredential,
+  loadApprovedCredential,
+  saveApprovedCredential,
+} from './approved-client.js';
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 const $ = (id) => document.getElementById(id);
@@ -58,9 +64,47 @@ let token,
   connecting = false,
   reconnecting = false,
   connectionAttempt = 0,
+  registrationAttempt = 0,
+  registrationKey = null,
+  approvedCredential = null,
+  connectionMode = 'session-key',
   catalog = null,
   currentRequest = { profile: 'auto', audio: 'on' };
 const status = (text) => ($('status').textContent = text);
+function showAuthentication(mode) {
+  for (const id of ['connectForm', 'registerForm', 'approvalPending', 'signInForm'])
+    $(id).hidden = id !== mode;
+  if (mode === 'connectForm') {
+    $('keyIntro').textContent =
+      connectionMode === 'approved-only'
+        ? 'Enter a client setup key shown on your computer.'
+        : connectionMode === 'one-time-keys'
+          ? 'Enter a one-time connection key or client setup key shown on your computer.'
+          : 'Enter the session, one-time, or client setup key shown on your computer.';
+  }
+  if (mode === 'signInForm' && approvedCredential) {
+    $('signInUsername').value = approvedCredential.username;
+    $('signInPassword').value = '';
+  }
+}
+function showPreferredAuthentication() {
+  showAuthentication(approvedCredential ? 'signInForm' : 'connectForm');
+}
+function browserPlatform() {
+  const platform = navigator.userAgentData?.platform || navigator.platform || '';
+  if (/iphone/i.test(platform) || /iphone/i.test(navigator.userAgent)) return 'iPhone';
+  if (/ipad/i.test(platform) || /ipad/i.test(navigator.userAgent)) return 'iPad';
+  if (/win/i.test(platform)) return 'Windows device';
+  if (/mac/i.test(platform)) return 'Mac';
+  if (/android/i.test(platform) || /android/i.test(navigator.userAgent)) return 'Android device';
+  return platform || 'Browser device';
+}
+function browserDescription() {
+  const brands = navigator.userAgentData?.brands
+    ?.map((brand) => brand.brand)
+    .filter((brand) => !/not.?a.?brand/i.test(brand));
+  return ((brands?.join(', ') || navigator.userAgent) + ` on ${browserPlatform()}`).slice(0, 120);
+}
 function fitVideo() {
   const video = $('video');
   if (!video.videoWidth || !video.videoHeight) return;
@@ -125,6 +169,7 @@ async function disconnect(
   $('viewer').hidden = true;
   $('welcome').hidden = false;
   $('connect').disabled = false;
+  showPreferredAuthentication();
   status(message);
   if (old)
     fetch('/api/disconnect', {
@@ -319,7 +364,7 @@ $('connectForm').addEventListener('submit', async (event) => {
   if (connecting) return;
   const password = normalizePassword($('password').value);
   if (!password) {
-    $('passwordError').textContent = 'Enter the eight-letter session password.';
+    $('passwordError').textContent = 'Enter the eight-letter connection key.';
     $('password').setAttribute('aria-invalid', 'true');
     $('password').focus();
     return;
@@ -328,6 +373,19 @@ $('connectForm').addEventListener('submit', async (event) => {
   $('connect').disabled = true;
   const attempt = ++connectionAttempt;
   try {
+    $('passwordError').textContent = '';
+    $('password').removeAttribute('aria-invalid');
+    const key = await api('connection-key', { key: password });
+    if (key.purpose === 'approved-client-setup') {
+      registrationKey = password;
+      $('deviceName').value = browserPlatform();
+      $('registerUsername').value = approvedCredential?.username || '';
+      $('registerPassword').value = '';
+      $('confirmPassword').value = '';
+      showAuthentication('registerForm');
+      status('Create the sign-in for this browser, then request approval.');
+      return;
+    }
     if (!window.RTCPeerConnection) throw new Error('This browser does not support WebRTC.');
     status('Connecting to your desktop…');
     currentRequest = { profile: 'auto', audio: 'on' };
@@ -337,7 +395,8 @@ $('connectForm').addEventListener('submit', async (event) => {
     if (attempt === connectionAttempt) {
       await disconnect(error.message);
       if (error.status === 401) {
-        $('passwordError').textContent = 'Password not recognized. Try again.';
+        showAuthentication('connectForm');
+        $('passwordError').textContent = 'Connection key not recognized. Try again.';
         $('password').setAttribute('aria-invalid', 'true');
         $('password').focus();
       }
@@ -347,6 +406,133 @@ $('connectForm').addEventListener('submit', async (event) => {
     $('connect').disabled = false;
   }
 });
+
+$('cancelRegistration').onclick = () => {
+  registrationKey = null;
+  showAuthentication('connectForm');
+  status('Ready to connect.');
+};
+
+$('registerForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (connecting || !registrationKey) return;
+  const password = $('registerPassword').value;
+  if (password.length < 10) {
+    $('registerError').textContent = 'Use at least 10 characters for the password.';
+    return;
+  }
+  if (password !== $('confirmPassword').value) {
+    $('registerError').textContent = 'The passwords do not match.';
+    return;
+  }
+  connecting = true;
+  $('requestApproval').disabled = true;
+  try {
+    $('registerError').textContent = '';
+    const registration = await api('approved-clients/register', {
+      key: registrationKey,
+      deviceName: $('deviceName').value,
+      username: $('registerUsername').value,
+      password,
+      installationId: await browserInstallationId(),
+      client: browserDescription(),
+    });
+    registrationKey = null;
+    $('registerPassword').value = '';
+    $('confirmPassword').value = '';
+    showAuthentication('approvalPending');
+    status('Waiting for approval on the host.');
+    pollForApproval(registration);
+  } catch (error) {
+    $('registerError').textContent = error.message;
+  } finally {
+    connecting = false;
+    $('requestApproval').disabled = false;
+  }
+});
+
+async function pollForApproval(registration) {
+  const attempt = ++registrationAttempt;
+  while (attempt === registrationAttempt) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const result = await api('approved-clients/status', registration);
+      if (result.state === 'pending') continue;
+      if (result.state === 'rejected') {
+        showAuthentication('connectForm');
+        $('passwordError').textContent = 'The host rejected this approval request.';
+        status('Approval was rejected.');
+        return;
+      }
+      if (result.state === 'approved' && result.clientSecret) {
+        approvedCredential = await saveApprovedCredential(result);
+        showAuthentication('signInForm');
+        status('Approved. Sign in with your username and password.');
+        return;
+      }
+      throw new Error('This approval was already claimed. Start setup again on this browser.');
+    } catch (error) {
+      if (attempt !== registrationAttempt) return;
+      showAuthentication('connectForm');
+      $('passwordError').textContent = error.message;
+      status('Approval could not be completed.');
+      return;
+    }
+  }
+}
+
+$('cancelPending').onclick = () => {
+  registrationAttempt++;
+  showPreferredAuthentication();
+  status('Approval polling stopped.');
+};
+
+$('signInForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (connecting || !approvedCredential) return;
+  connecting = true;
+  $('signIn').disabled = true;
+  const attempt = ++connectionAttempt;
+  try {
+    if (!window.RTCPeerConnection) throw new Error('This browser does not support WebRTC.');
+    $('signInError').textContent = '';
+    status('Signing in to your desktop…');
+    currentRequest = { profile: 'auto', audio: 'on' };
+    const result = await api('approved-clients/sign-in', {
+      ...approvedCredential,
+      username: $('signInUsername').value,
+      password: $('signInPassword').value,
+      ...currentRequest,
+    });
+    await startStream(result, attempt);
+  } catch (error) {
+    if (attempt === connectionAttempt) {
+      await disconnect(error.message);
+      $('signInError').textContent =
+        error.status === 401 ? 'Username or password not recognized.' : error.message;
+    }
+  } finally {
+    connecting = false;
+    $('signIn').disabled = false;
+  }
+});
+
+$('useConnectionKey').onclick = () => {
+  showAuthentication('connectForm');
+  $('password').focus();
+  status('Enter a connection key from the host.');
+};
+
+$('forgetClient').onclick = async () => {
+  try {
+    await forgetApprovedCredential();
+  } catch {
+    /* Storage may already be unavailable. */
+  }
+  approvedCredential = null;
+  showAuthentication('connectForm');
+  status('This browser is no longer remembered as an approved client.');
+};
 async function startStream(result, attempt) {
   if (attempt !== connectionAttempt) {
     await fetch('/api/disconnect', {
@@ -369,6 +555,7 @@ async function startStream(result, attempt) {
   $('sessionState').classList.remove('connected');
   $('password').value = '';
   $('password').dispatchEvent(new Event('input'));
+  $('signInPassword').value = '';
   $('audio').muted = false;
   $('audioToggle').disabled = !result.audio.enabled;
   renderAudio();
@@ -761,19 +948,32 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) release();
 });
 window.addEventListener('pagehide', () => disconnect());
-fetch('/api/info')
-  .then((r) => r.json())
-  .then((info) => {
+Promise.all([
+  fetch('/api/info').then((response) => {
+    if (!response.ok) throw new Error('Unable to reach the server.');
+    return response.json();
+  }),
+  loadApprovedCredential(),
+])
+  .then(([info, credential]) => {
     $('serverName').textContent = info.serverName;
     $('viewerName').textContent = info.serverName;
+    document.querySelectorAll('.server-name').forEach((element) => {
+      element.textContent = info.serverName;
+    });
+    connectionMode = info.connectionMode || 'session-key';
+    approvedCredential = credential;
+    showPreferredAuthentication();
 
     status('Ready to connect.');
     if (info.media.state !== 'ready') {
       $('connect').disabled = true;
+      $('signIn').disabled = true;
       status('The server’s native media worker is not available.');
     }
   })
   .catch(() => {
     $('connect').disabled = true;
+    $('signIn').disabled = true;
     status('Unable to reach the server.');
   });

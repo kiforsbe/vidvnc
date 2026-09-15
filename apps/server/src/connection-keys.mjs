@@ -70,6 +70,12 @@ export class ConnectionKeyRegistry {
   createOneTimeConnection({ ttlMs = 10 * 60_000 } = {}) {
     return this.#create(CONNECTION_KEY_PURPOSES.once, ttlMs, 'single-use');
   }
+  clearPurpose(purpose) {
+    if (!PURPOSE_CODES.has(purpose)) throw new Error('Invalid connection-key purpose');
+    for (const [lookup, record] of this.#records)
+      if (record.purpose === purpose) this.#records.delete(lookup);
+    if (purpose === CONNECTION_KEY_PURPOSES.session) this.#sessionKey = null;
+  }
   #create(purpose, ttlMs, usage) {
     if (ttlMs !== null && (!Number.isSafeInteger(ttlMs) || ttlMs < 1))
       throw new Error('Invalid connection-key lifetime');
