@@ -42,6 +42,7 @@ export function createHttpApp({
   profileOrderFile = null,
   runtime = null,
   sessionStore = new SessionStore(),
+  approvedClients = null,
 } = {}) {
   const reconnecting = new Set();
   const telemetryTimes = new Map();
@@ -53,6 +54,57 @@ export function createHttpApp({
       .flat()
       .map((n) => n.address),
   ]);
+  function connectionPlan(body, request) {
+    let effective, selectedDisplay;
+    if (inventory)
+      selectedDisplay = inventory.select(
+        policy.snapshot(),
+        body.displayId,
+        body.inventoryRevision,
+      );
+    if (policy)
+      effective = resolveStreamPolicy(policy.snapshot(), {
+        profileId: typeof body.profile === 'string' ? body.profile : 'auto',
+        displayId: selectedDisplay?.id,
+        userAgent: request.headers['user-agent'] || '',
+        custom: body.custom,
+        audio: body.audio !== 'off',
+      });
+    return {
+      effective,
+      selectedDisplay,
+      profile:
+        effective?.profile ??
+        chooseProfile(
+          typeof body.profile === 'string' ? body.profile : 'auto',
+          request.headers['user-agent'] || '',
+        ),
+      audio: chooseAudioMode(
+        effective?.audio.mode ?? (typeof body.audio === 'string' ? body.audio : 'on'),
+      ),
+    };
+  }
+  function sendAdmission(response, result, plan) {
+    if (!result.ok)
+      return send(response, { busy: 409, 'rate-limited': 429 }[result.reason] || 401, {
+        error:
+          result.reason === 'busy'
+            ? 'The server has reached its connected-device limit.'
+            : 'Unable to authenticate. Try again later.',
+      });
+    sessionStore.setProfile(result.sessionId, plan.profile);
+    sessionStore.setDisplay(result.sessionId, plan.selectedDisplay, inventory?.revision);
+    if (plan.effective) sessionStore.setPolicyRevision(result.sessionId, plan.effective.revision);
+    sessionStore.setAudio(result.sessionId, plan.audio);
+    return send(response, 201, {
+      sessionId: result.sessionId,
+      mode: runtime ? 'streams' : undefined,
+      controlEnabled: false,
+      profile: plan.profile,
+      audio: plan.audio,
+      display: plan.selectedDisplay,
+    });
+  }
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
@@ -142,6 +194,10 @@ export function createHttpApp({
         request.method !== 'POST' ||
         ![
           '/api/connect',
+          '/api/connection-key',
+          '/api/approved-clients/register',
+          '/api/approved-clients/status',
+          '/api/approved-clients/sign-in',
           '/api/offer',
           '/api/heartbeat',
           '/api/disconnect',
@@ -165,64 +221,92 @@ export function createHttpApp({
         return send(response, 413, { error: 'Request too large' });
       }
       const body = await readJson(request);
+      if (route === '/api/connection-key') {
+        const record =
+          typeof body.key === 'string' && body.key.length <= 64
+            ? sessionStore.keys.inspect(body.key)
+            : null;
+        if (!record) return send(response, 401, { error: 'Connection key is invalid or expired.' });
+        return send(response, 200, {
+          purpose: record.purpose,
+          usage: record.usage,
+          expiresAt: record.expiresAt,
+        });
+      }
+      if (route === '/api/approved-clients/register') {
+        if (!approvedClients)
+          return send(response, 503, { error: 'Approved-client setup is unavailable.' });
+        const record = sessionStore.keys.inspect(body.key);
+        if (record?.purpose !== 'approved-client-setup')
+          return send(response, 401, { error: 'Connection key is invalid or expired.' });
+        try {
+          return send(
+            response,
+            202,
+            await approvedClients.submit({
+              ...body,
+              network: 'Local network',
+            }),
+          );
+        } catch (error) {
+          return send(
+            response,
+            /setup key/i.test(error.message) ? 401 : 400,
+            { error: /setup key/i.test(error.message) ? 'Connection key is invalid or expired.' : error.message },
+          );
+        }
+      }
+      if (route === '/api/approved-clients/status') {
+        if (!approvedClients)
+          return send(response, 503, { error: 'Approved-client setup is unavailable.' });
+        const result = approvedClients.registrationStatus(body.requestId, body.claimToken);
+        return result.state === 'invalid'
+          ? send(response, 401, { error: 'Registration request is invalid or expired.' })
+          : send(response, 200, result);
+      }
+      if (route === '/api/approved-clients/sign-in') {
+        if (!approvedClients)
+          return send(response, 503, { error: 'Approved-client sign-in is unavailable.' });
+        if (policy?.busy)
+          return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
+        const approved = await approvedClients.authenticate(body);
+        if (!approved) return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
+        let plan;
+        try {
+          plan = connectionPlan(body, request);
+        } catch (error) {
+          return send(response, 403, { error: error.message });
+        }
+        return sendAdmission(
+          response,
+          sessionStore.connectApproved(
+            approved,
+            request.socket.remoteAddress,
+            request.headers['user-agent'] || '',
+          ),
+          plan,
+        );
+      }
       if (route === '/api/connect') {
         if (policy?.busy)
           return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
         if (typeof body.password !== 'string' || body.password.length > 64)
           return send(response, 400, { error: 'Password is required' });
-        const result = sessionStore.connect(
-          body.password.trim().toUpperCase(),
-          request.socket.remoteAddress,
-          request.headers['user-agent'] || '',
-        );
-        if (!result.ok)
-          return send(response, { busy: 409, 'rate-limited': 429 }[result.reason] || 401, {
-            error:
-              result.reason === 'busy'
-                ? 'The server has reached its connected-device limit.'
-                : 'Unable to authenticate. Try again later.',
-          });
-        let effective, selectedDisplay;
+        let plan;
         try {
-          if (inventory)
-            selectedDisplay = inventory.select(
-              policy.snapshot(),
-              body.displayId,
-              body.inventoryRevision,
-            );
-          if (policy)
-            effective = resolveStreamPolicy(policy.snapshot(), {
-              profileId: typeof body.profile === 'string' ? body.profile : 'auto',
-              displayId: selectedDisplay?.id,
-              userAgent: request.headers['user-agent'] || '',
-              custom: body.custom,
-              audio: body.audio !== 'off',
-            });
+          plan = connectionPlan(body, request);
         } catch (error) {
-          sessionStore.disconnect(result.sessionId);
           return send(response, 403, { error: error.message });
         }
-        const profile =
-          effective?.profile ??
-          chooseProfile(
-            typeof body.profile === 'string' ? body.profile : 'auto',
+        return sendAdmission(
+          response,
+          sessionStore.connect(
+            body.password.trim().toUpperCase(),
+            request.socket.remoteAddress,
             request.headers['user-agent'] || '',
-          );
-        sessionStore.setProfile(result.sessionId, profile);
-        sessionStore.setDisplay(result.sessionId, selectedDisplay, inventory?.revision);
-        const audio = chooseAudioMode(
-          effective?.audio.mode ?? (typeof body.audio === 'string' ? body.audio : 'on'),
+          ),
+          plan,
         );
-        if (effective) sessionStore.setPolicyRevision(result.sessionId, effective.revision);
-        sessionStore.setAudio(result.sessionId, audio);
-        return send(response, 201, {
-          sessionId: result.sessionId,
-          mode: runtime ? 'streams' : undefined,
-          controlEnabled: false,
-          profile,
-          audio,
-          display: selectedDisplay,
-        });
       }
       const token = request.headers.authorization?.match(/^Bearer ([a-f0-9-]{36})$/)?.[1];
       const session = sessionStore.get(token);
