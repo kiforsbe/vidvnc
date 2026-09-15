@@ -59,7 +59,7 @@ public sealed partial class HostWindow
     {
         var scale = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0;
         AppWindow.Resize(new Windows.Graphics.SizeInt32((int)(1000 * scale), (int)(720 * scale)));
-        foreach (var (name, glyph) in new[] { ("Overview", "\uE80F"), ("Displays", "\uE7F4"), ("Streaming profiles", "\uE714"), ("Sessions", "\uE716"), ("Access", "\uE83D") })
+        foreach (var (name, glyph) in new[] { ("Overview", "\uE80F"), ("Displays", "\uE7F4"), ("Streaming profiles", "\uE714"), ("Sessions", "\uE716"), ("Clients", "\uE77B"), ("Access", "\uE83D") })
             navigation.MenuItems.Add(new NavigationViewItem { Content = name, Tag = name, Icon = new FontIcon { Glyph = glyph } });
         // Footer order is deliberate: sharing state above the bottom-most Settings entry.
         BuildSharingIndicator();
@@ -139,6 +139,9 @@ public sealed partial class HostWindow
                 break;
             case "Streaming profiles":
                 RenderProfiles();
+                break;
+            case "Clients":
+                RenderClients();
                 break;
             case "Access":
                 RenderAccess();

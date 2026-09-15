@@ -58,6 +58,8 @@ public partial class App : Application
                     updatePolicy.Invoke(window, new object[] { policyFixture.RootElement });
                     var updateDisplays = typeof(HostWindow).GetMethod("UpdateDisplays", flags);
                     if (updateDisplays is null) throw new Exception("Native display inventory view is missing");
+                    var updateClients = typeof(HostWindow).GetMethod("UpdateClients", flags);
+                    if (updateClients is null) throw new Exception("Approved clients administration view is missing");
                     using var inventory = JsonDocument.Parse("""
                     [{"id":"landscape","name":"Main display","primary":true,"x":0,"y":0,"width":2560,"height":1440,"refreshHz":144,"rotation":0},
                      {"id":"portrait","name":"Portrait display","primary":false,"x":-1080,"y":-480,"width":1080,"height":1920,"refreshHz":60,"rotation":90}]
@@ -76,12 +78,46 @@ public partial class App : Application
                     if (sharingLabel.Text != "Sharing is off") throw new Exception("Stopped sharing status missing");
                     for (int cycle = 0; cycle < 3; cycle++)
                     {
-                        foreach (var name in new[] { "Sessions", "Overview", "Displays", "Streaming profiles", "Access", "Settings", "Sessions", "Overview" })
+                        foreach (var name in new[] { "Sessions", "Overview", "Displays", "Streaming profiles", "Clients", "Access", "Settings", "Sessions", "Overview" })
                         {
                             navigation.SelectedItem = navigation.MenuItems.Concat(navigation.FooterMenuItems)
                                 .OfType<NavigationViewItem>().Single(item => item.Tag as string == name);
                             await Task.Delay(80);
                             if (title.Text != name) throw new Exception($"Navigation did not reach {name}");
+                            if (name == "Clients" && cycle == 0)
+                            {
+                                var menu = navigation.MenuItems.OfType<NavigationViewItem>().ToArray();
+                                var sessionsIndex = Array.FindIndex(menu, item => item.Tag as string == "Sessions");
+                                var clientsIndex = Array.FindIndex(menu, item => item.Tag as string == "Clients");
+                                var accessIndex = Array.FindIndex(menu, item => item.Tag as string == "Access");
+                                if (clientsIndex != sessionsIndex + 1 || accessIndex != clientsIndex + 1)
+                                    throw new Exception("Clients must sit between Sessions and Access");
+                                using var clientsFixture = JsonDocument.Parse("""
+                                {"pending":[{"id":"pending-1","deviceName":"Alex’s iPhone","username":"alex","client":"Safari on iOS","network":"Local network","requestedAt":0,"password":"must-not-render"}],
+                                 "approved":[{"id":"approved-1","deviceName":"Kim’s iPhone","username":"kim","client":"Safari on iOS","connected":true,"permission":"view-only","lastConnectedAt":0,"clientSecret":"must-not-render"},
+                                             {"id":"approved-2","deviceName":"Work laptop","username":"kim-work","client":"Edge on Windows","connected":false,"permission":"request-control","lastConnectedLabel":"Last connected yesterday"}]}
+                                """);
+                                updateClients.Invoke(window, new object[] { clientsFixture.RootElement });
+                                await Task.Delay(80);
+                                var visibleText = Descendants(shell).OfType<TextBlock>().Select(text => text.Text).ToArray();
+                                if (!visibleText.Contains("2 approved clients · 1 waiting for approval"))
+                                    throw new Exception("Clients summary does not reflect pending and approved counts");
+                                if (!visibleText.Contains("Needs your approval") ||
+                                    Descendants(shell).OfType<Grid>().Count(grid => grid.Tag as string == "pending-client-row") != 1)
+                                    throw new Exception("Pending approved-client request is missing");
+                                if (!visibleText.Contains("Approved clients") ||
+                                    Descendants(shell).OfType<Grid>().Count(grid => grid.Tag as string == "approved-client-row") != 2)
+                                    throw new Exception("Approved-client rows are missing");
+                                var connected = Descendants(shell).OfType<TextBlock>().SingleOrDefault(text => text.Text == "● Connected");
+                                if (connected?.Foreground is not Microsoft.UI.Xaml.Media.SolidColorBrush)
+                                    throw new Exception("Connected client needs a semantic green status");
+                                if (!visibleText.Contains("Last connected yesterday"))
+                                    throw new Exception("Inactive approved client needs last-connected status");
+                                if (visibleText.Contains("Active sessions"))
+                                    throw new Exception("Session detail leaked onto the Clients page");
+                                if (visibleText.Any(text => text is "must-not-render"))
+                                    throw new Exception("Password or client secret leaked into the Clients page");
+                            }
                             if (name == "Access" && cycle == 0)
                             {
                                 var picker = Descendants(shell).OfType<ComboBox>().SingleOrDefault(c => c.Tag as string == "default-control");
