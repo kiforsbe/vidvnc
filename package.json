@@ -1,5 +1,6 @@
 {
   "name": "vidvnc",
+  "version": "0.1.0",
   "workspaces": [
     "apps/server",
     "apps/web-client",
@@ -25,6 +26,7 @@
     "package:app": "node packaging/windows/build.mjs windows-server",
     "format": "node tools/format.mjs all",
     "format:check": "node tools/format.mjs all --check",
+    "set-version": "node tools/version.mjs",
     "format:native": "node tools/format.mjs native",
     "format:web": "node tools/format.mjs web",
     "test": "node tools/test.mjs",

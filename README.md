@@ -245,6 +245,7 @@ networks/local subnet only; do not disable the firewall globally.
 | `npm run build`                           | Native formatting, CMake Release build and module-local C++ tests  |
 | `npm run build:host`                      | Native WinUI/MSBuild project                                       |
 | `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                   |
+| `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them    |
 
 For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`.
 Direct CMake builds do not run the development formatter hook; `npm run build` does.
@@ -264,6 +265,7 @@ None of these generated/dependency directories belongs in version control.
 
 ## Design and history
 
+- [Changelog](CHANGELOG.md)
 - [Repository conventions and module boundaries](docs/ARCHITECTURE.md)
 - [Packages and their prerequisites](docs/PACKAGING.md)
 - [Distribution scaffolding and six-target catalog](packaging/README.md)

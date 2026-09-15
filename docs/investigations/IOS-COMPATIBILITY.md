@@ -21,7 +21,7 @@ this is a bounded recovery experiment, not a packet-loss fix.
 
 ## Device comparison
 
-Stable baseline committed as `f19a670`. The user observed 15 fps, zero video
+With the stable baseline, the user observed 15 fps, zero video
 packet loss, and unchanged cumulative freeze counts with quarter-screen and
 near-fullscreen YouTube content, with audio enabled.
 
