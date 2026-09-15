@@ -255,8 +255,7 @@ export class ApprovedClientStore {
   }
   setPermission(clientId, permission) {
     const operation = this.#queue.then(async () => {
-      if (!CLIENT_PERMISSIONS.includes(permission))
-        throw new Error('Invalid client permission');
+      if (!CLIENT_PERMISSIONS.includes(permission)) throw new Error('Invalid client permission');
       const row = this.#value.clients.find((candidate) => candidate.id === clientId);
       if (!row) throw new Error('Unknown approved client');
       row.permission = permission;

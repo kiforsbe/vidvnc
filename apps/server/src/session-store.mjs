@@ -38,7 +38,8 @@ export class SessionStore {
 
   get maxSessions() {
     const limit = this.#limit();
-    if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error('Invalid session limit');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 64)
+      throw new Error('Invalid session limit');
     return limit;
   }
 

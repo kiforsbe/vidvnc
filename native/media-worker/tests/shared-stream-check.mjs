@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { NativeMedia, probe } from '../../../apps/server/src/native-media.mjs';
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
-const display = probe().displays.find((d) => d.persistent && d.primary) ??
+const display =
+  probe().displays.find((d) => d.persistent && d.primary) ??
   probe().displays.find((d) => d.persistent);
 assert.ok(display, 'This acceptance check requires a connected display');
 const { id, x, y, width, height, rotation } = display;
@@ -18,7 +19,9 @@ const browser = await chromium.launch({ headless: true });
 const pages = new Map();
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const decoded = (peerId) =>
-  pages.get(peerId).evaluate(() => document.querySelector('video').getVideoPlaybackQuality().totalVideoFrames);
+  pages
+    .get(peerId)
+    .evaluate(() => document.querySelector('video').getVideoPlaybackQuality().totalVideoFrames);
 async function viewer(peerId) {
   const page = await browser.newPage();
   pages.set(peerId, page);

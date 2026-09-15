@@ -118,7 +118,10 @@ test('approved-client overrides replace the Access default for that client', asy
   const watcher = sessions.connectApproved({ id: 'watcher' }, 'watcher').sessionId;
   const watched = await offer(watcher);
   await runtime.selectStream(watcher, watched.streamId);
-  await assert.rejects(() => runtime.command({ action: 'grant', sessionId: watcher }), /view only/i);
+  await assert.rejects(
+    () => runtime.command({ action: 'grant', sessionId: watcher }),
+    /view only/i,
+  );
   assert.equal(runtime.control.owner, null);
   const stream = await offer(allowed);
   await runtime.selectStream(allowed, stream.streamId);
@@ -205,9 +208,7 @@ test('host status keeps each stream graph separate and reports only acknowledged
   await offer(b);
   runtime.record(a, first.streamId, { decodeFps: 12 });
   runtime.record(a, second.streamId, { decodeFps: 29 });
-  runtime.streamDiagnostics
-    .get(first.streamId)
-    .record('server', { captureFps: 15, encodeFps: 15 });
+  runtime.streamDiagnostics.get(first.streamId).record('server', { captureFps: 15, encodeFps: 15 });
   await runtime.control.grant(a, second.streamId);
   const status = runtime.status();
   assert.equal(status.streamCount, 3);
@@ -418,7 +419,13 @@ test('audio subscriptions share one worker per format', async (t) => {
   sessions.disconnect(b);
   await runtime.stopSession(b);
   const fresh = sessions.connect(sessions.password, 'fresh').sessionId;
-  sessions.setProfile(fresh, { name: 'balanced', width: 1920, height: 1080, fps: 30, bitrateKbps: 4000 });
+  sessions.setProfile(fresh, {
+    name: 'balanced',
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    bitrateKbps: 4000,
+  });
   await runtime.offerAudio(fresh, 'v=0');
   assert.equal(media.workers.size, 2);
 });

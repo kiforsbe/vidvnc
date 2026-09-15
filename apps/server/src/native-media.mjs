@@ -64,7 +64,10 @@ export class NativeMedia {
   get active() {
     return this.workers.values().next().value ?? null;
   }
-  start(sourceId, { video = true, profile = { name: 'desktop' }, display = null, audioFormat } = {}) {
+  start(
+    sourceId,
+    { video = true, profile = { name: 'desktop' }, display = null, audioFormat } = {},
+  ) {
     if (this.workers.has(sourceId))
       return Promise.reject(busy('This stream already has a worker.'));
     if (this.workers.size >= this.maxWorkers)
@@ -107,7 +110,8 @@ export class NativeMedia {
     });
     child.on('error', (error) => {
       active.rejectReady(error);
-      for (const entry of active.peers.values()) if (entry.state === 'negotiating') entry.fail(error);
+      for (const entry of active.peers.values())
+        if (entry.state === 'negotiating') entry.fail(error);
     });
     child.on('close', () => {
       if (active.exited) return;
@@ -160,7 +164,11 @@ export class NativeMedia {
     )
       active.permission.resolve(message.allowed);
     if (message.type === 'ready') active.resolveReady();
-    if (message.type === 'answer' && typeof message.sdp === 'string' && entry?.state === 'negotiating')
+    if (
+      message.type === 'answer' &&
+      typeof message.sdp === 'string' &&
+      entry?.state === 'negotiating'
+    )
       entry.succeed(message.sdp);
     if (message.type === 'peer-failed') {
       const reason = typeof message.reason === 'string' ? message.reason : 'WebRTC peer failed.';
@@ -304,7 +312,8 @@ export class NativeMedia {
       video,
       profile,
       display,
-      audioFormat: audio?.mode === 'off' ? undefined : profile.fps === 15 ? 'mono-32k' : 'stereo-96k',
+      audioFormat:
+        audio?.mode === 'off' ? undefined : profile.fps === 15 ? 'mono-32k' : 'stereo-96k',
     });
     const active = this.workers.get(id);
     if (!active || active === existing) return started;

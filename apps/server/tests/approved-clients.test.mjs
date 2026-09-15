@@ -136,11 +136,17 @@ test('approved clients follow the Access default until given an override', async
   const [client] = store.status().approved;
   assert.equal(client.permission, 'default');
   await store.setPermission(client.id, 'available');
-  assert.equal((await ApprovedClientStore.open(filename, { keys })).permission(client.id), 'available');
+  assert.equal(
+    (await ApprovedClientStore.open(filename, { keys })).permission(client.id),
+    'available',
+  );
   await assert.rejects(() => store.setPermission(client.id, 'request-control'), /invalid/i);
 
   const saved = JSON.parse(await readFile(filename, 'utf8'));
   saved.clients[0].permission = 'request-control';
   await writeFile(filename, JSON.stringify(saved));
-  assert.equal((await ApprovedClientStore.open(filename, { keys })).permission(client.id), 'approval');
+  assert.equal(
+    (await ApprovedClientStore.open(filename, { keys })).permission(client.id),
+    'approval',
+  );
 });

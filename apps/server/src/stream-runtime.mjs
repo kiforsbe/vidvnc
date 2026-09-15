@@ -139,7 +139,9 @@ export class StreamRuntime {
       row.selectedStreamId = this.selected.get(session.sessionId) ?? null;
       const audio = this.#audioOf(session.sessionId);
       row.audio = audio?.state === 'live';
-      row.audioViewers = audio ? (this.registry.source(audio.sourceId)?.subscriptions.length ?? 0) : 0;
+      row.audioViewers = audio
+        ? (this.registry.source(audio.sourceId)?.subscriptions.length ?? 0)
+        : 0;
       const health = [];
       row.streams = this.registry.list(session.sessionId).map((stream) => {
         const metrics = this.streamDiagnostics.get(stream.id)?.snapshot() ?? {};
@@ -382,10 +384,9 @@ export class StreamRuntime {
     );
   }
   async stopAll() {
-    const owners = [
-      ...this.registry.list(),
-      ...this.registry.list(undefined, 'audio'),
-    ].map((stream) => stream.sessionId);
+    const owners = [...this.registry.list(), ...this.registry.list(undefined, 'audio')].map(
+      (stream) => stream.sessionId,
+    );
     await Promise.all([...new Set(owners)].map((id) => this.stopSession(id)));
   }
   async shutdown() {

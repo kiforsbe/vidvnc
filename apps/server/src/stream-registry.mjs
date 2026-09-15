@@ -68,7 +68,8 @@ export class StreamRegistry {
     if (created) {
       if (kind === 'video') {
         const video = [...this.#sources.values()].filter((s) => s.kind === 'video');
-        if (video.length >= this.limits.maxStreams) throw new Error('Stream capacity limit reached');
+        if (video.length >= this.limits.maxStreams)
+          throw new Error('Stream capacity limit reached');
         if (
           video.reduce((n, s) => n + s.plan.profile.bitrateKbps, plan.profile.bitrateKbps) >
           this.limits.bitrateKbps

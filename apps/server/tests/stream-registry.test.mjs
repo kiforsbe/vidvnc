@@ -38,7 +38,10 @@ test('equal keys share one source; profile names do not participate', () => {
   assert.equal(alice.created, true);
   assert.equal(bob.created, false);
   assert.equal(alice.source.id, bob.source.id);
-  assert.deepEqual(registry.source(alice.source.id).subscriptions, [alice.stream.id, bob.stream.id]);
+  assert.deepEqual(registry.source(alice.source.id).subscriptions, [
+    alice.stream.id,
+    bob.stream.id,
+  ]);
   assert.equal(registry.get('alice', bob.stream.id), null);
   assert.equal(registry.get('bob', bob.stream.id).plan.profile.name, 'Renamed');
   alice.stream.plan.profile.width = 1;

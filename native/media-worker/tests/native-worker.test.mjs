@@ -15,7 +15,12 @@ function run(...args) {
     child.on('error', reject);
     if (args.includes('--session'))
       child.stdin.end(
-        JSON.stringify({ type: 'start', video: false, audioFormat: 'mono-32k', hostControl: true }) +
+        JSON.stringify({
+          type: 'start',
+          video: false,
+          audioFormat: 'mono-32k',
+          hostControl: true,
+        }) +
           '\n' +
           JSON.stringify({ type: 'add-peer', peerId: 'invalid', sdp: 'invalid' }) +
           '\n',

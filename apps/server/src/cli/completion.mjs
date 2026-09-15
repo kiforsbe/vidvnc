@@ -48,7 +48,9 @@ const ARGUMENTS = {
   audio: [() => ON_OFF],
   access: [() => ['approval', 'available']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
-  'max-devices': [() => Array.from({ length: MAX_SESSIONS_LIMIT }, (_, index) => String(index + 1))],
+  'max-devices': [
+    () => Array.from({ length: MAX_SESSIONS_LIMIT }, (_, index) => String(index + 1)),
+  ],
   'profile edit': profile,
   'profile duplicate': profile,
   'profile remove': profile,
