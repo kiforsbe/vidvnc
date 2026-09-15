@@ -70,7 +70,7 @@ try {
         console.error(
           'Stream metrics:',
           runtime.registry.list().map((stream) => {
-            const metrics = media.workers.get(stream.id)?.diagnostics.snapshot();
+            const metrics = runtime.streamDiagnostics.get(stream.id)?.snapshot();
             return {
               state: stream.state,
               capture: metrics?.server?.captureFrames,
@@ -94,12 +94,15 @@ try {
   const videoCount = displays.length > 1 ? 3 : 2;
   assert.equal(runtime.registry.list().length, videoCount);
   assert.equal(runtime.audio.size, 2);
-  assert.equal(media.workers.size, videoCount + 2);
+  // Display 1 is shared by both viewers; audio is one shared mix.
+  const sourceCount = displays.length > 1 ? 3 : 2;
+  assert.equal(runtime.registry.sources().length, sourceCount);
+  assert.equal(media.workers.size, sourceCount);
   children.push(...[...media.workers.values()].map((worker) => worker.child));
   for (const child of children)
     child.stderr.on('data', (data) => workerErrors.push({ phase, message: String(data) }));
   for (const row of runtime.registry.list()) {
-    const metrics = media.workers.get(row.id).diagnostics.snapshot();
+    const metrics = runtime.streamDiagnostics.get(row.id).snapshot();
     assert.ok(metrics.server.captureFrames > 0, 'native capture advances');
     assert.ok(metrics.client.framesDecoded > 0, 'browser decodes the native stream');
   }
@@ -134,7 +137,7 @@ try {
   phase = 'client disconnect';
   await pages[0].locator('#disconnect').click();
   await pages[1].waitForTimeout(500);
-  assert.equal(media.workers.size, 2);
+  assert.equal(media.workers.size, 2, 'the remaining viewer keeps its video and audio sources');
   assert.equal(await pages[1].locator('#video').evaluate((v) => v.paused), false);
   phase = 'server shutdown';
   await runtime.shutdown();
@@ -146,7 +149,7 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(workerErrors, [], 'native teardown must not report resource errors');
   console.log(
-    `PASS: native ${videoCount} video/two audio streams, host permission transfer/revoke, isolated disconnect and zero owned workers`,
+    `PASS: native ${videoCount} video/two audio subscriptions on ${sourceCount} shared sources, host permission transfer/revoke between peers, isolated disconnect and zero owned workers`,
   );
   if (displays.length < 2)
     console.log('NOT TESTED: simultaneous capture of two physical displays (only one connected).');

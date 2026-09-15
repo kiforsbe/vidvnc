@@ -24,8 +24,9 @@ export class ControlLease {
       if ((await this.media.setPermission(previous.streamId, false)) !== false)
         throw new Error('Worker refused control revoke');
     } catch {
-      // OS-confirmed exit is the fail-closed alternative to release acknowledgement.
-      await this.media.stop(previous.streamId);
+      // Peer removal acknowledgement, or the source's OS-confirmed exit when removal is not
+      // acknowledged, is the fail-closed alternative to release acknowledgement.
+      await this.media.removePeer(previous.streamId);
     }
   }
   grant(sessionId, streamId, { onlyIfAvailable = false } = {}) {
@@ -45,7 +46,7 @@ export class ControlLease {
           throw new Error('Inactive control target');
         }
       } catch (error) {
-        await this.media.stop(streamId);
+        await this.media.removePeer(streamId);
         throw error;
       }
     });

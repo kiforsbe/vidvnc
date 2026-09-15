@@ -6,7 +6,6 @@ import { SessionStore } from '../../server/src/session-store.mjs';
 import { StreamRuntime } from '../../server/src/stream-runtime.mjs';
 import { DisplayInventory } from '../../server/src/displays.mjs';
 import { defaultStreamPolicy } from '../../server/src/stream-policy.mjs';
-import { Diagnostics } from '../../server/src/diagnostics.mjs';
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const browser = await chromium.launch({ headless: true });
 const sender = await browser.newPage();
@@ -26,8 +25,13 @@ const displays = [0, 1].map((i) => ({
 policy.displaySharing = Object.fromEntries(displays.map((d) => [d.id, true]));
 const media = {
   workers: new Map(),
-  async offer(id, sdp, profile, audio, display, { video = true } = {}) {
-    this.workers.set(id, { id, video, diagnostics: new Diagnostics() });
+  async start(sourceId, { video = true } = {}) {
+    this.workers.set(sourceId, { id: sourceId, video, peers: new Set() });
+  },
+  async addPeer(sourceId, peerId, sdp) {
+    const worker = this.workers.get(sourceId);
+    if (!worker) throw new Error('Native media worker stopped.');
+    worker.peers.add(peerId);
     return sender.evaluate(
       async ({ id, sdp, video }) => {
         window.peers ??= new Map();
@@ -69,11 +73,12 @@ const media = {
           );
         return pc.localDescription.sdp;
       },
-      { id, sdp, video },
+      { id: peerId, sdp, video: worker.video },
     );
   },
-  async stop(id) {
-    if (!this.workers.has(id)) return;
+  async removePeer(sourceId, peerId) {
+    const worker = this.workers.get(sourceId);
+    if (!worker?.peers.delete(peerId)) return;
     await sender.evaluate(async (id) => {
       const peer = window.peers.get(id);
       if (!peer) return;
@@ -82,14 +87,24 @@ const media = {
       peer.stream.getTracks().forEach((t) => t.stop());
       await peer.context?.close();
       window.peers.delete(id);
-    }, id);
-    this.workers.delete(id);
-    this.onExit?.(id, { expected: true });
+    }, peerId);
+  },
+  async stop(sourceId) {
+    const worker = this.workers.get(sourceId);
+    if (!worker) return;
+    await Promise.all([...worker.peers].map((peerId) => this.removePeer(sourceId, peerId)));
+    this.workers.delete(sourceId);
+    this.onExit?.(sourceId, { expected: true });
   },
   async shutdown() {
     await Promise.all([...this.workers.keys()].map((id) => this.stop(id)));
   },
-  receiverFeedback() {},
+  async setPermission() {
+    return false;
+  },
+  keyframe() {
+    return false;
+  },
 };
 const runtime = new StreamRuntime({
   sessions,
@@ -202,12 +217,12 @@ try {
   await pages[1].waitForTimeout(2200);
   assert.ok(
     [...runtime.audio.values()].every(
-      (audio) => media.workers.get(audio.id).diagnostics.snapshot().client,
+      (audio) => runtime.streamDiagnostics.get(audio.id).snapshot().client,
     ),
     'audio receiver metrics are reported once per device',
   );
   assert.ok(
-    runtime.registry.list().every((s) => media.workers.get(s.id).diagnostics.snapshot().client),
+    runtime.registry.list().every((s) => runtime.streamDiagnostics.get(s.id).snapshot().client),
     'all subscribed streams send metrics',
   );
   const diagnostics = await browser.newPage();

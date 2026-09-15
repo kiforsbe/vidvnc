@@ -13,7 +13,13 @@ function run(...args) {
     child.stdout.on('data', (b) => (stdout += b));
     child.stderr.on('data', (b) => (stderr += b));
     child.on('error', reject);
-    if (args.includes('--session')) child.stdin.end('{"type":"offer","sdp":"invalid"}\n');
+    if (args.includes('--session'))
+      child.stdin.end(
+        JSON.stringify({ type: 'start', video: false, audioFormat: 'mono-32k', hostControl: true }) +
+          '\n' +
+          JSON.stringify({ type: 'add-peer', peerId: 'invalid', sdp: 'invalid' }) +
+          '\n',
+      );
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error('Native check timed out'));
@@ -42,10 +48,16 @@ test('mobile encoder emits Level 3.1 and responds to force-key-unit', async () =
   assert.ok(value.forceEvents >= 1);
   assert.ok(value.keyframes >= 5, JSON.stringify(value));
 });
-test('native session rejects malformed SDP without starting capture', async () => {
+test('native session fails a malformed peer without failing its source or starting capture', async () => {
   const result = await run('--session');
-  assert.equal(result.code, 1);
-  assert.match(result.stderr, /Invalid SDP/);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(
+    result.stdout
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line)),
+    [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
+  );
 });
 test('native self-test captures and hardware-encodes sixty desktop frames', async () => {
   const result = await run('--self-test');

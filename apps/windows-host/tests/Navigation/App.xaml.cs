@@ -529,6 +529,7 @@ public partial class App : Application
                                 secondDevice["device"] = "Windows browser"; secondDevice["streams"]!.AsArray().RemoveAt(1);
                                 secondDevice["streams"]![0]!["id"] = "stream-three";
                                 secondDevice["selectedStreamId"] = "stream-three";
+                                device["streams"]![0]!["viewers"] = 2; secondDevice["streams"]![0]!["viewers"] = 2;
                                 multiple["sessions"]!.AsArray().Add(secondDevice); multiple["streamCount"] = 3;
                                 using var multiStatus = JsonDocument.Parse(multiple.ToJsonString());
                                 update.Invoke(window, new object[] { multiStatus.RootElement });
@@ -541,6 +542,8 @@ public partial class App : Application
                                 var stablePlots = Descendants(list).OfType<Canvas>().ToArray();
                                 update.Invoke(window, new object[] { multiStatus.RootElement });
                                 if (!stablePlots.SequenceEqual(Descendants(list).OfType<Canvas>())) throw new Exception("Telemetry rebuilt per-stream graphs");
+                                if (Descendants(list).OfType<TextBlock>().Count(t => t.Text == "Shared · 2 devices") != 2)
+                                    throw new Exception("Streams shared with other devices need a shared label");
                                 if (cycle == 0)
                                 {
                                     var startOwner = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,

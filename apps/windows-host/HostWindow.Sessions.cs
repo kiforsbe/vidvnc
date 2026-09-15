@@ -129,6 +129,7 @@ public sealed partial class HostWindow
     {
         public readonly Grid Root = new() { ColumnSpacing = 20, Padding = new Thickness(0, 8, 0, 8) };
         readonly TextBlock name = Label("", 16), resolution = Label(""), fps = Label(""), profile = Label("");
+        readonly TextBlock shared = new() { FontSize = 12, Visibility = Visibility.Collapsed };
         readonly SessionGraph graph = new();
         public StreamVisual(string? id, Func<string, string?, Task> command)
         {
@@ -142,7 +143,7 @@ public sealed partial class HostWindow
             var stop = new Button { Content = new FontIcon { Glyph = "\uE71A", FontSize = 14 }, IsEnabled = id is not null };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(stop, "Stop stream"); ToolTipService.SetToolTip(stop, "Stop stream");
             stop.Click += async (_, _) => { stop.IsEnabled = false; try { await command("stop-stream", id); } finally { stop.IsEnabled = id is not null; } };
-            Grid.SetColumn(stop, 1); header.Children.Add(stop); content.Children.Add(header);
+            Grid.SetColumn(stop, 1); header.Children.Add(stop); content.Children.Add(header); content.Children.Add(shared);
             var values = new Grid { ColumnSpacing = 12 };
             foreach (var (label, value) in new[] { ("Resolution", resolution), ("Target FPS", fps), ("Profile", profile) }) {
                 var cell = new StackPanel { Spacing = HostSpacing.Small };
@@ -162,6 +163,10 @@ public sealed partial class HostWindow
             name.Text = row.GetProperty("name").GetString();
             resolution.Text = $"{row.GetProperty("width")} × {row.GetProperty("height")}";
             fps.Text = $"{row.GetProperty("targetFps")} fps"; profile.Text = row.GetProperty("profile").GetString();
+            // One capture/encode serves every device on the same display and profile.
+            var viewers = row.TryGetProperty("viewers", out var count) && count.ValueKind == JsonValueKind.Number ? count.GetInt32() : 1;
+            shared.Text = viewers > 1 ? $"Shared · {viewers} devices" : "";
+            shared.Visibility = viewers > 1 ? Visibility.Visible : Visibility.Collapsed;
             graph.Update(row);
         }
     }

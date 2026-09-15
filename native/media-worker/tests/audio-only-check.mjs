@@ -36,7 +36,7 @@ try {
   assert.equal(metrics.server.captureFrames, 0);
   assert.equal(metrics.server.encodedFrames, 0);
   assert.equal(
-    await media.setPermission('audio-test', true),
+    await media.setPermission('audio-test', 'audio-test', true),
     false,
     'audio-only worker cannot own input',
   );

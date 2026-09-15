@@ -15,8 +15,8 @@ test('exclusive transfer awaits old worker release before granting a different o
         if (!allowed && wait) await released;
         return allowed;
       },
-      async stop(id) {
-        events.push(['stopped', id]);
+      async removePeer(id) {
+        events.push(['removed', id]);
       },
     },
   });
@@ -38,7 +38,7 @@ test('exclusive transfer awaits old worker release before granting a different o
   assert.equal(lease.owner, null);
 });
 
-test('failed acknowledgement kills old worker before transfer and expired owner cannot renew', async () => {
+test('failed acknowledgement removes the old peer before transfer and expired owner cannot renew', async () => {
   const { ControlLease } = await import('../src/control-lease.mjs');
   const events = [];
   let active = true;
@@ -50,8 +50,8 @@ test('failed acknowledgement kills old worker before transfer and expired owner 
         if (!allowed) throw new Error('lost acknowledgement');
         return allowed;
       },
-      async stop(id) {
-        events.push(['stopped', id]);
+      async removePeer(id) {
+        events.push(['removed', id]);
       },
     },
   });
@@ -60,7 +60,7 @@ test('failed acknowledgement kills old worker before transfer and expired owner 
   assert.deepEqual(events, [
     ['a', true],
     ['a', false],
-    ['stopped', 'a'],
+    ['removed', 'a'],
     ['b', true],
   ]);
   active = false;
@@ -68,7 +68,7 @@ test('failed acknowledgement kills old worker before transfer and expired owner 
   assert.equal(lease.owner, null);
   assert.deepEqual(events.slice(-2), [
     ['b', false],
-    ['stopped', 'b'],
+    ['removed', 'b'],
   ]);
   await assert.rejects(lease.grant('expired', 'c'), /inactive/i);
 });

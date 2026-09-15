@@ -16,13 +16,16 @@
 #include <atomic>
 #include <fstream>
 #include <filesystem>
+#include <memory>
+#include <vector>
 #include "input-policy.hpp"
-#include "host-input-permission.hpp"
+#include "peer-permission.hpp"
+#include "keyframe-limiter.hpp"
+#include "sdp-payload.hpp"
 #include "display-inventory.hpp"
 #include "stream-profile.hpp"
 #include "telemetry.hpp"
 #include "transport-telemetry.hpp"
-static TransportTelemetry transport_telemetry;
 static MediaTelemetry telemetry;
 static std::optional<CaptureDisplay> capture_display;
 static DesktopRect virtual_desktop() {
@@ -91,20 +94,56 @@ static AudioTelemetry audio_telemetry;
 
 static GMainLoop *loop = nullptr;
 static GstElement *pipeline = nullptr;
-static GstElement *peer = nullptr;
 static bool failed = false;
-static bool answered = false;
-static bool audio_enabled = true;
+static bool started = false;
+static bool playing = false;
 static StreamProfile profile;
-static bool control = false;
 static bool video_enabled = true;
+static int audio_channels = 0; // 0: no audio chain; 1: mono-32k; 2: stereo-96k
 static bool host_control_required = false;
-static HostInputPermission host_input_permission;
+static PeerPermission peer_permission;
+static KeyframeLimiter keyframe_limiter;
 static std::set<WORD> held_keys;
 static std::set<int> held_buttons;
-static gint64 last_ping = 0;
-static std::atomic<int> pending_input{0};
-static GstWebRTCDataChannel *input_channel = nullptr;
+
+// One viewer: leaky queue, payloader and webrtcbin inside a bin fed by the source tees.
+struct Peer {
+    std::string id;
+    unsigned index = 0;
+    GstElement *bin = nullptr;                                 // owned reference
+    GstElement *webrtc = nullptr;                              // borrowed from bin
+    GstPad *video_tee_pad = nullptr, *audio_tee_pad = nullptr; // owned request pads
+    GstWebRTCDataChannel *input_channel = nullptr;             // owned reference
+    bool answered = false, removing = false, notify_closed = false;
+    int pending_unlinks = 0;
+    bool control = false;
+    gint64 last_ping = 0, rate_window = 0;
+    int rate_count = 0;
+    std::shared_ptr<std::atomic<int>> pending_input = std::make_shared<std::atomic<int>>(0);
+    TransportTelemetry transport;
+};
+// GStreamer threads never touch a Peer. Callbacks carry a copy of this reference and look the
+// peer up on the main loop; the index rejects callbacks for a removed peer whose id was reused.
+struct PeerRef {
+    std::string id;
+    unsigned index;
+    std::shared_ptr<std::atomic<int>> pending_input;
+};
+static std::map<std::string, std::unique_ptr<Peer>> peers;
+static unsigned next_peer_index = 0;
+static Peer *find_peer(const PeerRef &ref) {
+    const auto found = peers.find(ref.id);
+    return found != peers.end() && found->second->index == ref.index ? found->second.get()
+                                                                     : nullptr;
+}
+static PeerRef *peer_ref(const Peer &peer) {
+    return new PeerRef{peer.id, peer.index, peer.pending_input};
+}
+static void delete_ref(gpointer data) { delete static_cast<PeerRef *>(data); }
+static void delete_closure_ref(gpointer data, GClosure *) { delete_ref(data); }
+static gint64 now_ms() { return g_get_monotonic_time() / 1000; }
+static void fail_peer(Peer &peer, const char *reason);
+static void remove_peer(const std::string &id, bool notify);
 static std::ofstream error_log;
 static std::atomic<bool> shutdown_started{false};
 // Losing the server's pipe must also stop a worker whose GStreamer thread is
@@ -126,7 +165,6 @@ static void begin_shutdown() {
         nullptr);
 }
 static std::atomic<unsigned> force_events{0}, keyframes{0}, sps_profile{0}, sps_level{0};
-static gint64 last_recovery = 0;
 static bool request_keyframe(GstElement *pipe) {
     auto encoder = gst_bin_get_by_name(GST_BIN(pipe), "encoder");
     if (!encoder)
@@ -201,14 +239,32 @@ static void button_input(int button, bool down) {
             held_buttons.erase(button);
     }
 }
-static void release_input() {
+static void release_held() {
     auto keys = held_keys;
     auto buttons = held_buttons;
     for (auto key : keys)
         key_input(key, false);
     for (auto button : buttons)
         button_input(button, false);
-    control = false;
+}
+// Held keys and buttons are OS state; only a peer that had control can have pressed them.
+static void revoke_peer(Peer &peer, bool notify) {
+    if (peer.control)
+        release_held();
+    peer.control = false;
+    if (notify && peer.input_channel)
+        gst_webrtc_data_channel_send_string(peer.input_channel, "{\"control\":false}");
+}
+// Lost ping (5 s) or a missing/expired host lease ends a peer's control.
+static void enforce_permission() {
+    const auto now = g_get_monotonic_time();
+    for (auto &entry : peers) {
+        auto &peer = *entry.second;
+        if (peer.control &&
+            (now - peer.last_ping > 5 * G_USEC_PER_SEC ||
+             (host_control_required && !peer_permission.allowed(peer.id, now / 1000))))
+            revoke_peer(peer, true);
+    }
 }
 
 static JsonObject *parse_object(const std::string &text, JsonParser **parser) {
@@ -224,16 +280,21 @@ static const char *string_member(JsonObject *object, const char *name) {
     return node && json_node_get_value_type(node) == G_TYPE_STRING ? json_node_get_string(node)
                                                                    : "";
 }
-static void output(const char *type, const char *field, const char *value) {
-    auto object = json_object_new();
-    json_object_set_string_member(object, "type", type);
-    json_object_set_string_member(object, field, value);
+static void write_object(JsonObject *object) {
     auto node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, object);
     auto text = json_to_string(node, false);
     std::cout << text << std::endl;
     g_free(text);
     json_node_free(node);
+}
+static void emit(const char *type,
+                 std::initializer_list<std::pair<const char *, std::string>> fields = {}) {
+    auto object = json_object_new();
+    json_object_set_string_member(object, "type", type);
+    for (const auto &field : fields)
+        json_object_set_string_member(object, field.first, field.second.c_str());
+    write_object(object);
 }
 static void fatal(const char *message) {
     std::cerr << message << std::endl;
@@ -250,44 +311,56 @@ static double number_member(JsonObject *object, const char *name) {
     auto type = json_node_get_value_type(node);
     return type == G_TYPE_DOUBLE || type == G_TYPE_INT64 ? json_node_get_double(node) : NAN;
 }
+static bool boolean_member(JsonObject *object, const char *name) {
+    auto node = json_object_get_member(object, name);
+    return node && JSON_NODE_HOLDS_VALUE(node) &&
+           json_node_get_value_type(node) == G_TYPE_BOOLEAN && json_node_get_boolean(node);
+}
+struct InputMessage {
+    PeerRef ref;
+    std::string text;
+};
 static gboolean input_message(gpointer data) {
-    --pending_input;
-    auto text = static_cast<std::string *>(data);
+    auto &message = *static_cast<InputMessage *>(data);
+    --*message.ref.pending_input;
+    const auto peer = find_peer(message.ref);
+    if (!peer || peer->removing)
+        return G_SOURCE_REMOVE;
     JsonParser *parser = nullptr;
-    auto object = parse_object(*text, &parser);
+    auto object = parse_object(message.text, &parser);
     if (object && !capture_display_current()) {
-        release_input();
+        release_held();
         fatal("Capture display changed. Reconnect.");
         g_object_unref(parser);
-        delete text;
         return G_SOURCE_REMOVE;
     }
     if (object) {
-        if (host_control_required && !host_input_permission.allowed(g_get_monotonic_time() / 1000))
-            release_input();
+        const auto allowed = [&] {
+            return !host_control_required || peer_permission.allowed(peer->id, now_ms());
+        };
+        if (peer->control && !allowed())
+            revoke_peer(*peer, false);
         std::string type = string_member(object, "type");
         if (type == "ping")
-            last_ping = g_get_monotonic_time();
+            peer->last_ping = g_get_monotonic_time();
         else if (type == "release")
-            release_input();
+            revoke_peer(*peer, false);
         else if (type == "control") {
-            release_input();
-            auto enabled = json_object_get_member(object, "enabled");
-            control = (!host_control_required ||
-                       host_input_permission.allowed(g_get_monotonic_time() / 1000)) &&
-                      enabled && json_node_get_value_type(enabled) == G_TYPE_BOOLEAN &&
-                      json_node_get_boolean(enabled);
-            last_ping = g_get_monotonic_time();
-        } else if (control) {
-            static gint64 window = 0;
-            static int count = 0;
+            revoke_peer(*peer, false);
+            peer->control = allowed() && boolean_member(object, "enabled");
+            peer->last_ping = g_get_monotonic_time();
+            if (peer->control)
+                for (auto &entry : peers)
+                    if (entry.second.get() != peer && entry.second->control)
+                        revoke_peer(*entry.second, true);
+        } else if (peer->control) {
             auto now = g_get_monotonic_time();
-            if (now - window > G_USEC_PER_SEC) {
-                window = now;
-                count = 0;
+            if (now - peer->rate_window > G_USEC_PER_SEC) {
+                peer->rate_window = now;
+                peer->rate_count = 0;
             }
-            if (++count > 1000)
-                release_input();
+            if (++peer->rate_count > 1000)
+                revoke_peer(*peer, false);
             else if (type == "move") {
                 double x = number_member(object, "x"), y = number_member(object, "y");
                 if (valid_point(x, y)) {
@@ -328,45 +401,69 @@ static gboolean input_message(gpointer data) {
             }
         }
     }
-    if (input_channel)
-        gst_webrtc_data_channel_send_string(input_channel,
-                                            control ? "{\"control\":true}" : "{\"control\":false}");
+    if (peer->input_channel)
+        gst_webrtc_data_channel_send_string(
+            peer->input_channel, peer->control ? "{\"control\":true}" : "{\"control\":false}");
     g_object_unref(parser);
-    delete text;
     return G_SOURCE_REMOVE;
 }
-static void channel_message(GstWebRTCDataChannel *, gchar *text, gpointer) {
-    if (text && strlen(text) <= 1024) {
-        if (++pending_input > 256) {
-            --pending_input;
-            return;
-        }
-        g_main_context_invoke(nullptr, input_message, new std::string(text));
+static void channel_message(GstWebRTCDataChannel *, gchar *text, gpointer data) {
+    const auto &ref = *static_cast<PeerRef *>(data);
+    if (!text || strlen(text) > 1024)
+        return;
+    if (++*ref.pending_input > 256) {
+        --*ref.pending_input;
+        return;
     }
+    g_main_context_invoke_full(
+        nullptr, G_PRIORITY_DEFAULT, input_message, new InputMessage{ref, text},
+        [](gpointer message) { delete static_cast<InputMessage *>(message); });
 }
-static void channel_closed(GstWebRTCDataChannel *, gpointer) {
-    g_main_context_invoke(
-        nullptr,
-        [](gpointer) -> gboolean {
-            release_input();
+static void channel_closed(GstWebRTCDataChannel *, gpointer data) {
+    g_main_context_invoke_full(
+        nullptr, G_PRIORITY_DEFAULT,
+        [](gpointer ref) -> gboolean {
+            if (const auto peer = find_peer(*static_cast<PeerRef *>(ref)))
+                revoke_peer(*peer, false);
             return G_SOURCE_REMOVE;
         },
-        nullptr);
+        new PeerRef(*static_cast<PeerRef *>(data)), delete_ref);
 }
-static void channel_created(GstElement *, GstWebRTCDataChannel *channel, gpointer) {
-    if (!video_enabled) {
+struct ChannelAttach {
+    PeerRef ref;
+    GstWebRTCDataChannel *channel;
+};
+static void channel_created(GstElement *, GstWebRTCDataChannel *channel, gpointer data) {
+    gchar *label = nullptr;
+    g_object_get(channel, "label", &label, nullptr);
+    const bool input = video_enabled && g_strcmp0(label, "input") == 0;
+    g_free(label);
+    if (!input) {
         gst_webrtc_data_channel_close(channel);
         return;
     }
-    gchar *label = nullptr;
-    g_object_get(channel, "label", &label, nullptr);
-    if (g_strcmp0(label, "input") == 0) {
-        input_channel = GST_WEBRTC_DATA_CHANNEL(g_object_ref(channel));
-        g_signal_connect(channel, "on-message-string", G_CALLBACK(channel_message), nullptr);
-        g_signal_connect(channel, "on-close", G_CALLBACK(channel_closed), nullptr);
-    } else
-        gst_webrtc_data_channel_close(channel);
-    g_free(label);
+    const auto &ref = *static_cast<PeerRef *>(data);
+    // Queue the attach before connecting message handlers so replies always find the channel.
+    g_main_context_invoke_full(
+        nullptr, G_PRIORITY_DEFAULT,
+        [](gpointer value) -> gboolean {
+            auto &attach = *static_cast<ChannelAttach *>(value);
+            const auto peer = find_peer(attach.ref);
+            if (peer && !peer->removing && !peer->input_channel)
+                std::swap(peer->input_channel, attach.channel);
+            return G_SOURCE_REMOVE;
+        },
+        new ChannelAttach{ref, GST_WEBRTC_DATA_CHANNEL(g_object_ref(channel))},
+        [](gpointer value) {
+            auto attach = static_cast<ChannelAttach *>(value);
+            if (attach->channel)
+                g_object_unref(attach->channel);
+            delete attach;
+        });
+    g_signal_connect_data(channel, "on-message-string", G_CALLBACK(channel_message),
+                          new PeerRef(ref), delete_closure_ref, GConnectFlags(0));
+    g_signal_connect_data(channel, "on-close", G_CALLBACK(channel_closed), new PeerRef(ref),
+                          delete_closure_ref, GConnectFlags(0));
 }
 
 static std::string pipeline_description(int frames = -1) {
@@ -391,6 +488,14 @@ static std::string pipeline_description(int frames = -1) {
                            ? ",level=(string)3.1"
                            : "") +
            " ! h264parse";
+}
+static std::string audio_source_description() {
+    return "wasapisrc name=audio-capture loopback=true low-latency=true ! audioconvert ! "
+           "audioresample ! audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=" +
+           std::to_string(audio_channels) + " ! opusenc name=audio-encoder bitrate=" +
+           std::string(audio_channels == 1 ? "32000" : "96000") +
+           " bitrate-type=cbr frame-size=20 inband-fec=true ! "
+           "tee name=audio-fanout allow-not-linked=true";
 }
 
 static void preflight() {
@@ -505,6 +610,21 @@ static int self_test() {
     return frames == 60 ? 0 : 1;
 }
 
+// Finds the viewer bin an element belongs to. `attached` is false for elements no longer inside
+// the pipeline (a queued message from a peer that was already destroyed).
+static Peer *peer_of(GstObject *object, bool &attached) {
+    attached = false;
+    for (auto current = object; current; current = GST_OBJECT_PARENT(current)) {
+        for (auto &entry : peers)
+            if (GST_OBJECT(entry.second->bin) == current) {
+                attached = true;
+                return entry.second.get();
+            }
+        if (current == GST_OBJECT(pipeline))
+            attached = true;
+    }
+    return nullptr;
+}
 static gboolean bus_message(GstBus *, GstMessage *message, gpointer) {
     if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_QOS)
         telemetry.qos(message);
@@ -516,59 +636,317 @@ static gboolean bus_message(GstBus *, GstMessage *message, gpointer) {
             error_log << "GSTREAMER ERROR source=" << GST_OBJECT_NAME(message->src)
                       << " message=" << (error ? error->message : "unknown")
                       << " debug=" << (debug ? debug : "none") << std::endl;
-        fatal(error->message);
-        g_error_free(error);
+        // A viewer's transport failing must not end the shared capture for everyone else.
+        bool attached = false;
+        if (const auto peer = peer_of(message->src, attached))
+            fail_peer(*peer, error ? error->message : "WebRTC peer error.");
+        else if (attached)
+            fatal(error ? error->message : "GStreamer error");
+        if (error)
+            g_error_free(error);
         g_free(debug);
     }
     return G_SOURCE_CONTINUE;
 }
-static gboolean send_answer(gpointer) {
-    if (answered || !peer)
-        return G_SOURCE_REMOVE;
+struct PeerTask {
+    PeerRef ref;
+    void (*run)(Peer &);
+};
+// Runs on the main loop; references to removed or removing peers are ignored.
+static void on_main(const PeerRef &ref, void (*run)(Peer &)) {
+    g_main_context_invoke_full(
+        nullptr, G_PRIORITY_DEFAULT,
+        [](gpointer data) -> gboolean {
+            auto &task = *static_cast<PeerTask *>(data);
+            if (const auto peer = find_peer(task.ref); peer && !peer->removing)
+                task.run(*peer);
+            return G_SOURCE_REMOVE;
+        },
+        new PeerTask{ref, run}, [](gpointer data) { delete static_cast<PeerTask *>(data); });
+}
+static void send_answer(Peer &peer) {
+    if (peer.answered || peer.removing)
+        return;
     GstWebRTCICEGatheringState state;
-    g_object_get(peer, "ice-gathering-state", &state, nullptr);
+    g_object_get(peer.webrtc, "ice-gathering-state", &state, nullptr);
     if (state != GST_WEBRTC_ICE_GATHERING_STATE_COMPLETE)
-        return G_SOURCE_REMOVE;
+        return;
     GstWebRTCSessionDescription *description = nullptr;
-    g_object_get(peer, "local-description", &description, nullptr);
-    if (description) {
-        auto text = gst_sdp_message_as_text(description->sdp);
-        output("answer", "sdp", text);
-        g_free(text);
-        gst_webrtc_session_description_free(description);
-        answered = true;
-    }
-    return G_SOURCE_REMOVE;
+    g_object_get(peer.webrtc, "local-description", &description, nullptr);
+    if (!description)
+        return;
+    auto text = gst_sdp_message_as_text(description->sdp);
+    emit("answer", {{"peerId", peer.id}, {"sdp", text}});
+    g_free(text);
+    gst_webrtc_session_description_free(description);
+    peer.answered = true;
 }
-static void gathering_changed(GObject *, GParamSpec *, gpointer) {
-    g_main_context_invoke(nullptr, send_answer, nullptr);
+static void gathering_changed(GObject *, GParamSpec *, gpointer data) {
+    on_main(*static_cast<PeerRef *>(data), send_answer);
 }
-static void answer_created(GstPromise *promise, gpointer) {
-    GstWebRTCSessionDescription *answer = nullptr;
-    const auto reply = gst_promise_get_reply(promise);
-    if (reply)
-        gst_structure_get(reply, "answer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &answer, nullptr);
+static void connection_changed(GObject *, GParamSpec *, gpointer data) {
+    on_main(*static_cast<PeerRef *>(data), [](Peer &peer) {
+        GstWebRTCPeerConnectionState state;
+        g_object_get(peer.webrtc, "connection-state", &state, nullptr);
+        if (state == GST_WEBRTC_PEER_CONNECTION_STATE_FAILED)
+            fail_peer(peer, "WebRTC connection failed.");
+        // RTP sent before DTLS connects is dropped, so the join keyframe waits for connected.
+        else if (state == GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTED && video_enabled &&
+                 keyframe_limiter.join(now_ms()))
+            request_keyframe(pipeline);
+    });
+}
+struct AnswerResult {
+    PeerRef ref;
+    GstWebRTCSessionDescription *answer;
+};
+static void answer_created(GstPromise *promise, gpointer data) {
+    auto result = new AnswerResult{*static_cast<PeerRef *>(data), nullptr};
+    if (const auto reply = gst_promise_get_reply(promise))
+        gst_structure_get(reply, "answer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &result->answer,
+                          nullptr);
     gst_promise_unref(promise);
-    if (!answer) {
-        g_main_context_invoke(
-            nullptr,
-            [](gpointer) -> gboolean {
-                fatal("Unable to create WebRTC answer.");
+    g_main_context_invoke_full(
+        nullptr, G_PRIORITY_DEFAULT,
+        [](gpointer value) -> gboolean {
+            auto &result = *static_cast<AnswerResult *>(value);
+            const auto peer = find_peer(result.ref);
+            if (!peer || peer->removing)
                 return G_SOURCE_REMOVE;
-            },
-            nullptr);
+            if (!result.answer) {
+                fail_peer(*peer, "Unable to create WebRTC answer.");
+                return G_SOURCE_REMOVE;
+            }
+            auto set = gst_promise_new();
+            g_signal_emit_by_name(peer->webrtc, "set-local-description", result.answer, set);
+            gst_promise_interrupt(set);
+            gst_promise_unref(set);
+            send_answer(*peer);
+            return G_SOURCE_REMOVE;
+        },
+        result,
+        [](gpointer value) {
+            auto result = static_cast<AnswerResult *>(value);
+            if (result->answer)
+                gst_webrtc_session_description_free(result->answer);
+            delete result;
+        });
+}
+static void remote_set(GstPromise *promise, gpointer data) {
+    const PeerRef ref = *static_cast<PeerRef *>(data); // copy: unref may free data
+    gst_promise_unref(promise);
+    on_main(ref, [](Peer &peer) {
+        auto answer = gst_promise_new_with_change_func(answer_created, peer_ref(peer), delete_ref);
+        g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr, answer);
+    });
+}
+static void destroy_peer(const std::string &id) {
+    auto node = peers.extract(id);
+    if (node.empty())
+        return;
+    auto &peer = *node.mapped();
+    for (const auto &[name, pad] : std::initializer_list<std::pair<const char *, GstPad *>>{
+             {"video-fanout", peer.video_tee_pad}, {"audio-fanout", peer.audio_tee_pad}}) {
+        if (!pad)
+            continue;
+        auto tee = gst_bin_get_by_name(GST_BIN(pipeline), name);
+        gst_element_release_request_pad(tee, pad);
+        gst_object_unref(tee);
+        gst_object_unref(pad);
+    }
+    if (peer.input_channel)
+        g_object_unref(peer.input_channel);
+    gst_element_set_state(peer.bin, GST_STATE_NULL);
+    gst_bin_remove(GST_BIN(pipeline), peer.bin);
+    gst_object_unref(peer.bin);
+    if (peer.notify_closed)
+        emit("peer-closed", {{"peerId", peer.id}});
+}
+static GstPadProbeReturn unlink_probe(GstPad *pad, GstPadProbeInfo *, gpointer data) {
+    if (const auto target = gst_pad_get_peer(pad)) {
+        gst_pad_unlink(pad, target);
+        gst_object_unref(target);
+    }
+    // Never change element state from a streaming thread; g_idle_add also defers when the
+    // probe fired synchronously inside remove_peer.
+    g_idle_add_full(
+        G_PRIORITY_DEFAULT,
+        [](gpointer value) -> gboolean {
+            const auto &ref = *static_cast<PeerRef *>(value);
+            const auto peer = find_peer(ref);
+            if (peer && --peer->pending_unlinks == 0)
+                destroy_peer(ref.id);
+            return G_SOURCE_REMOVE;
+        },
+        new PeerRef(*static_cast<PeerRef *>(data)), delete_ref);
+    return GST_PAD_PROBE_REMOVE;
+}
+static void remove_peer(const std::string &id, bool notify) {
+    const auto found = peers.find(id);
+    if (found == peers.end()) {
+        if (notify)
+            emit("peer-closed", {{"peerId", id}});
         return;
     }
-    auto set = gst_promise_new();
-    g_signal_emit_by_name(peer, "set-local-description", answer, set);
-    gst_promise_interrupt(set);
-    gst_promise_unref(set);
-    gst_webrtc_session_description_free(answer);
+    auto &peer = *found->second;
+    peer.notify_closed = peer.notify_closed || notify;
+    if (peer.removing)
+        return;
+    peer_permission.revoke(peer.id);
+    revoke_peer(peer, true);
+    peer.removing = true;
+    const PeerRef ref{peer.id, peer.index, peer.pending_input};
+    std::vector<GstPad *> pads;
+    for (auto pad : {peer.video_tee_pad, peer.audio_tee_pad})
+        if (pad)
+            pads.push_back(pad);
+    peer.pending_unlinks = static_cast<int>(pads.size());
+    if (pads.empty()) {
+        destroy_peer(id);
+        return;
+    }
+    for (auto pad : pads)
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_IDLE, unlink_probe, new PeerRef(ref), delete_ref);
 }
-static void remote_set(GstPromise *promise, gpointer) {
-    gst_promise_unref(promise);
-    auto answer = gst_promise_new_with_change_func(answer_created, nullptr, nullptr);
-    g_signal_emit_by_name(peer, "create-answer", nullptr, answer);
+static void fail_peer(Peer &peer, const char *reason) {
+    if (peer.removing)
+        return;
+    if (error_log.is_open())
+        error_log << "PEER FAILED id=" << peer.id << " reason=" << reason << std::endl;
+    emit("peer-failed", {{"peerId", peer.id}, {"reason", reason}});
+    remove_peer(peer.id, false);
+}
+static void add_peer(const std::string &id, const std::string &text) {
+    const auto refuse = [&](const std::string &reason) {
+        emit("peer-failed", {{"peerId", id}, {"reason", reason}});
+    };
+    if (!pipeline)
+        return refuse("Source not started.");
+    if (peers.count(id))
+        return refuse("Duplicate peer.");
+    const auto sdp = parse_offer(text);
+    if (!sdp)
+        return refuse("Invalid SDP");
+    const auto payloads = select_payloads(sdp);
+    const char *unsupported =
+        video_enabled && payloads.video.empty()
+            ? "Browser must offer constrained-baseline H.264 with packetization-mode=1."
+        : audio_channels && payloads.audio.empty() ? "Browser must offer Opus audio."
+                                                   : nullptr;
+    if (unsupported) {
+        gst_sdp_message_free(sdp);
+        return refuse(unsupported);
+    }
+    auto owned = std::make_unique<Peer>();
+    auto &peer = *owned;
+    peer.id = id;
+    peer.index = next_peer_index++;
+    const auto video_ssrc = std::to_string(10000001u + 2u * peer.index);
+    const auto audio_ssrc = std::to_string(20000001u + 2u * peer.index);
+    // webrtcbin requires explicit SSRC on the payloader and in the outgoing RTP caps
+    // during SDP answer creation. Without this, webrtcbin emits FID 0 <rtx-ssrc> and
+    // attaches MSID only to the RTX repair stream, causing the browser to decode RTP
+    // packets but fail to route frames to the MediaStreamTrack (video readyState remains 0).
+    const std::string video_branch =
+        "queue leaky=downstream max-size-buffers=8 max-size-time=200000000 max-size-bytes=0 ! "
+        "rtph264pay mtu=" +
+        std::to_string(profile.mtu) + " config-interval=-1 pt=" + payloads.video +
+        " aggregate-mode=" + (profile.fps == 15 ? "none" : "zero-latency") + " ssrc=" + video_ssrc +
+        " ! application/x-rtp,media=video,encoding-name=H264,ssrc=(uint)" + video_ssrc +
+        " ! identity name=video-output";
+    const std::string audio_branch =
+        "queue leaky=downstream max-size-time=100000000 max-size-buffers=5 ! rtpopuspay pt=" +
+        payloads.audio + " mtu=1200 ssrc=" + audio_ssrc +
+        " ! application/x-rtp,media=audio,encoding-name=OPUS,ssrc=(uint)" + audio_ssrc +
+        " ! identity name=audio-output";
+    if (error_log.is_open())
+        error_log << "PEER id=" << id
+                  << " video=" << (video_enabled ? video_branch : std::string("off"))
+                  << " audio=" << (audio_channels ? audio_branch : std::string("off")) << std::endl;
+    peer.bin = GST_ELEMENT(
+        gst_object_ref_sink(gst_bin_new(("peer-" + std::to_string(peer.index)).c_str())));
+    peer.transport.attach(peer.bin);
+    std::string failure;
+    peer.webrtc = gst_element_factory_make("webrtcbin", "webrtc");
+    if (!peer.webrtc)
+        failure = "Unable to create WebRTC peer.";
+    else {
+        g_object_set(peer.webrtc, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "latency",
+                     0, nullptr);
+        g_signal_connect(
+            peer.webrtc, "on-new-transceiver",
+            G_CALLBACK(+[](GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
+                g_object_set(transceiver, "do-nack", TRUE, nullptr);
+            }),
+            nullptr);
+        gst_bin_add(GST_BIN(peer.bin), peer.webrtc);
+    }
+    const auto add_branch = [&](const std::string &description, const char *ghost) {
+        if (!failure.empty())
+            return;
+        GError *error = nullptr;
+        auto branch = gst_parse_bin_from_description(description.c_str(), TRUE, &error);
+        if (error || !branch) {
+            failure = error ? error->message : "Unable to create peer branch.";
+            if (error)
+                g_error_free(error);
+            if (branch)
+                gst_object_unref(branch);
+            return;
+        }
+        gst_bin_add(GST_BIN(peer.bin), GST_ELEMENT(branch));
+        auto sink = gst_element_get_static_pad(GST_ELEMENT(branch), "sink");
+        if (!sink || !gst_element_link(GST_ELEMENT(branch), peer.webrtc) ||
+            !gst_element_add_pad(peer.bin, gst_ghost_pad_new(ghost, sink)))
+            failure = "Unable to link peer branch to WebRTC.";
+        if (sink)
+            gst_object_unref(sink);
+    };
+    // Link order matches the previous single-peer pipeline: video first, then audio.
+    if (video_enabled)
+        add_branch(video_branch, "video_sink");
+    if (audio_channels)
+        add_branch(audio_branch, "audio_sink");
+    if (!failure.empty()) {
+        gst_sdp_message_free(sdp);
+        gst_object_unref(peer.bin);
+        return refuse(failure);
+    }
+    g_signal_connect_data(peer.webrtc, "notify::ice-gathering-state", G_CALLBACK(gathering_changed),
+                          peer_ref(peer), delete_closure_ref, GConnectFlags(0));
+    g_signal_connect_data(peer.webrtc, "notify::connection-state", G_CALLBACK(connection_changed),
+                          peer_ref(peer), delete_closure_ref, GConnectFlags(0));
+    g_signal_connect_data(peer.webrtc, "on-data-channel", G_CALLBACK(channel_created),
+                          peer_ref(peer), delete_closure_ref, GConnectFlags(0));
+    peers.emplace(id, std::move(owned));
+    gst_bin_add(GST_BIN(pipeline), peer.bin);
+    // Bring the branch up before linking so the tee never pushes into a flushing pad.
+    if (playing)
+        gst_element_sync_state_with_parent(peer.bin);
+    const auto link = [&](const char *tee_name, const char *ghost, GstPad *&tee_pad) {
+        auto tee = gst_bin_get_by_name(GST_BIN(pipeline), tee_name);
+        tee_pad = gst_element_request_pad_simple(tee, "src_%u");
+        gst_object_unref(tee);
+        auto sink = gst_element_get_static_pad(peer.bin, ghost);
+        const bool linked = tee_pad && sink && gst_pad_link(tee_pad, sink) == GST_PAD_LINK_OK;
+        if (sink)
+            gst_object_unref(sink);
+        return linked;
+    };
+    if (!((!video_enabled || link("video-fanout", "video_sink", peer.video_tee_pad)) &&
+          (!audio_channels || link("audio-fanout", "audio_sink", peer.audio_tee_pad)))) {
+        gst_sdp_message_free(sdp);
+        return fail_peer(peer, "Unable to link peer to the shared source.");
+    }
+    if (!playing) {
+        // Nothing is captured or encoded until the first viewer is linked.
+        playing = true;
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    }
+    auto offer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER, sdp);
+    auto promise = gst_promise_new_with_change_func(remote_set, peer_ref(peer), delete_ref);
+    g_signal_emit_by_name(peer.webrtc, "set-remote-description", offer, promise);
+    gst_webrtc_session_description_free(offer);
 }
 static bool set_profile(JsonObject *object) {
     if (json_object_has_member(object, "streamPlan")) {
@@ -592,160 +970,6 @@ static bool set_profile(JsonObject *object) {
     else
         return false;
     return true;
-}
-static void start_offer(const char *text, const char *audio_mode) {
-    GstSDPMessage *sdp = nullptr;
-    gst_sdp_message_new(&sdp);
-    if (strlen(text) > 65536 ||
-        gst_sdp_message_parse_buffer(reinterpret_cast<const guint8 *>(text),
-                                     static_cast<guint>(strlen(text)), sdp) != GST_SDP_OK ||
-        !gst_sdp_message_get_version(sdp) || gst_sdp_message_medias_len(sdp) < 1) {
-        gst_sdp_message_free(sdp);
-        fatal("Invalid SDP");
-        return;
-    }
-    std::string payload, audio_payload;
-    for (guint m = 0; m < gst_sdp_message_medias_len(sdp); ++m) {
-        auto media = gst_sdp_message_get_media(sdp, m);
-        if (g_strcmp0(gst_sdp_media_get_media(media), "video") == 0)
-            for (guint a = 0; a < gst_sdp_media_attributes_len(media); ++a) {
-                auto attribute = gst_sdp_media_get_attribute(media, a);
-                if (g_strcmp0(attribute->key, "rtpmap") != 0 ||
-                    !strstr(attribute->value, "H264/90000"))
-                    continue;
-                std::string candidate(attribute->value, strchr(attribute->value, ' '));
-                for (guint f = 0; f < gst_sdp_media_attributes_len(media); ++f) {
-                    auto fmtp = gst_sdp_media_get_attribute(media, f);
-                    if (g_strcmp0(fmtp->key, "fmtp") == 0 &&
-                        std::string(fmtp->value).rfind(candidate + " ", 0) == 0 &&
-                        strstr(fmtp->value, "packetization-mode=1") &&
-                        strstr(fmtp->value, "profile-level-id=42e0"))
-                        payload = candidate;
-                }
-            }
-        if (g_strcmp0(gst_sdp_media_get_media(media), "audio") == 0) {
-            for (guint a = 0; a < gst_sdp_media_attributes_len(media); ++a) {
-                auto attribute = gst_sdp_media_get_attribute(media, a);
-                if (g_strcmp0(attribute->key, "rtpmap") == 0 &&
-                    (strstr(attribute->value, " opus/48000/2") ||
-                     strstr(attribute->value, " opus/48000"))) {
-                    audio_payload = std::string(attribute->value, strchr(attribute->value, ' '));
-                    break;
-                }
-            }
-        }
-    }
-    if (video_enabled && payload.empty()) {
-        gst_sdp_message_free(sdp);
-        fatal("Browser must offer constrained-baseline H.264 with packetization-mode=1.");
-        return;
-    }
-    GError *error = nullptr;
-    audio_enabled = g_strcmp0(audio_mode, "off") != 0;
-    if (audio_enabled && audio_payload.empty()) {
-        gst_sdp_message_free(sdp);
-        fatal("Browser must offer Opus audio or request audio off.");
-        return;
-    }
-    std::string audio_branch =
-        audio_enabled ? "wasapisrc name=audio-capture loopback=true low-latency=true ! "
-                        "audioconvert ! audioresample ! "
-                        "audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=" +
-                            std::to_string(profile.fps == 15 ? 1 : 2) +
-                            " ! "
-                            "opusenc name=audio-encoder bitrate=" +
-                            std::to_string(profile.fps == 15 ? 32000 : 96000) +
-                            " bitrate-type=cbr frame-size=20 inband-fec=true ! "
-                            "rtpopuspay pt=" +
-                            audio_payload + " mtu=" + std::to_string(profile.mtu) +
-                            " ! queue max-size-time=100000000 max-size-buffers=5 leaky=downstream "
-                            "! identity name=audio-output"
-                      : "";
-    // webrtcbin requires explicit SSRC on the payloader and in the outgoing RTP caps
-    // during SDP answer creation. Without this, webrtcbin emits FID 0 <rtx-ssrc> and
-    // attaches MSID only to the RTX repair stream, causing the browser to decode RTP
-    // packets but fail to route frames to the MediaStreamTrack (video readyState remains 0).
-    auto video_description =
-        pipeline_description() + " ! rtph264pay mtu=" + std::to_string(profile.mtu) +
-        " config-interval=-1 pt=" + payload +
-        " aggregate-mode=" + (profile.fps == 15 ? "none" : "zero-latency") +
-        " ssrc=10000001 ! "
-        "application/x-rtp,media=video,encoding-name=H264,ssrc=(uint)10000001 ! "
-        "identity name=video-output";
-    if (error_log.is_open())
-        error_log << "PIPELINE video=" << video_description
-                  << " audio=" << (audio_enabled ? audio_branch : "off") << std::endl;
-    auto video_bin = video_enabled
-                         ? gst_parse_bin_from_description(video_description.c_str(), TRUE, &error)
-                         : nullptr;
-    if (error || (video_enabled && !video_bin)) {
-        fatal(error ? error->message : "Unable to create video branch.");
-        if (error)
-            g_error_free(error);
-        gst_sdp_message_free(sdp);
-        return;
-    }
-    auto audio_bin = audio_enabled
-                         ? gst_parse_bin_from_description(audio_branch.c_str(), TRUE, &error)
-                         : nullptr;
-    if (error || (audio_enabled && !audio_bin)) {
-        fatal(error ? error->message : "Unable to create audio branch.");
-        if (error)
-            g_error_free(error);
-        if (video_bin)
-            gst_object_unref(video_bin);
-        gst_sdp_message_free(sdp);
-        return;
-    }
-    pipeline = gst_pipeline_new("vidvnc-pipeline");
-    transport_telemetry.attach(pipeline);
-    peer = gst_element_factory_make("webrtcbin", "peer");
-    if (!pipeline || !peer) {
-        fatal("Unable to create WebRTC pipeline.");
-        if (video_bin)
-            gst_object_unref(video_bin);
-        if (audio_bin)
-            gst_object_unref(audio_bin);
-        gst_sdp_message_free(sdp);
-        return;
-    }
-    g_object_set(peer, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "latency", 0, nullptr);
-    g_signal_connect(peer, "on-new-transceiver",
-                     G_CALLBACK(+[](GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
-                         g_object_set(transceiver, "do-nack", TRUE, nullptr);
-                     }),
-                     nullptr);
-    if (video_bin)
-        gst_bin_add(GST_BIN(pipeline), video_bin);
-    gst_bin_add(GST_BIN(pipeline), peer);
-    if (video_bin && !gst_element_link(video_bin, peer)) {
-        fatal("Unable to link video to WebRTC.");
-        gst_sdp_message_free(sdp);
-        return;
-    }
-    if (audio_bin) {
-        gst_bin_add(GST_BIN(pipeline), audio_bin);
-        if (!gst_element_link(audio_bin, peer)) {
-            fatal("Unable to link audio to WebRTC.");
-            gst_sdp_message_free(sdp);
-            return;
-        }
-    }
-    if (video_enabled) {
-        telemetry.attach(pipeline);
-        attach_recovery(pipeline);
-    }
-    audio_telemetry.attach(pipeline);
-    g_signal_connect(peer, "notify::ice-gathering-state", G_CALLBACK(gathering_changed), nullptr);
-    g_signal_connect(peer, "on-data-channel", G_CALLBACK(channel_created), nullptr);
-    auto bus = gst_element_get_bus(pipeline);
-    gst_bus_add_watch(bus, bus_message, nullptr);
-    gst_object_unref(bus);
-    auto offer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER, sdp);
-    gst_element_set_state(pipeline, GST_STATE_PLAYING);
-    auto promise = gst_promise_new_with_change_func(remote_set, nullptr, nullptr);
-    g_signal_emit_by_name(peer, "set-remote-description", offer, promise);
-    gst_webrtc_session_description_free(offer);
 }
 static bool set_display(JsonObject *object) {
     auto node = json_object_get_member(object, "display");
@@ -773,6 +997,47 @@ static bool set_display(JsonObject *object) {
     }
     return false;
 }
+static void start_source(JsonObject *object) {
+    if (started)
+        return fatal("Source already started");
+    started = true;
+    video_enabled = boolean_member(object, "video");
+    host_control_required = boolean_member(object, "hostControl");
+    const std::string format = string_member(object, "audioFormat");
+    audio_channels = format == "mono-32k" ? 1 : format == "stereo-96k" ? 2 : 0;
+    if (!format.empty() && !audio_channels)
+        return fatal("Invalid audio format");
+    if (!video_enabled && !audio_channels)
+        return fatal("Audio sources require an audio format");
+    if (video_enabled && !set_profile(object))
+        return fatal("Invalid stream profile");
+    if (video_enabled && !set_display(object))
+        return fatal("Selected display is unavailable or changed");
+    std::string description;
+    if (video_enabled)
+        description = pipeline_description() + " ! tee name=video-fanout allow-not-linked=true";
+    if (audio_channels)
+        description += (description.empty() ? "" : "  ") + audio_source_description();
+    if (error_log.is_open())
+        error_log << "SOURCE " << description << std::endl;
+    GError *error = nullptr;
+    pipeline = gst_parse_launch(description.c_str(), &error);
+    if (error || !pipeline) {
+        fatal(error ? error->message : "Unable to create the shared source.");
+        if (error)
+            g_error_free(error);
+        return;
+    }
+    if (video_enabled) {
+        telemetry.attach(pipeline);
+        attach_recovery(pipeline);
+    }
+    audio_telemetry.attach(pipeline);
+    auto bus = gst_element_get_bus(pipeline);
+    gst_bus_add_watch(bus, bus_message, nullptr);
+    gst_object_unref(bus);
+    emit("ready");
+}
 static gboolean command(gpointer data) {
     auto text = static_cast<std::string *>(data);
     JsonParser *parser = nullptr;
@@ -781,55 +1046,47 @@ static gboolean command(gpointer data) {
         fatal("Invalid command JSON");
     else {
         std::string type = string_member(object, "type");
-        if (type == "offer" && !pipeline) {
-            auto video = json_object_get_member(object, "video");
-            video_enabled = !video || json_node_get_value_type(video) != G_TYPE_BOOLEAN ||
-                            json_node_get_boolean(video);
-            auto require_host = json_object_get_member(object, "hostControl");
-            host_control_required = require_host &&
-                                    json_node_get_value_type(require_host) == G_TYPE_BOOLEAN &&
-                                    json_node_get_boolean(require_host);
-            host_input_permission.revoke();
-            if (!set_profile(object))
-                fatal("Invalid stream profile");
-            else if (video_enabled && !set_display(object))
-                fatal("Selected display is unavailable or changed");
-            else
-                start_offer(string_member(object, "sdp"), string_member(object, "audio"));
-        } else if (type == "control-permission") {
+        const std::string peer_id = string_member(object, "peerId");
+        const bool valid_peer = !peer_id.empty() && peer_id.size() <= 64;
+        if (type == "start")
+            start_source(object);
+        else if (type == "add-peer" && valid_peer)
+            add_peer(peer_id, string_member(object, "sdp"));
+        else if (type == "remove-peer" && valid_peer)
+            remove_peer(peer_id, true);
+        else if (type == "control-permission") {
             auto allowed = json_object_get_member(object, "allowed");
             auto request = number_member(object, "requestId");
             auto duration = number_member(object, "leaseMs");
-            if (!allowed || json_node_get_value_type(allowed) != G_TYPE_BOOLEAN ||
-                !std::isfinite(request) || request < 1 || request > 9007199254740991.0 ||
-                request != std::floor(request) || !std::isfinite(duration) || duration < 1 ||
-                duration > 5000) {
-                host_input_permission.revoke();
-                release_input();
+            if (!valid_peer || !allowed || !JSON_NODE_HOLDS_VALUE(allowed) ||
+                json_node_get_value_type(allowed) != G_TYPE_BOOLEAN || !std::isfinite(request) ||
+                request < 1 || request > 9007199254740991.0 || request != std::floor(request) ||
+                !std::isfinite(duration) || duration < 1 || duration > 5000) {
+                release_held();
                 fatal("Invalid control permission");
             } else {
-                if (video_enabled && json_node_get_boolean(allowed))
-                    host_input_permission.grant(g_get_monotonic_time() / 1000,
-                                                static_cast<gint64>(duration));
+                const auto now = now_ms();
+                const auto found = peers.find(peer_id);
+                const bool known =
+                    video_enabled && found != peers.end() && !found->second->removing;
+                if (json_node_get_boolean(allowed))
+                    peer_permission.grant(peer_id, known, now, static_cast<gint64>(duration));
                 else {
-                    host_input_permission.revoke();
-                    release_input();
-                    if (input_channel)
-                        gst_webrtc_data_channel_send_string(input_channel, "{\"control\":false}");
+                    peer_permission.revoke(peer_id);
+                    if (found != peers.end())
+                        revoke_peer(*found->second, true);
                 }
+                // Granting one peer ends control for every other peer of this source.
+                enforce_permission();
                 std::cout << "{\"type\":\"control-result\",\"requestId\":"
                           << static_cast<gint64>(request) << ",\"allowed\":"
-                          << (host_input_permission.allowed(g_get_monotonic_time() / 1000)
-                                  ? "true"
-                                  : "false")
-                          << "}" << std::endl;
+                          << (peer_permission.allowed(peer_id, now) ? "true" : "false") << "}"
+                          << std::endl;
             }
         } else if (type == "stop")
             begin_shutdown();
-        else if (type == "keyframe" && pipeline) {
-            auto now = g_get_monotonic_time();
-            if (now - last_recovery >= 2 * G_USEC_PER_SEC) {
-                last_recovery = now;
+        else if (type == "keyframe") {
+            if (video_enabled && pipeline && keyframe_limiter.recovery(now_ms())) {
                 bool accepted = request_keyframe(pipeline);
                 if (error_log.is_open())
                     error_log << "RECOVERY force-key-unit accepted=" << accepted << std::endl;
@@ -847,30 +1104,30 @@ static int session() {
         1000,
         [](gpointer) -> gboolean {
             if (!capture_display_current()) {
-                release_input();
+                release_held();
                 fatal("Capture display changed. Reconnect.");
                 return G_SOURCE_REMOVE;
             }
-            if (pipeline) {
+            if (pipeline && !peers.empty()) {
                 auto sample = telemetry.snapshot();
                 audio_telemetry.merge(sample);
                 json_object_set_string_member(sample, "type", "metrics");
-                transport_telemetry.merge(pipeline, sample);
                 json_object_set_int_member(sample, "forceKeyUnitEvents", force_events.load());
                 json_object_set_int_member(sample, "encodedKeyframes", keyframes.load());
                 json_object_set_int_member(sample, "spsProfile", sps_profile.load());
                 json_object_set_int_member(sample, "spsLevel", sps_level.load());
-                auto node = json_node_new(JSON_NODE_OBJECT);
-                json_node_take_object(node, sample);
-                auto text = json_to_string(node, false);
-                std::cout << text << std::endl;
-                g_free(text);
-                json_node_free(node);
+                auto rows = json_object_new();
+                for (auto &entry : peers) {
+                    if (entry.second->removing)
+                        continue;
+                    auto row = json_object_new();
+                    entry.second->transport.merge(entry.second->bin, row);
+                    json_object_set_object_member(rows, entry.first.c_str(), row);
+                }
+                json_object_set_object_member(sample, "peers", rows);
+                write_object(sample);
             }
-            if (control && (g_get_monotonic_time() - last_ping > 5 * G_USEC_PER_SEC ||
-                            (host_control_required &&
-                             !host_input_permission.allowed(g_get_monotonic_time() / 1000))))
-                release_input();
+            enforce_permission();
             return G_SOURCE_CONTINUE;
         },
         nullptr);
@@ -886,12 +1143,18 @@ static int session() {
         begin_shutdown();
     }).detach();
     g_main_loop_run(loop);
-    release_input();
+    release_held();
     if (pipeline)
         gst_element_set_state(pipeline, GST_STATE_NULL);
-    if (input_channel)
-        g_object_unref(input_channel);
-    // peer is owned by pipeline; unref the parent once below.
+    for (auto &entry : peers) {
+        for (auto pad : {entry.second->video_tee_pad, entry.second->audio_tee_pad})
+            if (pad)
+                gst_object_unref(pad);
+        if (entry.second->input_channel)
+            g_object_unref(entry.second->input_channel);
+        gst_object_unref(entry.second->bin);
+    }
+    peers.clear();
     if (pipeline)
         gst_object_unref(pipeline);
     // Process exit reclaims the stdin reader; it never owns capture resources.

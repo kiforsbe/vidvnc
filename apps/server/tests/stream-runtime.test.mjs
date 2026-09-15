@@ -7,7 +7,20 @@ import { NativeMedia } from '../src/native-media.mjs';
 import { DisplayInventory } from '../src/displays.mjs';
 import { defaultStreamPolicy } from '../src/stream-policy.mjs';
 
-async function setup(t, defaultControl = 'approval', approvedClients = undefined) {
+async function waitFor(condition, timeout = 2000) {
+  const deadline = Date.now() + timeout;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('Timed out waiting for condition');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function setup(
+  t,
+  defaultControl = 'approval',
+  approvedClients = undefined,
+  { registry, ...mediaOptions } = {},
+) {
   const { StreamRuntime } = await import('../src/stream-runtime.mjs');
   const sessions = new SessionStore({ maxSessions: 2 });
   const media = new NativeMedia({
@@ -19,6 +32,7 @@ async function setup(t, defaultControl = 'approval', approvedClients = undefined
         [fileURLToPath(new URL('./fixtures/media-process.mjs', import.meta.url))],
         { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
       ),
+    ...mediaOptions,
   });
   const policy = defaultStreamPolicy();
   const displays = [0, 1].map((index) => ({
@@ -42,6 +56,7 @@ async function setup(t, defaultControl = 'approval', approvedClients = undefined
     access: { snapshot: () => ({ ...access }) },
     approvedClients,
     policy: { snapshot: () => structuredClone(policy) },
+    ...(registry ? { registry } : {}),
   });
   t.after(() => runtime.shutdown());
   const a = sessions.connect(sessions.password, 'a').sessionId;
@@ -54,8 +69,8 @@ async function setup(t, defaultControl = 'approval', approvedClients = undefined
       fps: 15,
       bitrateKbps: 2000,
     });
-  const offer = (sessionId, index = 0, profile = 'mobile') =>
-    runtime.offerVideo(sessionId, { sdp: 'v=0', displayId: displays[index].id, profile });
+  const offer = (sessionId, index = 0, profile = 'mobile', sdp = 'v=0') =>
+    runtime.offerVideo(sessionId, { sdp, displayId: displays[index].id, profile });
   return { sessions, media, runtime, a, b, displays, inventory, offer, access };
 }
 
@@ -139,27 +154,28 @@ test('runtime negotiates owner-scoped streams with separate metrics and revokes 
   assert.equal(runtime.list(b).length, 1);
   assert.equal(runtime.record(a, first.streamId, { decodeFps: 12 }), true);
   assert.equal(runtime.record(b, first.streamId, { decodeFps: 999 }), false);
-  assert.equal(media.workers.get(first.streamId).diagnostics.snapshot().client.decodeFps, 12);
-  assert.equal(media.workers.get(second.streamId).diagnostics.snapshot().client, null);
+  assert.equal(runtime.streamDiagnostics.get(first.streamId).snapshot().client.decodeFps, 12);
+  assert.equal(runtime.streamDiagnostics.get(second.streamId).snapshot().client, null);
+  assert.equal(runtime.streamDiagnostics.get(other.streamId).snapshot().client, null);
   await assert.rejects(runtime.stopStream(b, first.streamId), /stream/i);
   await runtime.stopStream(a, first.streamId);
-  assert.ok(media.workers.has(second.streamId));
-  assert.ok(media.workers.has(other.streamId));
+  assert.equal(runtime.list(b)[0].state, 'live');
+  assert.equal(media.workers.size, 2);
   sessions.disconnect(a);
   await runtime.stopSession(a);
-  assert.equal(media.workers.has(second.streamId), false);
-  assert.ok(media.workers.has(other.streamId));
+  assert.equal(media.workers.size, 1);
+  assert.equal(runtime.list(b)[0].streamId, other.streamId);
   assert.ok(sessions.get(b));
 });
 
 test('topology invalidation stops affected displays without disconnecting unaffected subscriptions', async (t) => {
-  const { runtime, media, sessions, a, b, displays, inventory, offer } = await setup(t);
-  const first = await offer(a, 0);
-  const second = await offer(b, 1);
+  const { runtime, sessions, a, b, displays, inventory, offer } = await setup(t);
+  await offer(a, 0);
+  await offer(b, 1);
   inventory.update([displays[0]]);
   await runtime.revalidate();
-  assert.ok(media.workers.has(first.streamId));
-  assert.equal(media.workers.has(second.streamId), false);
+  assert.equal(runtime.list(a).length, 1);
+  assert.equal(runtime.list(b).length, 0);
   assert.ok(sessions.get(a));
   assert.ok(sessions.get(b));
 });
@@ -167,13 +183,14 @@ test('topology invalidation stops affected displays without disconnecting unaffe
 test('audio is one independent subscription per device and survives closing its video', async (t) => {
   const { runtime, media, sessions, a, b, offer } = await setup(t);
   const audio = await runtime.offerAudio(a, 'v=0');
-  assert.equal(media.workers.get(audio.streamId).video, false);
+  assert.equal(runtime.audio.get(a).id, audio.streamId);
   const first = await offer(a);
   const second = await offer(a, 1);
   await assert.rejects(runtime.offerAudio(a, 'v=0'), /audio/i);
   await runtime.stopStream(a, first.streamId);
   await runtime.stopStream(a, second.streamId);
-  assert.ok(media.workers.has(audio.streamId));
+  assert.equal(runtime.audio.size, 1);
+  assert.equal(media.workers.size, 1);
   sessions.disconnect(a);
   await runtime.stopSession(a);
   assert.equal(media.workers.size, 0);
@@ -182,13 +199,15 @@ test('audio is one independent subscription per device and survives closing its 
 });
 
 test('host status keeps each stream graph separate and reports only acknowledged control', async (t) => {
-  const { runtime, media, a, b, offer } = await setup(t);
+  const { runtime, a, b, offer } = await setup(t);
   const first = await offer(a);
   const second = await offer(a, 1, 'balanced');
   await offer(b);
   runtime.record(a, first.streamId, { decodeFps: 12 });
   runtime.record(a, second.streamId, { decodeFps: 29 });
-  media.workers.get(first.streamId).diagnostics.record('server', { captureFps: 15, encodeFps: 15 });
+  runtime.streamDiagnostics
+    .get(first.streamId)
+    .record('server', { captureFps: 15, encodeFps: 15 });
   await runtime.control.grant(a, second.streamId);
   const status = runtime.status();
   assert.equal(status.streamCount, 3);
@@ -217,7 +236,7 @@ test('host status keeps each stream graph separate and reports only acknowledged
 });
 
 test('host grant follows selected stream and client selection cannot acquire another owner control', async (t) => {
-  const { runtime, a, b, offer, media } = await setup(t);
+  const { runtime, a, b, offer } = await setup(t);
   const first = await offer(a);
   const second = await offer(a, 1);
   const other = await offer(b);
@@ -235,6 +254,181 @@ test('host grant follows selected stream and client selection cannot acquire ano
   await runtime.command({ action: 'revoke', sessionId: a });
   assert.equal(runtime.control.owner, null);
   await runtime.command({ action: 'stop-stream', sessionId: a, streamId: second.streamId });
-  assert.ok(media.workers.has(first.streamId));
-  assert.equal(media.workers.has(second.streamId), false);
+  assert.deepEqual(
+    runtime.list(a).map((s) => s.streamId),
+    [first.streamId],
+  );
+});
+
+test('identical display and profile subscriptions share one worker and stop it with the last viewer', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  const first = await offer(a);
+  const second = await offer(b);
+  assert.equal(media.workers.size, 1);
+  assert.deepEqual(runtime.registry.sources()[0].subscriptions, [first.streamId, second.streamId]);
+  assert.deepEqual(
+    runtime.status().sessions.flatMap((s) => s.streams.map((stream) => stream.viewers)),
+    [2, 2],
+  );
+  await runtime.stopStream(a, first.streamId);
+  assert.equal(media.workers.size, 1);
+  assert.equal(runtime.list(b)[0].state, 'live');
+  await runtime.stopStream(b, second.streamId);
+  assert.equal(media.workers.size, 0);
+  assert.equal(runtime.registry.sources().length, 0);
+});
+
+test('different profiles on one display use separate workers', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  await offer(a);
+  await offer(b, 0, 'balanced');
+  assert.equal(media.workers.size, 2);
+  assert.deepEqual(
+    runtime.status().sessions.flatMap((s) => s.streams.map((stream) => stream.viewers)),
+    [1, 1],
+  );
+});
+
+test('source metrics reach every viewer while peer transport stays with its subscription', async (t) => {
+  const { runtime, a, b, offer } = await setup(t);
+  const first = await offer(a);
+  const second = await offer(b);
+  const own = runtime.streamDiagnostics.get(first.streamId).snapshot().server;
+  const shared = runtime.streamDiagnostics.get(second.streamId).snapshot().server;
+  assert.equal(own.captureFps, 15);
+  assert.equal(own.videoRtpPackets, null);
+  assert.equal(shared.videoRtpPackets, 2);
+});
+
+test('a worker exit releases every subscription of that source only', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  const shared = await offer(a);
+  await offer(b);
+  const own = await offer(a, 1);
+  const child = media.workers.get(runtime.registry.sourceOf(shared.streamId).id).child;
+  const closed = new Promise((resolve) => child.once('close', resolve));
+  child.kill();
+  await closed;
+  assert.deepEqual(
+    runtime.list(a).map((s) => s.streamId),
+    [own.streamId],
+  );
+  assert.deepEqual(runtime.list(b), []);
+  assert.equal(runtime.registry.sources().length, 1);
+  assert.equal(runtime.streamDiagnostics.has(shared.streamId), false);
+});
+
+test('a failed peer ends only its own subscription', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  const first = await offer(a);
+  const second = await offer(b);
+  const worker = media.workers.get(runtime.registry.sourceOf(first.streamId).id);
+  worker.child.stdin.write(JSON.stringify({ type: 'fail-peer', peerId: second.streamId }) + '\n');
+  await waitFor(() => runtime.list(b).length === 0);
+  assert.equal(runtime.list(a)[0].state, 'live');
+  assert.equal(media.workers.size, 1);
+});
+
+test('negotiation timeout removes the peer and stops a source without viewers', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t, 'approval', undefined, {
+    negotiationTimeoutMs: 200,
+  });
+  const first = await offer(a);
+  await assert.rejects(offer(b, 0, 'mobile', 'v=0 hang'), /timed out/);
+  assert.deepEqual(runtime.list(b), []);
+  assert.equal(media.workers.size, 1);
+  await runtime.stopStream(a, first.streamId);
+  await assert.rejects(offer(b, 0, 'mobile', 'v=0 hang'), /timed out/);
+  assert.equal(media.workers.size, 0);
+});
+
+test('control transfers between two viewers of one source and addresses each peer', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  const first = await offer(a);
+  const second = await offer(b);
+  const calls = [];
+  const setPermission = media.setPermission.bind(media);
+  media.setPermission = (sourceId, peerId, allowed) => {
+    calls.push([peerId, allowed]);
+    return setPermission(sourceId, peerId, allowed);
+  };
+  await runtime.control.grant(a, first.streamId);
+  await runtime.control.grant(b, second.streamId);
+  assert.deepEqual(calls, [
+    [first.streamId, true],
+    [first.streamId, false],
+    [second.streamId, true],
+  ]);
+  assert.equal(runtime.control.owner.sessionId, b);
+});
+
+test('an unacknowledged revoke removes only that peer', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  await offer(a);
+  const second = await offer(b, 0, 'mobile', 'v=0 no-revoke');
+  await runtime.control.grant(b, second.streamId);
+  await runtime.control.revoke(b);
+  assert.equal(runtime.control.owner, null);
+  assert.deepEqual(runtime.list(b), []);
+  assert.equal(runtime.list(a)[0].state, 'live');
+  assert.equal(media.workers.size, 1);
+});
+
+test('an unacknowledged removal stops the whole source', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t, 'approval', undefined, {
+    removalTimeoutMs: 200,
+  });
+  await offer(a);
+  const second = await offer(b, 0, 'mobile', 'v=0 no-revoke no-remove');
+  await runtime.control.grant(b, second.streamId);
+  await runtime.control.revoke(b);
+  assert.deepEqual(runtime.list(a), []);
+  assert.equal(media.workers.size, 0);
+});
+
+test('recovery trips from two viewers produce one shared keyframe per two seconds', async (t) => {
+  const { runtime, media, a, b, offer } = await setup(t);
+  const first = await offer(a);
+  const second = await offer(b);
+  const results = [];
+  const keyframe = media.keyframe.bind(media);
+  media.keyframe = (sourceId) => {
+    const sent = keyframe(sourceId);
+    results.push(sent);
+    return sent;
+  };
+  runtime.record(a, first.streamId, { pliCount: 0 });
+  runtime.record(b, second.streamId, { pliCount: 0 });
+  runtime.telemetryTimes.clear();
+  runtime.record(a, first.streamId, { pliCount: 1 });
+  runtime.record(b, second.streamId, { pliCount: 1 });
+  assert.deepEqual(results, [true, false]);
+});
+
+test('audio subscriptions share one worker per format', async (t) => {
+  const { runtime, media, sessions, a, b } = await setup(t);
+  await runtime.offerAudio(a, 'v=0');
+  await runtime.offerAudio(b, 'v=0');
+  assert.equal(media.workers.size, 1);
+  assert.equal(runtime.audio.size, 2);
+  assert.deepEqual(
+    runtime.status().sessions.map((s) => s.audioViewers),
+    [2, 2],
+  );
+  sessions.disconnect(b);
+  await runtime.stopSession(b);
+  const fresh = sessions.connect(sessions.password, 'fresh').sessionId;
+  sessions.setProfile(fresh, { name: 'balanced', width: 1920, height: 1080, fps: 30, bitrateKbps: 4000 });
+  await runtime.offerAudio(fresh, 'v=0');
+  assert.equal(media.workers.size, 2);
+});
+
+test('budget refusals happen only when a new source is required', async (t) => {
+  const { StreamRegistry } = await import('../src/stream-registry.mjs');
+  const { a, b, offer } = await setup(t, 'approval', undefined, {
+    registry: new StreamRegistry({ maxStreams: 1 }),
+  });
+  await offer(a);
+  await offer(b);
+  await assert.rejects(offer(b, 1), (error) => error.status === 409);
 });

@@ -78,7 +78,7 @@ test('session commands use console numbers and stream IDs and never print sessio
     list,
     [
       '#1  iPhone · 192.168.1.20 · Smooth · audio on · view only',
-      '    Stream    Display  Size      Target  Profile',
+      '    Stream    Display  Size      Target  Profile           Shared',
       '    stream-a  Main     1280×720  15 fps  iphone-720p-test',
       '#2  Windows browser · 192.168.1.30 · Smooth · audio on · view only',
       '    Waiting for a display stream.',

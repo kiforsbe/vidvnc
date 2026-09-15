@@ -7,7 +7,7 @@ import { once } from 'node:events';
 import { executable, workerEnvironment } from '../runtime.mjs';
 
 test(
-  'native owner pipe acknowledges bounded grant and revoke before clean shutdown',
+  'native owner pipe refuses control for unknown peers and acknowledges before clean shutdown',
   { timeout: 10000 },
   async (t) => {
     const child = spawn(executable, ['--session'], {
@@ -23,18 +23,30 @@ test(
     const lines = createInterface({ input: child.stdout });
     let stderr = '';
     child.stderr.on('data', (chunk) => (stderr += chunk));
+    const ready = once(lines, 'line');
+    child.stdin.write(
+      JSON.stringify({ type: 'start', video: false, audioFormat: 'mono-32k', hostControl: true }) +
+        '\n',
+    );
+    assert.deepEqual(JSON.parse((await ready)[0]), { type: 'ready' });
     for (const [requestId, allowed] of [
       [1, true],
       [2, false],
     ]) {
       const response = once(lines, 'line');
       child.stdin.write(
-        JSON.stringify({ type: 'control-permission', requestId, allowed, leaseMs: 5000 }) + '\n',
+        JSON.stringify({
+          type: 'control-permission',
+          peerId: 'absent',
+          requestId,
+          allowed,
+          leaseMs: 5000,
+        }) + '\n',
       );
       assert.deepEqual(JSON.parse((await response)[0]), {
         type: 'control-result',
         requestId,
-        allowed,
+        allowed: false,
       });
     }
     child.stdin.write('{"type":"stop"}\n');

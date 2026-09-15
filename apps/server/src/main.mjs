@@ -10,7 +10,7 @@ import { Diagnostics } from './diagnostics.mjs';
 import { logDirectory, runtimeManifest } from '@vidvnc/media-worker/runtime';
 import { waitForOwner } from './owner-start.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
-import { AccessSettings, MAX_SESSIONS_LIMIT } from './access-settings.mjs';
+import { AccessSettings } from './access-settings.mjs';
 import { dataDirectory, settingsFiles } from './paths.mjs';
 import { registerInstance } from './instances.mjs';
 import { createLiveContext, startConsole } from './cli/console.mjs';
@@ -46,9 +46,10 @@ async function serve() {
     const diagnostics = new Diagnostics({
       directory: logDirectory,
     });
-    // Sized for the largest device limit: stream-registry budgets and admission decide what starts.
+    // Eight video sources plus two audio formats, each of which may briefly have a closing
+    // predecessor; registry budgets decide what starts.
     const media = new NativeMedia({
-      maxWorkers: MAX_SESSIONS_LIMIT * 2,
+      maxWorkers: 12,
       hostControl: true,
       diagnostics,
     });

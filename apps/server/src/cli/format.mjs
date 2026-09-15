@@ -129,13 +129,14 @@ export function formatSessions(status, numbers) {
       const header = `#${numbers.number(row.id)}  ${clean(row.device)} · ${clean(row.address)} · ${row.health} · audio ${row.audio ? 'on' : 'off'} · ${control}`;
       if (!row.streams.length) return `${header}\n    Waiting for a display stream.`;
       const streams = table(
-        ['Stream', 'Display', 'Size', 'Target', 'Profile'],
+        ['Stream', 'Display', 'Size', 'Target', 'Profile', 'Shared'],
         row.streams.map((stream) => [
           stream.id,
           stream.name,
           stream.width && stream.height ? size(stream) : 'pending',
           stream.targetFps ? `${stream.targetFps} fps` : 'unknown',
           stream.profile,
+          stream.viewers > 1 ? `×${stream.viewers}` : '',
         ]),
       );
       return `${header}\n${streams
