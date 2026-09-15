@@ -277,6 +277,12 @@ This is a LAN-focused preview. Passkeys, remote access/hub, multi-monitor routin
 signed release packages, and production security hardening remain future work. Do not
 expose this development server to the public internet.
 
+## Feedback and contributions
+
+Bug reports and feature requests are welcome as GitHub issues. Pull requests are not
+accepted at this time; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security
+vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
+
 ## License
 
 Copyright (C) 2026 kiforsbe. VidVNC is licensed under the

@@ -37,5 +37,5 @@ from the copyright holder, kiforsbe.
 
 ## Contributions
 
-To keep commercial licensing possible, pull requests containing code are not accepted
-at this time. Issues, bug reports and suggestions are welcome.
+To keep commercial licensing possible, pull requests are not accepted at this time.
+Bug reports and suggestions are welcome as issues; see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a new feature or a change to how VidVNC works.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please check the existing issues and the roadmap (`docs/ROADMAP.md`) first; it may already be planned.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Streaming and video quality
+        - Audio
+        - Keyboard and mouse control
+        - Browser client
+        - VidVNC app (Windows host)
+        - Command-line server
+        - Packaging and installation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what you're trying to do and what gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered

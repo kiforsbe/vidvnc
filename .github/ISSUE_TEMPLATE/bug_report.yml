@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in VidVNC doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please search the existing issues first, and add details to a matching one instead of opening another.
+  - type: dropdown
+    id: product
+    attributes:
+      label: Package or build
+      options:
+        - VidVNC app (Windows package)
+        - VidVNC Server (command-line ZIP)
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: 0.1.0, or the commit hash if you built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include any error messages exactly as shown.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start sharing display 1 with the default profile
+        2. Connect from an iPhone
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Run `winver` to see it.
+      placeholder: Windows 11 25H2, build 26200.1234
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: Graphics card and NVIDIA driver version
+      placeholder: GeForce RTX 4070, driver 581.29
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Viewing device and browser
+      placeholder: iPhone 16 with Safari, or Windows 11 with Edge
+  - type: input
+    id: profile
+    attributes:
+      label: Stream profile
+      description: The profile in use when the problem happened, if it matters.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >-
+        Logs are in `%LOCALAPPDATA%\VidVNC\logs`. Remove passwords, IP addresses and anything
+        else private before pasting.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues.
+          required: true
+        - label: I removed passwords, IP addresses and other private details from what I pasted.
+          required: true
