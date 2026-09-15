@@ -1,33 +1,8 @@
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizePassword } from '@vidvnc/web-client/password-entry.js';
+import { randomUUID } from 'node:crypto';
 import { chooseAudioMode } from './audio.mjs';
+import { CONNECTION_KEY_PURPOSES, ConnectionKeyRegistry } from './connection-keys.mjs';
 
-const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const PASSWORD_LENGTH = 8;
-const PASSWORD_GROUP_SIZE = 4;
 const MEDIA_STATUS = Object.freeze({ state: 'unavailable' });
-
-function generatePassword() {
-  let characters = '';
-  const acceptedByteCount = Math.floor(256 / PASSWORD_ALPHABET.length) * PASSWORD_ALPHABET.length;
-
-  while (characters.length < PASSWORD_LENGTH) {
-    for (const byte of randomBytes(PASSWORD_LENGTH)) {
-      if (byte >= acceptedByteCount) continue;
-      characters += PASSWORD_ALPHABET[byte % PASSWORD_ALPHABET.length];
-      if (characters.length === PASSWORD_LENGTH) break;
-    }
-  }
-
-  return `${characters.slice(0, PASSWORD_GROUP_SIZE)}-${characters.slice(PASSWORD_GROUP_SIZE)}`;
-}
-
-function passwordsMatch(left, right) {
-  if (typeof left !== 'string' || typeof right !== 'string') return false;
-  const leftBuffer = Buffer.from(left, 'utf8');
-  const rightBuffer = Buffer.from(right, 'utf8');
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
 
 export function isValidPasswordFormat(value) {
   return typeof value === 'string' && /^[A-Z]{4}-[A-Z]{4}$/.test(value);
@@ -42,6 +17,7 @@ export class SessionStore {
     onRevoke = () => {},
     onConnect = () => {},
     maxSessions = 1,
+    keys = new ConnectionKeyRegistry({ clock }),
   } = {}) {
     if (!Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 64)
       throw new Error('Invalid session limit');
@@ -52,7 +28,8 @@ export class SessionStore {
     this.windowMs = windowMs;
     this.onRevoke = onRevoke;
     this.onConnect = onConnect;
-    this._password = generatePassword();
+    this.keys = keys;
+    this._password = keys.sessionKey;
     this._sessions = new Map();
     this._failedAttempts = new Map();
   }
@@ -68,7 +45,7 @@ export class SessionStore {
 
   rotatePassword() {
     for (const id of this._sessions.keys()) this.disconnect(id);
-    this._password = generatePassword();
+    this._password = this.keys.rotateSession();
     return this._password;
   }
 
@@ -86,18 +63,37 @@ export class SessionStore {
       return { ok: false, reason: 'rate-limited' };
     }
 
-    if (!passwordsMatch(normalizePassword(password), this._password)) {
+    const record = this.keys.inspect(password);
+    if (
+      !record ||
+      ![CONNECTION_KEY_PURPOSES.session, CONNECTION_KEY_PURPOSES.once].includes(record.purpose)
+    ) {
       attempts.push(now);
       this._failedAttempts.set(clientKey, attempts);
       return { ok: false, reason: 'invalid-password' };
     }
 
-    this._failedAttempts.delete(clientKey);
     if (this._sessions.size >= this.maxSessions) return { ok: false, reason: 'busy' };
+    if (!this.keys.use(password, record.purpose))
+      return { ok: false, reason: 'invalid-password' };
+    this._failedAttempts.delete(clientKey);
+    return this.#createSession(clientKey, userAgent);
+  }
+
+  connectApproved(approvedClient, clientKey = 'unknown', userAgent = '') {
+    this.sweep();
+    if (!approvedClient?.id) return { ok: false, reason: 'invalid-client' };
+    if (this._sessions.size >= this.maxSessions) return { ok: false, reason: 'busy' };
+    return this.#createSession(clientKey, userAgent, approvedClient);
+  }
+
+  #createSession(clientKey, userAgent, approvedClient = null) {
+    const now = this.clock();
     const sessionId = randomUUID();
     this._sessions.set(sessionId, {
       sessionId,
       clientKey,
+      approvedClientId: approvedClient?.id ?? null,
       device: /iPhone/i.test(userAgent)
         ? 'iPhone'
         : /iPad/i.test(userAgent)

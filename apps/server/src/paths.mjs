@@ -16,6 +16,7 @@ export function settingsFiles(directory) {
   return {
     policy: join(directory, 'stream-policy.json'),
     access: join(directory, 'access-settings.json'),
+    approvedClients: join(directory, 'approved-clients.json'),
     profileOrder: join(directory, 'profile-order.json'),
     instances: join(directory, 'instances'),
   };

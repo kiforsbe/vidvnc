@@ -10,22 +10,28 @@ Let the host approve a client once so that client can later choose **Sign in** w
 
 Milestone 1 uses human-readable pre-shared keys. QR transfer is out of scope. Apple passkeys, Windows Hello, and other platform passkeys are a later authentication option.
 
-## Milestone 1: two key types in one format
+## Milestone 1: three key types in one format
 
-Both key types keep the exact existing `AAAA-BBBB` presentation: eight letters total, displayed as four letters, one dash, and four letters. There is no prefix, suffix, or additional setup-key character. The dash is only a presentation separator and does not contribute entropy. One non-secret purpose bit is encoded in the first letter, so the web client, host, and server can distinguish the flow without changing the visible format or adding a second input field.
+All key types keep the exact existing `AAAA-BBBB` presentation: eight letters total, displayed as four letters, one dash, and four letters. There is no prefix, suffix, or additional setup-key character. The dash is only a presentation separator and does not contribute entropy. Two non-secret purpose bits are encoded in the first letter, so the web client, host, and server can distinguish the flow without changing the visible format or adding a second input field.
 
 The shared alphabet remains `ABCDEFGHJKLMNPQRSTUVWXYZ`. Its characters have indexes `0` through `23`:
 
-- An even first-character index identifies a Session key.
-- An odd first-character index identifies a Client setup key.
+- Index modulo four `0` identifies a Session key.
+- Index modulo four `1` identifies a Client setup key.
+- Index modulo four `2` identifies a One-time connection key.
+- Index modulo four `3` is reserved and rejected.
 
-The generator chooses the first character from the appropriate 12-character half-keyspace and chooses the remaining seven characters uniformly from the full alphabet. Each purpose therefore has `12 × 24⁷` possible keys, about 35.7 bits of entropy—one bit less than the current undifferentiated format. The type bit is routing metadata, not an authorization decision or extra secret.
+The generator chooses the first character from the appropriate six-character quarter-keyspace and chooses the remaining seven characters uniformly from the full alphabet. Each purpose therefore has `6 × 24⁷` possible keys, about 34.7 bits of entropy—two bits less than the current undifferentiated format. The purpose bits are routing metadata, not an authorization decision or extra secret.
 
-For example, `NLYJ-LGFN` is a Session key because `N` has an even alphabet index. `MTFK-RQPH` is a Client setup key because `M` has an odd index. This pattern is intentionally unobtrusive; people do not need to understand it.
+For example, `NLYJ-LGFN` is a Session key because `N` has alphabet index 12. `BTFK-RQPH` is a Client setup key because `B` has index 1. `CLYJ-LGFN` is a One-time connection key because `C` has index 2. This pattern is intentionally unobtrusive; people do not need to understand it.
 
 ### Session key
 
 The **Session key** is the existing per-sharing-instance key with the session purpose bit. It admits an ordinary, unremembered connection and produces the current short-lived session bearer. The same key may admit multiple allowed clients while that sharing instance is running. Stopping and restarting sharing rotates it. Using it never adds an approved client.
+
+### One-time connection key
+
+When the reusable Session key is disabled, the host creates a **One-time connection key** for an ordinary unremembered connection. It expires after a short interval, is removed atomically by the first successful admission, and cannot register or approve a client. Failed validation does not consume it. The resulting media session is otherwise identical to one admitted by a Session key.
 
 ### Client setup key
 
@@ -40,21 +46,20 @@ The client chooses **Add this host**, enters the setup key, supplies its device 
 
 The setup key is only a bootstrap secret. Neither side stores it as the reusable credential.
 
-The server parses the purpose bit and then performs an exact, timing-safe lookup only in that purpose's key store. A Session key never exists in the setup-key store, and a Client setup key never exists in the session-key store. Changing the first character or any other character cannot turn one valid key into another unless the resulting complete key was independently generated and is currently valid.
+The server parses the purpose bits and then performs an exact, timing-safe lookup only among active records of that purpose. Changing the first character or any other character cannot turn one valid key into another unless the resulting complete key was independently generated and is currently active for the decoded purpose.
 
 ## Server connection-key registry
 
-The server owns one authoritative in-memory registry of currently valid connection keys. The registry is a unified list for lifecycle management, while each record's purpose and usage policy keep the two admission paths separate. An active record contains:
+The server owns one authoritative in-memory registry containing only currently active connection keys. The registry is a unified list for lifecycle management, while each record's purpose and usage policy keep the three admission paths separate. An active record contains:
 
 - a non-reversible lookup value for the normalized eight-letter key;
-- **purpose:** `session` or `approved-client-setup`;
+- **purpose:** `session`, `approved-client-setup`, or `one-time-connection`;
 - **createdAt** and **expiresAt**;
-- **usage:** multi-client for the sharing instance or single valid setup submission;
-- **state:** active, reserved, consumed, cancelled, or expired;
+- **usage:** multi-client for the sharing instance or single successful use;
 - the owning sharing-instance ID; and
 - for setup keys, the setup-attempt ID and eventual pending-request ID.
 
-The Session key record lives only for its sharing instance and may be used by multiple clients subject to normal session limits. A Client setup key record has a short expiry and one permitted setup submission. The server atomically changes that record from active to reserved/consumed so two clients cannot claim it concurrently. Cancel, sharing shutdown, and expiry remove or invalidate records as defined by their purpose.
+The Session key record lives only for its sharing instance and may be used by multiple clients subject to normal session limits. Client setup and One-time connection records have short expiries and one permitted successful use. The server atomically removes a single-use record while claiming it so two clients cannot use it concurrently. Cancel, sharing shutdown, and expiry remove active records. Consumed keys are not retained as registry tombstones; later reuse receives the same generic invalid-key response as any unknown key.
 
 The short human-readable keys are not persisted as durable approved-client credentials. The host process receives the plaintext key only through its local control channel for display and copy actions. Logs, diagnostics, status APIs, and persisted approved-client records never include it.
 
@@ -64,13 +69,14 @@ The web client keeps one field labeled **Connection key** and accepts exactly ei
 
 - Session purpose opens **Connect once** and submits to ordinary session admission.
 - Setup purpose opens the approved-client form for device name, required username, password, and password confirmation.
+- One-time connection purpose opens **Connect once** and submits to ordinary session admission, where the server consumes it only if admission succeeds.
 - Invalid characters or length show **Check the connection key and try again** without probing both server operations.
 
-Client-side dispatch is only presentation logic. On **Continue**, the client sends the complete key to one admission operation. The server decodes the purpose bit, finds the exact active registry record, checks expiry and usage state, and returns the authoritative result:
+Client-side dispatch is only presentation logic. On **Continue**, the client sends the complete key to one admission operation. The server decodes the purpose bits, finds the exact active registry record, checks expiry and usage, and returns the authoritative result:
 
-- a valid Session key returns `connect-once`, the sharing-instance context, and the resulting short-lived session data;
+- a valid Session or One-time connection key returns `connect-once`, its usage policy, the sharing-instance context, and the resulting short-lived session data;
 - a valid Client setup key returns `approved-client-setup`, the setup-attempt reference, and `expiresAt`; and
-- every unknown, expired, consumed, cancelled, malformed, or wrong-purpose key returns the same generic invalid-key response.
+- every unknown, expired, already-used, cancelled, malformed, reserved-pattern, or wrong-purpose key returns the same generic invalid-key response.
 
 The web client advances based on this server response, not solely on the embedded bit. It waits for the complete key and a Continue action before changing flows, so partial typing does not make the page jump between modes. The response never echoes the key. Setup-key confirmation does not consume the permitted setup submission until the client atomically submits its device information and password verifier.
 
@@ -118,7 +124,7 @@ The approval row emphasizes device name and username, then shows concise support
 
 The existing **Connect a device** dialog owns both connection-key experiences. It has a **Connection type** selector:
 
-- **Connect once** shows the existing connection address and Session key.
+- **Connect once** shows the existing connection address and Session key while reusable admission is enabled. When it is disabled, this mode creates and shows one short-lived One-time connection key per requested connection.
 - **Approve this client** creates a new setup attempt and shows the same address plus that attempt's Client setup key.
 
 Opening the dialog from Overview defaults to **Connect once**. Opening it from the Clients page defaults to **Approve this client**. Switching into the approval mode creates the setup attempt only when one is not already active.
@@ -159,7 +165,7 @@ Passkey work requires HTTPS and relying-party/trust provisioning first. Cross-de
 
 Milestone 1 needs a durable host-owned approved-client store plus separate operations for creating/consuming a setup key, submitting/listing/approving/rejecting requests, completing client-secret and password-verifier enrollment, authenticating both credential parts, listing/removing approved clients, and exchanging successful authentication for a session.
 
-Tests must prove that both formats contain exactly eight letters plus the display dash, both generators set the correct purpose bit, client and server parsers agree on every alphabet character, normalization preserves the purpose bit, registry responses authoritatively select the flow and never echo keys, session keys cannot add clients, setup keys cannot start sessions, a key with any changed character fails exact lookup, all invalid registry states return the same external error, setup confirmation does not consume the key prematurely, setup submission is single-use and expires, two clients cannot claim one key, rejected requests receive no client secret, username is required and registered readably, plaintext passwords are never persisted or returned, username, client secret, or password alone cannot authenticate, password attempts are rate-limited, approved clients survive session-key rotation, removal blocks future sign-in and ends any current session, secrets and password data are redacted, and pending requests cannot list displays or inject input.
+Tests must prove that every key type contains exactly eight letters plus the display dash, every generator sets the correct purpose bits, client and server parsers agree on every alphabet character, normalization preserves the purpose bits, registry responses authoritatively select the flow and never echo keys, Session keys remain multi-use for one sharing instance, Session and One-time connection keys cannot add clients, Client setup keys cannot start sessions, both single-use key types are removed atomically after successful use, a key with any changed character fails exact lookup, all invalid-key conditions return the same external error, setup confirmation does not consume the key prematurely, setup submission is single-use and expires, two clients cannot claim one key, rejected requests receive no client secret, username is required and registered readably, plaintext passwords are never persisted or returned, username, client secret, or password alone cannot authenticate, password attempts are rate-limited, approved clients survive Session-key rotation, removal blocks future sign-in and ends any current session, secrets and password data are redacted, and pending requests cannot list displays or inject input.
 
 ## Visualization provenance
 
