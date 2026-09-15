@@ -2,28 +2,37 @@ import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+// Each connected device may run two video encoders; eight devices already exceed the host stream budget.
+export const MAX_SESSIONS_LIMIT = 8;
+const DEFAULTS = Object.freeze({
+  revision: 0,
+  defaultControl: 'approval',
+  connectionMode: 'session-key',
+  maxSessions: 4,
+});
+
 function validate(value) {
-  const connectionMode = value?.connectionMode ?? 'session-key';
+  const next = { ...DEFAULTS, ...value };
   if (
     !value ||
-    !Number.isSafeInteger(value.revision) ||
-    value.revision < 0 ||
-    value.revision >= Number.MAX_SAFE_INTEGER ||
-    !['approval', 'available'].includes(value.defaultControl) ||
-    !['session-key', 'one-time-keys', 'approved-only'].includes(connectionMode) ||
-    Object.keys(value).some(
-      (key) => !['revision', 'defaultControl', 'connectionMode'].includes(key),
-    )
+    !Number.isSafeInteger(next.revision) ||
+    next.revision < 0 ||
+    next.revision >= Number.MAX_SAFE_INTEGER ||
+    !['approval', 'available'].includes(next.defaultControl) ||
+    !['session-key', 'one-time-keys', 'approved-only'].includes(next.connectionMode) ||
+    !Number.isSafeInteger(next.maxSessions) ||
+    next.maxSessions < 1 ||
+    next.maxSessions > MAX_SESSIONS_LIMIT ||
+    Object.keys(value).some((key) => !Object.hasOwn(DEFAULTS, key))
   )
     throw new Error('Invalid access settings');
-  return { ...value, connectionMode };
+  return next;
 }
 async function read(filename) {
   try {
     return validate(JSON.parse(await readFile(filename, 'utf8')));
   } catch (error) {
-    if (error.code === 'ENOENT')
-      return { revision: 0, defaultControl: 'approval', connectionMode: 'session-key' };
+    if (error.code === 'ENOENT') return { ...DEFAULTS };
     throw error;
   }
 }
@@ -43,9 +52,10 @@ export class AccessSettings {
   snapshot() {
     return { ...this.#value };
   }
-  replace(defaultControl, revision, connectionMode = this.#value.connectionMode) {
+  // Changes are merged over the current settings, so callers send only the fields they edit.
+  replace(changes, revision) {
     const operation = this.#queue.then(async () => {
-      const next = validate({ defaultControl, revision, connectionMode });
+      const next = validate({ ...this.#value, ...changes, revision });
       if (revision !== this.#value.revision)
         throw new Error('Access settings changed; reload before saving');
       await mkdir(dirname(this.#filename), { recursive: true });

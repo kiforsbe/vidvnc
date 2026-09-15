@@ -71,6 +71,8 @@ export const formatAccess = (access) =>
   `Keyboard and mouse for new connections: ${accessLabel(access.defaultControl)}`;
 export const formatConnectionMode = (access) =>
   `Ordinary connections: ${connectionModeLabel(access.connectionMode)}`;
+export const formatMaxSessions = (access) =>
+  `Connected devices at the same time: up to ${access.maxSessions}`;
 
 export function formatProfiles(profiles, policy) {
   const rows = profiles.map((profile, index) => [

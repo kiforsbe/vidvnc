@@ -4,6 +4,7 @@ import {
   clean,
   formatAccess,
   formatConnectionMode,
+  formatMaxSessions,
   formatOptions,
   formatProfiles,
   modeLabel,
@@ -265,7 +266,7 @@ export const profileCommands = [
         text: [
           formatProfiles(profiles, policy),
           formatOptions(policy),
-          `${formatAccess(access)}\n${formatConnectionMode(access)}\nDesktop audio: ${policy.allowAudio ? 'on' : 'off'}`,
+          `${formatAccess(access)}\n${formatConnectionMode(access)}\n${formatMaxSessions(access)}\nDesktop audio: ${policy.allowAudio ? 'on' : 'off'}`,
         ].join('\n\n'),
         data: { policy, access, profileOrder: profiles.map((profile) => profile.id) },
       };

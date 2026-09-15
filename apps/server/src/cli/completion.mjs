@@ -1,4 +1,5 @@
 import { commands, findCommand } from './commands.mjs';
+import { MAX_SESSIONS_LIMIT } from '../access-settings.mjs';
 
 const ON_OFF = ['on', 'off'];
 const OPTION_KINDS = ['size', 'framerate', 'bitrate'];
@@ -47,6 +48,7 @@ const ARGUMENTS = {
   audio: [() => ON_OFF],
   access: [() => ['approval', 'available']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
+  'max-devices': [() => Array.from({ length: MAX_SESSIONS_LIMIT }, (_, index) => String(index + 1))],
   'profile edit': profile,
   'profile duplicate': profile,
   'profile remove': profile,

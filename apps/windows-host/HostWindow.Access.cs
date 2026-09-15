@@ -8,6 +8,8 @@ public sealed partial class HostWindow
 {
     string defaultControl = "approval";
     string connectionMode = "session-key";
+    int maxSessions = 4;
+    const int MaxSessionsLimit = 8;
     long accessRevision;
     bool accessReady;
     bool accessSaving;
@@ -20,6 +22,7 @@ public sealed partial class HostWindow
         defaultControl = value.GetProperty("defaultControl").GetString()!;
         connectionMode = value.TryGetProperty("connectionMode", out var mode) ? mode.GetString() ?? "session-key" : "session-key";
         oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
+        maxSessions = value.TryGetProperty("maxSessions", out var limit) && limit.TryGetInt32(out var count) ? count : 4;
         accessRevision = value.GetProperty("revision").GetInt64();
         accessReady = true;
         if (currentPage == "Access") RenderPage();
@@ -75,16 +78,40 @@ public sealed partial class HostWindow
         content.Children.Add(DisplaySeparator());
         content.Children.Add(Secondary("One device can control at a time. Manage access in Sessions."));
         page.Children.Add(Card(content));
+
+        var devicesRow = new Grid { ColumnSpacing = HostSpacing.Card };
+        devicesRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        devicesRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        devicesRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        devicesRow.Children.Add(new FontIcon { Glyph = "", FontSize = 24, VerticalAlignment = VerticalAlignment.Center });
+        var devicesLabels = new StackPanel { Spacing = HostSpacing.Small, VerticalAlignment = VerticalAlignment.Center };
+        devicesLabels.Children.Add(Label("Connected devices", 16));
+        devicesLabels.Children.Add(Secondary("Maximum devices connected at the same time"));
+        Grid.SetColumn(devicesLabels, 1); devicesRow.Children.Add(devicesLabels);
+        var devices = new ComboBox { Tag = "max-sessions", Width = 220,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = accessReady && server is not null && !accessSaving };
+        for (var count = 1; count <= MaxSessionsLimit; count++) devices.Items.Add(count == 1 ? "1 device" : $"{count} devices");
+        devices.SelectedIndex = Math.Clamp(maxSessions, 1, MaxSessionsLimit) - 1;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(devices, "Maximum connected devices");
+        devices.SelectionChanged += async (_, _) => await SaveAccess(maxSessions: devices.SelectedIndex + 1);
+        Grid.SetColumn(devices, 2); devicesRow.Children.Add(devices);
+        var devicesContent = new StackPanel { Spacing = HostSpacing.Card };
+        devicesContent.Children.Add(devicesRow);
+        devicesContent.Children.Add(DisplaySeparator());
+        devicesContent.Children.Add(Secondary("Lowering the limit does not disconnect devices that are already connected."));
+        page.Children.Add(Card(devicesContent));
         if (accessError is not null) page.Children.Add(new InfoBar { IsOpen = true,
             Severity = InfoBarSeverity.Error, Message = accessError });
         page.Children.Add(Secondary("Approved clients can sign in with their saved credential, username, and password."));
     }
 
-    async Task SaveAccess(string? defaultControl = null, string? connectionMode = null)
+    async Task SaveAccess(string? defaultControl = null, string? connectionMode = null, int? maxSessions = null)
     {
         var nextControl = defaultControl ?? this.defaultControl;
         var nextMode = connectionMode ?? this.connectionMode;
-        if (accessSaving || (nextControl == this.defaultControl && nextMode == this.connectionMode)) return;
+        var nextLimit = maxSessions ?? this.maxSessions;
+        if (accessSaving || (nextControl == this.defaultControl && nextMode == this.connectionMode && nextLimit == this.maxSessions)) return;
         accessSaving = true; accessError = null;
         accessRequestId = Guid.NewGuid().ToString();
         accessReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -94,7 +121,7 @@ public sealed partial class HostWindow
             var child = server ?? throw new InvalidOperationException("Start sharing before changing access defaults.");
             await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new {
                 type = "access-set", requestId = accessRequestId, revision = accessRevision,
-                defaultControl = nextControl, connectionMode = nextMode }));
+                defaultControl = nextControl, connectionMode = nextMode, maxSessions = nextLimit }));
             await child.StandardInput.FlushAsync();
             var reply = await accessReply.Task.WaitAsync(TimeSpan.FromSeconds(10));
             UpdateAccess(reply.GetProperty("access"));

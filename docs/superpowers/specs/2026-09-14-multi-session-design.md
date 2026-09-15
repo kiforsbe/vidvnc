@@ -8,9 +8,11 @@ Sessions preview. Keep the existing checkout and commit after the whole mileston
 An authenticated session represents one device. Each session owns independently
 identified display streams. A stream owns its worker, profile, source, recovery
 state and bounded diagnostics. Stream IDs are not credentials: the session bearer
-must authorize every stream operation. Default admission allows two sessions,
-two video streams per session and four video workers host-wide, plus one audio-only
-worker per session (six processes maximum). Reserve capacity before
+must authorize every stream operation. Admission allows a
+host-configured number of sessions (Access settings `maxSessions`, 1–8, default 4;
+changes apply to new connections without evicting connected devices), two video
+streams per session and eight video workers host-wide (the GeForce encoder-session
+budget), plus one audio-only worker per session (sixteen processes maximum). Reserve capacity before
 asynchronous startup, including stopping workers until OS exit. Encoder failures
 reject only the affected stream; do not silently lower explicit profiles.
 

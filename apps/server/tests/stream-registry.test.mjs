@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+test('default host stream budget fits the GPU encoder session limit, not the device count', async () => {
+  const { StreamRegistry } = await import('../src/stream-registry.mjs');
+  assert.deepEqual(new StreamRegistry().limits, {
+    maxStreams: 8,
+    perSession: 2,
+    bitrateKbps: 32000,
+    pixelsPerSecond: 500_000_000,
+  });
+});
+
 test('stream reservations are owner scoped, isolated copies, bounded until exit and independently released', async () => {
   const { StreamRegistry } = await import('../src/stream-registry.mjs');
   const registry = new StreamRegistry({

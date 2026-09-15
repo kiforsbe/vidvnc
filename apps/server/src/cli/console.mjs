@@ -69,11 +69,10 @@ export function createLiveContext({
       return confirmed ? { text: 'Stopping sharing…', exit: true } : { text: 'Still sharing.' };
     },
     access: () => access.snapshot(),
-    saveAccess: (value) => saving(() => access.replace(value, access.snapshot().revision)),
-    saveConnectionMode: (value) =>
+    saveAccess: (changes) =>
       saving(async () => {
         const current = access.snapshot();
-        const result = await access.replace(current.defaultControl, current.revision, value);
+        const result = await access.replace(changes, current.revision);
         if (result.connectionMode !== current.connectionMode) {
           sessionStore.keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
           sessionStore.rotateConnectionKey();
@@ -92,6 +91,7 @@ export function createLiveContext({
         ['Log folder', logDirectory],
         ['Default control', accessLabel(access.snapshot().defaultControl)],
         ['Connection method', connectionModeLabel(access.snapshot().connectionMode)],
+        ['Device limit', String(access.snapshot().maxSessions)],
       ];
     },
     sessions: {

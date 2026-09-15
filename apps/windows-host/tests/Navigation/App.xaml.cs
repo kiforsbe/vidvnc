@@ -231,6 +231,22 @@ public partial class App : Application
                                         if (method.SelectedIndex != index || !method.IsEnabled)
                                             throw new Exception("Saved connection method was not reflected in the UI");
                                     }
+                                    foreach (var index in new[] { 7, 0, 3 })
+                                    {
+                                        var limit = Descendants(shell).OfType<ComboBox>().Single(c => c.Tag as string == "max-sessions");
+                                        if (!limit.IsEnabled || limit.Items.Count != 8) throw new Exception("Device limit must offer 1–8 devices with a ready owner");
+                                        limit.SelectedIndex = index;
+                                        var line = await owner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                        using var reply = JsonDocument.Parse(line!);
+                                        if (!reply.RootElement.GetProperty("ok").GetBoolean() ||
+                                            reply.RootElement.GetProperty("access").GetProperty("maxSessions").GetInt32() != index + 1)
+                                            throw new Exception("Device limit was not persisted through owner pipe");
+                                        typeof(HostWindow).GetMethod("ReceiveAccessResult", flags)!.Invoke(window, new object[] { reply.RootElement });
+                                        await Task.Delay(80);
+                                        limit = Descendants(shell).OfType<ComboBox>().Single(c => c.Tag as string == "max-sessions");
+                                        if (limit.SelectedIndex != index || !limit.IsEnabled)
+                                            throw new Exception("Saved device limit was not reflected in the UI");
+                                    }
                                 }
                                 finally { serverField.SetValue(window, null); owner.StandardInput.Close(); if (!owner.WaitForExit(5000)) owner.Kill(); }
                             }

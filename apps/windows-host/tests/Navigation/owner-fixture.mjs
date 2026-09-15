@@ -41,7 +41,8 @@ try {
     }
     if (message.type === 'access-set') {
       try {
-        await access.replace(message.defaultControl, message.revision, message.connectionMode);
+        const { type, requestId, revision, ...changes } = message;
+        await access.replace(changes, revision);
         console.log(JSON.stringify({ type: 'access-result', requestId: message.requestId, ok: true,
           access: (await AccessSettings.open(accessFile)).snapshot() }));
       } catch (error) {

@@ -10,7 +10,7 @@ import { Diagnostics } from './diagnostics.mjs';
 import { logDirectory, runtimeManifest } from '@vidvnc/media-worker/runtime';
 import { waitForOwner } from './owner-start.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
-import { AccessSettings } from './access-settings.mjs';
+import { AccessSettings, MAX_SESSIONS_LIMIT } from './access-settings.mjs';
 import { dataDirectory, settingsFiles } from './paths.mjs';
 import { registerInstance } from './instances.mjs';
 import { createLiveContext, startConsole } from './cli/console.mjs';
@@ -39,17 +39,19 @@ async function serve() {
       await waitForOwner(process.stdin);
     }
     const info = probe();
-    const store = new SessionStore({ maxSessions: 2 });
+    const directory = dataDirectory();
+    const files = settingsFiles(directory);
+    const access = await AccessSettings.open(files.access);
+    const store = new SessionStore({ maxSessions: () => access.snapshot().maxSessions });
     const diagnostics = new Diagnostics({
       directory: logDirectory,
     });
+    // Sized for the largest device limit: stream-registry budgets and admission decide what starts.
     const media = new NativeMedia({
-      maxWorkers: 6,
+      maxWorkers: MAX_SESSIONS_LIMIT * 2,
       hostControl: true,
       diagnostics,
     });
-    const directory = dataDirectory();
-    const files = settingsFiles(directory);
     let runtime;
     const policy = new PolicyController(await StreamPolicyStore.open(files.policy), store, {
       shutdown: () => (runtime ? runtime.stopAll() : media.shutdown()),
@@ -59,7 +61,6 @@ async function serve() {
       const initial = policy.snapshot();
       await policy.replace(seedDisplaySharing(initial, inventory.rows), initial.revision);
     }
-    const access = await AccessSettings.open(files.access);
     const approvedClients = await ApprovedClientStore.open(files.approvedClients, {
       keys: store.keys,
     });
@@ -327,7 +328,12 @@ async function serve() {
                     sessionKey,
                   }),
                 );
-              access.replace(command.defaultControl, command.revision, command.connectionMode).then(
+              const changes = Object.fromEntries(
+                ['defaultControl', 'connectionMode', 'maxSessions']
+                  .filter((key) => command[key] !== undefined)
+                  .map((key) => [key, command[key]]),
+              );
+              access.replace(changes, command.revision).then(
                 () => {
                   let sessionKey;
                   if (access.snapshot().connectionMode !== previousMode) {

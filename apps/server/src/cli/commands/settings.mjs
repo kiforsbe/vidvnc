@@ -6,7 +6,9 @@ import {
   formatAccess,
   formatConnectionMode,
   formatDisplays,
+  formatMaxSessions,
 } from '../format.mjs';
+import { MAX_SESSIONS_LIMIT } from '../../access-settings.mjs';
 import { resolveDisplay, resolveProfile } from '../resolve.mjs';
 import * as edits from '../policy-edits.mjs';
 
@@ -128,7 +130,7 @@ export const settingsCommands = [
       if (positionals.length && !['approval', 'available'].includes(positionals[0]))
         throw new UsageError('Use approval or available.');
       const access = positionals.length
-        ? await context.saveAccess(positionals[0])
+        ? await context.saveAccess({ defaultControl: positionals[0] })
         : context.access();
       return { text: formatAccess(access), data: access };
     },
@@ -147,9 +149,29 @@ export const settingsCommands = [
       )
         throw new UsageError('Use session-key, one-time-keys, or approved-only.');
       const access = positionals.length
-        ? await context.saveConnectionMode(positionals[0])
+        ? await context.saveAccess({ connectionMode: positionals[0] })
         : context.access();
       return { text: formatConnectionMode(access), data: access };
+    },
+  },
+  {
+    name: 'max-devices',
+    usage: `max-devices [1-${MAX_SESSIONS_LIMIT}]`,
+    summary: 'Show or set how many devices can be connected at the same time.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      const value = Number(positionals[0]);
+      if (
+        positionals.length &&
+        (!/^\d+$/.test(positionals[0]) || value < 1 || value > MAX_SESSIONS_LIMIT)
+      )
+        throw new UsageError(`Use a number from 1 to ${MAX_SESSIONS_LIMIT}.`);
+      const access = positionals.length
+        ? await context.saveAccess({ maxSessions: value })
+        : context.access();
+      return { text: formatMaxSessions(access), data: access };
     },
   },
 ];

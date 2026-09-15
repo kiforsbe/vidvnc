@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 export class StreamRegistry {
   #streams = new Map();
   constructor({
-    maxStreams = 4,
+    maxStreams = 8,
     perSession = 2,
     bitrateKbps = 32000,
     pixelsPerSecond = 500_000_000,

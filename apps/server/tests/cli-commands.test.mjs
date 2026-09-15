@@ -193,8 +193,20 @@ test('access shows and saves the default for new connections', async (t) => {
     revision: 1,
     defaultControl: 'available',
     connectionMode: 'session-key',
+    maxSessions: 4,
   });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
+});
+
+test('max-devices shows and saves the connected-device limit', async (t) => {
+  const { run } = await offline(t);
+  assert.equal((await run('max-devices')).text, 'Connected devices at the same time: up to 4');
+  const saved = await run('max-devices 1 --json');
+  assert.equal(saved.data.maxSessions, 1);
+  assert.equal(saved.text, 'Connected devices at the same time: up to 1');
+  assert.equal((await run('max-devices 8')).text, 'Connected devices at the same time: up to 8');
+  for (const value of ['0', '9', 'two', '2.5'])
+    await assert.rejects(run(`max-devices ${value}`), usage(/^Use a number from 1 to 8\./));
 });
 
 test('connection-mode shows and saves the ordinary admission policy', async (t) => {

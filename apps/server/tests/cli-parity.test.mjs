@@ -20,6 +20,7 @@ const script = [
   'options add bitrate 8000',
   'access available',
   'connection-mode one-time-keys',
+  'max-devices 3',
   'profile add "Office desk"',
   'profile edit office-desk --name Office --description "Desk monitor" --size 2560x1440 --fps 60 --bitrate 12000',
   'profile disable office-desk',

@@ -19,9 +19,9 @@ export class SessionStore {
     maxSessions = 1,
     keys = new ConnectionKeyRegistry({ clock }),
   } = {}) {
-    if (!Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 64)
-      throw new Error('Invalid session limit');
-    this.maxSessions = maxSessions;
+    // A function limit is read at each admission so saved settings apply without a restart.
+    this.#limit = typeof maxSessions === 'function' ? maxSessions : () => maxSessions;
+    void this.maxSessions;
     this.clock = clock;
     this.sessionTtlMs = sessionTtlMs;
     this.maxAttempts = maxAttempts;
@@ -32,6 +32,14 @@ export class SessionStore {
     this._password = keys.sessionKey;
     this._sessions = new Map();
     this._failedAttempts = new Map();
+  }
+
+  #limit;
+
+  get maxSessions() {
+    const limit = this.#limit();
+    if (!Number.isInteger(limit) || limit < 1 || limit > 64) throw new Error('Invalid session limit');
+    return limit;
   }
 
   get password() {

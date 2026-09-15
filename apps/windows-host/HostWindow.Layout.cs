@@ -141,7 +141,7 @@ public sealed partial class HostWindow
                 if (sessionCards.Count == 0) page.Children.Add(Card(Label(sharing ? "No devices connected. Choose Connect a device to get started." : "Start sharing to accept connections.")));
                 page.Children.Add(sessionList);
                 page.Children.Add(new Expander { Header = "About sessions", HorizontalAlignment = HorizontalAlignment.Stretch,
-                    Content = Label("Up to two connected devices, each with two display streams. Desktop audio is shared once per device. Only one device can be granted keyboard and mouse control at a time.") });
+                    Content = Label($"Up to {maxSessions} connected device{Plural(maxSessions)}, each with two display streams. Desktop audio is shared once per device. Only one device can be granted keyboard and mouse control at a time.") });
                 break;
             case "Displays":
                 RenderDisplays();
