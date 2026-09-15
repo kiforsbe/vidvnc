@@ -6,21 +6,34 @@ export function normalizePassword(value) {
   const letters = text.replace('-', '');
   return `${letters.slice(0, 4)}-${letters.slice(4)}`;
 }
-export function formatPasswordEntry(value, caret = value.length) {
-  // Invalid characters remain visible and fail validation, rather than silently
-  // transforming a mistyped password into a different valid password.
-  if (!/^[a-zA-Z\s-]*$/.test(value)) return { value, caret };
-  const letters = value.replace(/[\s-]/g, '').toUpperCase();
-  const before = value.slice(0, caret).replace(/[\s-]/g, '').length;
+const MAX_LETTERS = 8;
+const lettersIn = (text) => text.replace(/[^a-zA-Z]/g, '').toUpperCase();
+// Only letters are accepted, at most 8; the separator is inserted automatically
+// and anything else typed or pasted is discarded. Typed or pasted text ends at
+// `anchor` (the caret), so excess letters are dropped there: letters already
+// entered are never pushed out, and an over-long paste is cut short.
+function acceptLetters(value, anchor) {
+  const letters = lettersIn(value);
+  const count = (index) => lettersIn(value.slice(0, index)).length;
+  const end = count(anchor);
+  const cut = Math.min(Math.max(0, letters.length - MAX_LETTERS), end);
+  const kept = (letters.slice(0, end - cut) + letters.slice(end)).slice(0, MAX_LETTERS);
   return {
-    value: letters.length > 4 ? `${letters.slice(0, 4)}-${letters.slice(4)}` : letters,
-    caret: before + (before > 4 ? 1 : 0),
+    value: kept.length > 4 ? `${kept.slice(0, 4)}-${kept.slice(4)}` : kept,
+    caret(index) {
+      const n = count(index);
+      const mapped = Math.min(kept.length, n <= end - cut ? n : Math.max(end - cut, n - cut));
+      return mapped + (mapped > 4 ? 1 : 0);
+    },
   };
 }
+export function formatPasswordEntry(value, caret = value.length) {
+  const entry = acceptLetters(value, caret);
+  return { value: entry.value, caret: entry.caret(caret) };
+}
 export function formatSegmentedPasswordEntry(value, start = value.length, end = start) {
-  if (!/^[a-zA-Z\s-]*$/.test(value)) return { value, start, end };
-  const first = formatPasswordEntry(value, start);
-  return { value: first.value, start: first.caret, end: formatPasswordEntry(value, end).caret };
+  const entry = acceptLetters(value, end);
+  return { value: entry.value, start: entry.caret(start), end: entry.caret(end) };
 }
 export function bindPasswordEntry(input) {
   if (input.closest('.code-entry')) {
