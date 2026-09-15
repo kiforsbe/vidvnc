@@ -6,7 +6,7 @@ Sessions preview. Keep the existing checkout and commit after the whole mileston
 ## Model and boundaries
 
 An authenticated session represents one device. Each session owns independently
-identified display streams. A stream owns its worker, profile, source, recovery
+identified display streams. A stream owns its source subscription, profile, recovery
 state and bounded diagnostics. Stream IDs are not credentials: the session bearer
 must authorize every stream operation. Admission allows a
 host-configured number of sessions (Access settings `maxSessions`, 1–8, default 4;
@@ -16,7 +16,8 @@ budget), plus one audio-only worker per session (sixteen processes maximum). Res
 asynchronous startup, including stopping workers until OS exit. Encoder failures
 reject only the affected stream; do not silently lower explicit profiles.
 
-Use independent encoders first; shared capture/encode optimization is deferred.
+Identical display and profile subscriptions share one capture/encode; see
+`2026-09-15-shared-streams-design.md`.
 Apply conservative aggregate bitrate and pixel-rate budgets before spawning.
 One audio delivery belongs to each session, independent of video subscriptions;
 adding a display must not start a second audio mix. Each stream can independently
