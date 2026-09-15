@@ -5,6 +5,33 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.2.0] - 2026-09-15
+
+### Added
+
+- Approved clients. The host can approve a device once with a Client setup key; the
+  device then signs in with a username and password, without another connection key.
+  The VidVNC app has a Clients page for pending requests and approved clients, with a
+  control permission for each client (use the Access default, get control when it's
+  available, or view only).
+- Connection modes on the host: a reusable Session key, One-time connection keys, or
+  approved clients only. A shared Connect a device dialog shows and creates keys.
+- A device limit in Access settings, from 1 to 8 devices (default 4). Changes apply to
+  new connections and never disconnect connected devices.
+- Sessions in the VidVNC app and the `sessions` command show when a stream is shared
+  with other devices.
+
+### Changed
+
+- Devices viewing the same display with the same profile now share one capture and one
+  hardware encode, and devices with the same audio format share one audio capture.
+  This saves GPU encoder sessions, so more devices can watch at once. Each device still
+  has its own connection, metrics, recovery and control.
+- A device that fails or disconnects no longer interrupts other devices watching the
+  same display.
+- The connection key field accepts exactly eight letters and ignores other characters.
+- The Connect action moved into the Overview session card.
+
 ## [0.1.0] - 2026-09-15
 
 The first development preview, for Windows and trusted local networks. It is not
