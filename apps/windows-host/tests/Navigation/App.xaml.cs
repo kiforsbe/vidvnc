@@ -60,6 +60,8 @@ public partial class App : Application
                     if (updateDisplays is null) throw new Exception("Native display inventory view is missing");
                     var updateClients = typeof(HostWindow).GetMethod("UpdateClients", flags);
                     if (updateClients is null) throw new Exception("Approved clients administration view is missing");
+                    var createConnectionDialog = typeof(HostWindow).GetMethod("CreateConnectionDialog", flags);
+                    if (createConnectionDialog is null) throw new Exception("Shared connection dialog modes are missing");
                     using var inventory = JsonDocument.Parse("""
                     [{"id":"landscape","name":"Main display","primary":true,"x":0,"y":0,"width":2560,"height":1440,"refreshHz":144,"rotation":0},
                      {"id":"portrait","name":"Portrait display","primary":false,"x":-1080,"y":-480,"width":1080,"height":1920,"refreshHz":60,"rotation":90}]
@@ -99,6 +101,9 @@ public partial class App : Application
                                 """);
                                 updateClients.Invoke(window, new object[] { clientsFixture.RootElement });
                                 await Task.Delay(80);
+                                var clientsAction = (Button?)((ContentControl)typeof(HostWindow).GetField("pageAction", flags)!.GetValue(window)!).Content;
+                                if (clientsAction?.Content as string != "Connect a device" || clientsAction.Tag as string != "approved-client")
+                                    throw new Exception("Clients header must open Connect a device in approved-client mode");
                                 var visibleText = Descendants(shell).OfType<TextBlock>().Select(text => text.Text).ToArray();
                                 if (!visibleText.Contains("2 approved clients · 1 waiting for approval"))
                                     throw new Exception("Clients summary does not reflect pending and approved counts");
@@ -115,8 +120,42 @@ public partial class App : Application
                                     throw new Exception("Inactive approved client needs last-connected status");
                                 if (visibleText.Contains("Active sessions"))
                                     throw new Exception("Session detail leaked onto the Clients page");
-                                if (visibleText.Any(text => text is "must-not-render"))
+                                var visibleInput = Descendants(shell).OfType<TextBox>().Select(input => input.Text);
+                                if (visibleText.Concat(visibleInput).Any(text => text is "must-not-render"))
                                     throw new Exception("Password or client secret leaked into the Clients page");
+
+                                ((TextBox)typeof(HostWindow).GetField("address", flags)!.GetValue(window)!).Text = "http://192.168.50.47:4382";
+                                ((TextBox)typeof(HostWindow).GetField("password", flags)!.GetValue(window)!).Text = "NLYJ-LGFN";
+                                var onceDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "connect-once" })!;
+                                var onceBody = (StackPanel)((ScrollViewer)onceDialog.Content).Content;
+                                var onceSelector = onceBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
+                                var oncePanel = onceBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
+                                if (onceSelector.SelectedIndex != 0 ||
+                                    !oncePanel.Children.OfType<TextBox>().Any(control => control.Header as string == "Connection address" && control.Text == "http://192.168.50.47:4382") ||
+                                    !oncePanel.Children.OfType<TextBox>().Any(control => control.Header as string == "Session password" && control.Text == "NLYJ-LGFN"))
+                                    throw new Exception("Connect-once mode lost the current address or Session password");
+
+                                var approvalDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "approved-client" })!;
+                                var approvalBody = (StackPanel)((ScrollViewer)approvalDialog.Content).Content;
+                                var approvalSelector = approvalBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
+                                var approvalPanel = approvalBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
+                                var setupKey = approvalPanel.Children.OfType<TextBox>().SingleOrDefault(control => control.Header as string == "Client setup key");
+                                if (approvalSelector.SelectedIndex != 1 || setupKey is null || setupKey.IsEnabled ||
+                                    approvalPanel.Children.OfType<TextBox>().Any(control => control.Text == "NLYJ-LGFN") ||
+                                    !approvalPanel.Children.OfType<InfoBar>().Any(info => info.Message.Contains("server support")))
+                                    throw new Exception("Approved-client mode must hide the Session password and report unavailable setup-key support");
+                                var clientsBitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+                                await clientsBitmap.RenderAsync(window.Content);
+                                var clientPixels = await clientsBitmap.GetPixelsAsync();
+                                var clientBytes = new byte[clientPixels.Length];
+                                using (var reader = Windows.Storage.Streams.DataReader.FromBuffer(clientPixels)) reader.ReadBytes(clientBytes);
+                                var clientFolder = await Windows.Storage.StorageFolder.GetFolderFromPathAsync(AppContext.BaseDirectory);
+                                var clientFile = await clientFolder.CreateFileAsync("clients-page.png", Windows.Storage.CreationCollisionOption.ReplaceExisting);
+                                using var clientOutput = await clientFile.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite);
+                                var clientEncoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, clientOutput);
+                                clientEncoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+                                    (uint)clientsBitmap.PixelWidth, (uint)clientsBitmap.PixelHeight, 96, 96, clientBytes);
+                                await clientEncoder.FlushAsync();
                             }
                             if (name == "Access" && cycle == 0)
                             {
@@ -504,7 +543,7 @@ public partial class App : Application
                             }
                         }
                     }
-                    File.WriteAllText(Result, "PASS: title bar/themes; six-page navigation; footer/header actions; aligned profile columns; cosmetic reorder persistence without policy changes; profile/options modal cancel; owner-pipe mode/options persistence; display/Overview layout; session lifecycle.");
+                    File.WriteAllText(Result, "PASS: title bar/themes; seven-page navigation; Clients administration and connection modes; footer/header actions; aligned profile columns; cosmetic reorder persistence without policy changes; profile/options modal cancel; owner-pipe mode/options persistence; display/Overview layout; session lifecycle.");
                     window.Close();
                     Exit();
                 }

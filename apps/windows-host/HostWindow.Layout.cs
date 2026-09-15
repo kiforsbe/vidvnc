@@ -75,7 +75,7 @@ public sealed partial class HostWindow
         pageTitle.VerticalAlignment = VerticalAlignment.Center;
         header.Children.Add(pageTitle); Grid.SetColumn(pageAction, 1); header.Children.Add(pageAction);
         connectDevice.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        connectDevice.Click += async (_, _) => await ShowConnection();
+        connectDevice.Click += async (_, _) => await ShowConnection("connect-once");
         grid.Children.Add(header);
         var scroll = new ScrollViewer { Content = page, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             HorizontalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -172,24 +172,60 @@ public sealed partial class HostWindow
         { page.Children.Add(new InfoBar { IsOpen = true, Severity = InfoBarSeverity.Error, Message = "Couldn't open diagnostics: " + error.Message }); }
     }
 
-    async Task ShowConnection()
+    async Task ShowConnection(string initialMode = "connect-once")
     {
         if (dialogOpen) return;
         dialogOpen = true;
         try
         {
-            var body = new StackPanel { Spacing = 12 };
-            body.Children.Add(Label("Use Safari on your iPhone, or a browser on another device on your local network."));
-            var link = new TextBox { Header = "Connection address", Text = address.Text, IsReadOnly = true };
-            body.Children.Add(link); body.Children.Add(Command("Copy address", () => Copy(link.Text)));
-            body.Children.Add(Label("Session password"));
-            var code = new TextBox { Text = password.Text, IsReadOnly = true, FontSize = 24, FontFamily = new FontFamily("Cascadia Mono") };
-            body.Children.Add(code); body.Children.Add(Command("Copy password", () => Copy(code.Text)));
-            body.Children.Add(Label("Trusted networks only: pairing currently uses HTTP. QR pairing and passkeys are not available yet."));
-            await new ContentDialog { Title = "Connect a device", Content = new ScrollViewer { Content = body, MaxHeight = 420 },
-                CloseButtonText = "Done", XamlRoot = navigation.XamlRoot }.ShowAsync();
+            await CreateConnectionDialog(initialMode).ShowAsync();
         }
         finally { dialogOpen = false; }
+    }
+
+    ContentDialog CreateConnectionDialog(string initialMode)
+    {
+        var body = new StackPanel { Spacing = HostSpacing.Row };
+        body.Children.Add(Label("Use Safari on your iPhone, or a browser on another device on your local network."));
+        var type = new ComboBox { Header = "Connection type", Tag = "connection-type", HorizontalAlignment = HorizontalAlignment.Stretch };
+        type.Items.Add("Connect once"); type.Items.Add("Approve this client");
+        body.Children.Add(type);
+        var mode = new StackPanel { Spacing = HostSpacing.Row, Tag = "connection-mode" };
+        body.Children.Add(mode);
+
+        void AddAddress()
+        {
+            var link = new TextBox { Header = "Connection address", Text = address.Text, IsReadOnly = true };
+            mode.Children.Add(link); mode.Children.Add(Command("Copy address", () => Copy(link.Text)));
+        }
+
+        void RenderMode()
+        {
+            mode.Children.Clear(); AddAddress();
+            if (type.SelectedIndex == 0)
+            {
+                var code = new TextBox { Header = "Session password", Text = password.Text, IsReadOnly = true,
+                    FontSize = 24, FontFamily = new FontFamily("Cascadia Mono") };
+                mode.Children.Add(code); mode.Children.Add(Command("Copy password", () => Copy(code.Text)));
+                mode.Children.Add(Secondary("Use this password for an ordinary connection. It does not approve the client."));
+            }
+            else
+            {
+                mode.Children.Add(new TextBox { Header = "Client setup key", Text = "Not available", IsReadOnly = true,
+                    IsEnabled = false, FontSize = 24, FontFamily = new FontFamily("Cascadia Mono") });
+                mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Informational,
+                    Message = "Client setup keys will appear here when approved-client server support is available." });
+            }
+            mode.Children.Add(Secondary("Trusted networks only: connections currently use HTTP."));
+        }
+
+        type.SelectionChanged += (_, _) => RenderMode();
+        type.SelectedIndex = initialMode == "approved-client" ? 1 : 0;
+        RenderMode();
+        var dialog = new ContentDialog { Title = "Connect a device", Content = new ScrollViewer { Content = body, MaxHeight = 460 },
+            CloseButtonText = "Done", XamlRoot = navigation.XamlRoot };
+        dialog.Resources["ContentDialogMaxWidth"] = 560d;
+        return dialog;
     }
 
     void UpdateSessions(JsonElement status)

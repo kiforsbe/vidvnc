@@ -37,6 +37,10 @@ public sealed partial class HostWindow
 
     void RenderClients()
     {
+        var connect = new Button { Content = "Connect a device", Tag = "approved-client", IsEnabled = sharing };
+        connect.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        connect.Click += async (_, _) => await ShowConnection("approved-client");
+        pageAction.Content = connect;
         page.Children.Add(Secondary("Manage devices that can sign in to this host", 16));
 
         var summaryContent = new StackPanel { Spacing = HostSpacing.Small };
