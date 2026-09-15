@@ -276,3 +276,11 @@ None of these generated/dependency directories belongs in version control.
 This is a LAN-focused preview. Passkeys, remote access/hub, multi-monitor routing,
 signed release packages, and production security hardening remain future work. Do not
 expose this development server to the public internet.
+
+## License
+
+Copyright (C) 2026 kiforsbe. VidVNC is licensed under the
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only), with an additional
+permission for linking with Microsoft and NVIDIA runtime components. Third-party
+components keep their own licenses. See [LICENSING.md](LICENSING.md) for the details,
+commercial licensing and the contributions policy.

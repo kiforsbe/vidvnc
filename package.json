@@ -6,6 +6,7 @@
     "native/media-worker"
   ],
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=20.6"

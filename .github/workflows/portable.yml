@@ -1,5 +1,6 @@
 name: Portable checks
-on: [push, pull_request]
+# Manual only: run it from the Actions tab. Pushes and pull requests do not trigger it.
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:

@@ -379,8 +379,20 @@ try {
     for (const installer of bundledInstallers)
       place(installer.source, installer.path, installer.id);
 
+  const vidvncNotices = ['LICENSE', 'LICENSING.md'].map((file) => {
+    const relative = `notices/vidvnc/${file === 'LICENSE' ? 'LICENSE.txt' : file}`;
+    place(fromRoot(file), relative, 'vidvnc');
+    return relative;
+  });
   const components = [
-    { id: 'vidvnc', name: 'VidVNC', version, license: 'NOASSERTION', origin: 'This repository' },
+    {
+      id: 'vidvnc',
+      name: 'VidVNC',
+      version,
+      license: 'AGPL-3.0-only',
+      origin: 'This repository',
+      notices: vidvncNotices,
+    },
   ];
   for (const { noticeFiles, ...component } of thirdParty) {
     const notices = noticeFiles.map((file) => {

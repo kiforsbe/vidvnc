@@ -64,8 +64,10 @@ Using a custom CMake SDK path requires the matching runtime `GSTREAMER_ROOT` too
 `npm test` is portable and uses stubbed hardware. `npm run test:hardware` explicitly
 requires Windows 25H2+, NVIDIA and an interactive desktop. CTest registers the two
 existing native unit suites; assert-based checks remain enabled in Release.
-Portable CI checks formatting/tests across Windows, macOS and Linux; it does not
-claim native capture support on those other OSes or replace device acceptance tests.
+The GitHub Actions workflow `Portable checks` runs formatting and portable tests on
+Windows, macOS and Linux. It runs only when started manually from the Actions tab, not
+on pushes or pull requests. It does not claim native capture support on those other
+OSes or replace device acceptance tests.
 
 Existing opt-in browser checks require an installed Playwright module path:
 
