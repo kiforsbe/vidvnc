@@ -1,0 +1,16 @@
+{
+  "name": "@vidvnc/media-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./runtime": "./runtime.mjs"
+  },
+  "files": [
+    "runtime.mjs",
+    "runtime-manifest.mjs"
+  ],
+  "scripts": {
+    "test:hardware": "node --test tests/*.test.mjs"
+  }
+}

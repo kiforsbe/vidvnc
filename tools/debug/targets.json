@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "status": "windows-debug-preparation-implemented",
+  "configurations": ["Debug", "Release"],
+  "targets": [
+    {
+      "id": "windows-host",
+      "sourceDirectory": "apps/windows-host",
+      "project": "apps/windows-host/VidVnc.Host.csproj",
+      "debugger": "visual-studio",
+      "status": "debug-build-and-launch-smoke-tested",
+      "childProcesses": ["server", "windows-media-worker"]
+    },
+    {
+      "id": "macos-host",
+      "sourceDirectory": "apps/macos-host",
+      "debugger": "xcode-lldb",
+      "status": "application-not-implemented",
+      "childProcesses": ["server", "macos-media-worker"]
+    },
+    {
+      "id": "windows-client",
+      "sourceDirectory": "apps/windows-client",
+      "debugger": "visual-studio",
+      "status": "application-not-implemented"
+    },
+    {
+      "id": "macos-client",
+      "sourceDirectory": "apps/macos-client",
+      "debugger": "xcode-lldb",
+      "status": "application-not-implemented"
+    },
+    {
+      "id": "server",
+      "sourceDirectory": "apps/server",
+      "entryPoint": "apps/server/src/main.mjs",
+      "debugger": "node-inspector-loopback",
+      "status": "loopback-inspector-opt-in-implemented"
+    },
+    {
+      "id": "windows-media-worker",
+      "sourceDirectory": "native/media-worker",
+      "project": "native/media-worker/CMakeLists.txt",
+      "debugger": "visual-studio-cpp",
+      "status": "debug-build-and-symbols-verified"
+    },
+    {
+      "id": "macos-media-worker",
+      "debugger": "xcode-lldb",
+      "status": "application-not-implemented"
+    }
+  ]
+}

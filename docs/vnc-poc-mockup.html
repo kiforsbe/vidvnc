@@ -1,0 +1,255 @@
+<div id="vnc-poc-mockup">
+  <style>
+    #vnc-poc-mockup {
+      color-scheme: light dark;
+      --poc-bg: light-dark(#edf1f6, #0e1117);
+      --poc-panel: light-dark(#f8fafc, #171d26);
+      --poc-panel-strong: light-dark(#ffffff, #202833);
+      --poc-ink: light-dark(#17202d, #f2f5f9);
+      --poc-muted: light-dark(#667487, #9ba8b8);
+      --poc-line: light-dark(#d8dee8, #2d3744);
+      --poc-blue: #2878e8;
+      --poc-blue-soft: light-dark(#eaf2ff, #172d50);
+      --poc-green: #26a968;
+      --poc-green-soft: light-dark(#e7f8ee, #153b2b);
+      --poc-orange: #c67a18;
+      --poc-orange-soft: light-dark(#fff3df, #422e14);
+      --poc-shadow: light-dark(0 22px 50px rgba(33, 49, 72, .14), 0 22px 50px rgba(0, 0, 0, .34));
+      width: 100%;
+      color: var(--poc-ink);
+      font: 400 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #vnc-poc-mockup * { box-sizing: border-box; }
+    #vnc-poc-mockup button { font: inherit; }
+    #vnc-poc-mockup .poc-wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 40px; }
+    #vnc-poc-mockup .poc-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+    #vnc-poc-mockup .poc-kicker { color: var(--poc-blue); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    #vnc-poc-mockup h1 { margin: 5px 0 0; font-size: clamp(28px, 4vw, 44px); font-weight: 500; letter-spacing: -.055em; line-height: 1.04; }
+    #vnc-poc-mockup .poc-lede { max-width: 640px; margin: 10px 0 0; color: var(--poc-muted); font-size: 15px; }
+    #vnc-poc-mockup .poc-mode { display: flex; align-items: center; gap: 5px; padding: 4px; border: 1px solid var(--poc-line); border-radius: 11px; background: var(--poc-panel); }
+    #vnc-poc-mockup .poc-mode button { border: 0; border-radius: 8px; padding: 8px 10px; color: var(--poc-muted); background: transparent; cursor: pointer; font-size: 11px; }
+    #vnc-poc-mockup .poc-mode button[aria-pressed="true"] { color: var(--poc-ink); background: var(--poc-panel-strong); box-shadow: 0 1px 4px rgba(20, 30, 45, .12); }
+    #vnc-poc-mockup .poc-flow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-bottom: 20px; }
+    #vnc-poc-mockup .poc-flow-step { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--poc-line); border-radius: 10px; background: var(--poc-panel); }
+    #vnc-poc-mockup .poc-flow-step strong, #vnc-poc-mockup .poc-flow-step span { display: block; }
+    #vnc-poc-mockup .poc-flow-step strong { font-size: 11px; font-weight: 600; }
+    #vnc-poc-mockup .poc-flow-step span { margin-top: 2px; color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .poc-flow-icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: var(--poc-blue); background: var(--poc-blue-soft); }
+    #vnc-poc-mockup .poc-flow-icon i { width: 14px; height: 14px; }
+    #vnc-poc-mockup .poc-flow-arrow { display: flex; align-items: center; gap: 5px; color: var(--poc-blue); font-size: 10px; }
+    #vnc-poc-mockup .poc-flow-arrow::before, #vnc-poc-mockup .poc-flow-arrow::after { content: ""; width: 22px; height: 1px; background: currentColor; }
+    #vnc-poc-mockup .poc-window { overflow: hidden; border: 1px solid var(--poc-line); border-radius: 16px; background: var(--poc-panel); box-shadow: var(--poc-shadow); }
+    #vnc-poc-mockup .poc-titlebar { display: flex; align-items: center; min-height: 43px; padding: 0 13px; border-bottom: 1px solid var(--poc-line); background: color-mix(in srgb, var(--poc-panel-strong) 90%, var(--poc-blue-soft)); }
+    #vnc-poc-mockup .poc-titlebar-name { flex: 1; font-size: 11px; font-weight: 600; }
+    #vnc-poc-mockup .poc-titlebar-status { display: inline-flex; align-items: center; gap: 6px; color: var(--poc-green); font-size: 10px; }
+    #vnc-poc-mockup .poc-titlebar-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    #vnc-poc-mockup .poc-win-controls { display: flex; gap: 0; margin-left: 9px; }
+    #vnc-poc-mockup .poc-win-controls i { position: relative; display: block; width: 27px; height: 21px; border-radius: 3px; }
+    #vnc-poc-mockup .poc-win-controls i::after { position: absolute; inset: 0; display: grid; place-items: center; color: var(--poc-muted); font-size: 11px; font-style: normal; }
+    #vnc-poc-mockup .poc-win-controls i:nth-child(1)::after { content: "—"; }
+    #vnc-poc-mockup .poc-win-controls i:nth-child(2)::after { content: "□"; font-size: 9px; }
+    #vnc-poc-mockup .poc-win-controls i:nth-child(3)::after { content: "×"; font-size: 14px; }
+    #vnc-poc-mockup .poc-win-controls i:hover { background: var(--poc-blue-soft); }
+    #vnc-poc-mockup .server-body { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(240px, .92fr); gap: 17px; padding: 22px; }
+    #vnc-poc-mockup .server-intro h2 { margin: 3px 0 0; font-size: 25px; font-weight: 500; letter-spacing: -.045em; }
+    #vnc-poc-mockup .server-intro p { max-width: 390px; margin: 7px 0 18px; color: var(--poc-muted); font-size: 12px; }
+    #vnc-poc-mockup .server-state { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; color: var(--poc-green); background: var(--poc-green-soft); font-size: 10px; }
+    #vnc-poc-mockup .server-state i { width: 12px; height: 12px; }
+    #vnc-poc-mockup .server-surface { padding: 15px; border: 1px solid var(--poc-line); border-radius: 11px; background: var(--poc-panel-strong); }
+    #vnc-poc-mockup .server-surface + .server-surface { margin-top: 12px; }
+    #vnc-poc-mockup .surface-label { color: var(--poc-muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+    #vnc-poc-mockup .address-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 11px; border: 1px solid var(--poc-line); border-radius: 8px; background: var(--poc-panel); }
+    #vnc-poc-mockup .address-line i { flex: 0 0 auto; width: 15px; color: var(--poc-blue); }
+    #vnc-poc-mockup .address-line code { flex: 1; overflow: hidden; font: 500 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    #vnc-poc-mockup .copy-button { border: 0; border-radius: 6px; padding: 5px 7px; color: var(--poc-blue); background: var(--poc-blue-soft); cursor: pointer; font-size: 10px; }
+    #vnc-poc-mockup .password-box { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    #vnc-poc-mockup .password-value { flex: 1; padding: 12px; border: 1px solid color-mix(in srgb, var(--poc-blue) 36%, var(--poc-line)); border-radius: 8px; color: var(--poc-ink); background: var(--poc-blue-soft); font: 600 20px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; text-align: center; }
+    #vnc-poc-mockup .regen { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--poc-line); border-radius: 8px; padding: 9px 10px; color: var(--poc-muted); background: var(--poc-panel); cursor: pointer; font-size: 10px; }
+    #vnc-poc-mockup .regen i { width: 13px; height: 13px; }
+    #vnc-poc-mockup .server-note { display: flex; align-items: start; gap: 8px; margin-top: 12px; color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .server-note i { flex: 0 0 auto; width: 14px; color: var(--poc-orange); }
+    #vnc-poc-mockup .server-meta { display: grid; gap: 10px; align-content: start; }
+    #vnc-poc-mockup .display-preview { padding: 14px; border: 1px solid var(--poc-line); border-radius: 11px; background: var(--poc-panel-strong); }
+    #vnc-poc-mockup .display-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+    #vnc-poc-mockup .display-preview-head strong { font-size: 12px; font-weight: 600; }
+    #vnc-poc-mockup .display-preview-head span { color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .screen-mini { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border: 3px solid color-mix(in srgb, var(--poc-blue) 60%, var(--poc-line)); border-radius: 7px; background: linear-gradient(135deg, #15263e, #3274b1 58%, #7cc7d8); }
+    #vnc-poc-mockup .screen-mini::before { content: ""; position: absolute; inset: 14% 12%; border-radius: 4px; background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.05)); box-shadow: 0 26px 0 -10px rgba(255,255,255,.16), 45px 26px 0 -10px rgba(255,255,255,.11); }
+    #vnc-poc-mockup .screen-mini::after { content: "Desktop preview"; position: absolute; right: 8px; bottom: 7px; color: rgba(255,255,255,.82); font-size: 9px; }
+    #vnc-poc-mockup .monitor-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
+    #vnc-poc-mockup .monitor-line span { color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .monitor-line strong { font-size: 10px; font-weight: 600; }
+    #vnc-poc-mockup .tech-list { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--poc-line); border-radius: 11px; background: var(--poc-panel-strong); }
+    #vnc-poc-mockup .tech-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    #vnc-poc-mockup .tech-row span { color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .tech-row strong { font-size: 10px; font-weight: 600; }
+    #vnc-poc-mockup .server-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+    #vnc-poc-mockup .poc-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--poc-line); border-radius: 7px; padding: 9px 11px; color: var(--poc-ink); background: var(--poc-panel-strong); cursor: pointer; font-size: 10px; }
+    #vnc-poc-mockup .poc-action.primary { border-color: var(--poc-blue); color: white; background: var(--poc-blue); }
+    #vnc-poc-mockup .poc-action.danger { color: #b54a43; background: transparent; }
+    #vnc-poc-mockup .poc-action i { width: 13px; height: 13px; }
+    #vnc-poc-mockup .browser-section { margin-top: 22px; }
+    #vnc-poc-mockup .browser-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+    #vnc-poc-mockup .browser-section-head h2 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -.015em; }
+    #vnc-poc-mockup .browser-section-head p { margin: 0; color: var(--poc-muted); font-size: 11px; }
+    #vnc-poc-mockup .browser-window { overflow: hidden; border: 1px solid var(--poc-line); border-radius: 14px; background: var(--poc-panel); box-shadow: var(--poc-shadow); }
+    #vnc-poc-mockup .browser-chrome { display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 0 13px; border-bottom: 1px solid var(--poc-line); background: var(--poc-panel-strong); }
+    #vnc-poc-mockup .browser-dots { display: flex; gap: 5px; }
+    #vnc-poc-mockup .browser-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--poc-line); }
+    #vnc-poc-mockup .browser-dots i:nth-child(1) { background: #ff6259; }
+    #vnc-poc-mockup .browser-dots i:nth-child(2) { background: #ffbd2e; }
+    #vnc-poc-mockup .browser-dots i:nth-child(3) { background: #28c840; }
+    #vnc-poc-mockup .browser-address { flex: 1; max-width: 610px; margin: 0 auto; padding: 7px 11px; border: 1px solid var(--poc-line); border-radius: 7px; color: var(--poc-muted); background: var(--poc-panel); font: 400 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #vnc-poc-mockup .browser-content { padding: 23px 28px 27px; background: linear-gradient(150deg, color-mix(in srgb, var(--poc-blue-soft) 47%, var(--poc-panel)) 0%, var(--poc-panel) 38%); }
+    #vnc-poc-mockup .client-nav { display: flex; align-items: center; gap: 19px; margin-bottom: 24px; }
+    #vnc-poc-mockup .client-brand { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: 12px; font-weight: 600; }
+    #vnc-poc-mockup .client-brand-mark { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; color: white; background: var(--poc-blue); }
+    #vnc-poc-mockup .client-brand-mark i { width: 14px; height: 14px; }
+    #vnc-poc-mockup .client-nav-link { color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .client-nav-link.active { color: var(--poc-ink); font-weight: 600; }
+    #vnc-poc-mockup .connect-view { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr); gap: 18px; align-items: center; min-height: 270px; }
+    #vnc-poc-mockup .connect-copy h3 { max-width: 420px; margin: 0; font-size: 29px; font-weight: 500; letter-spacing: -.055em; line-height: 1.05; }
+    #vnc-poc-mockup .connect-copy p { max-width: 360px; margin: 10px 0 0; color: var(--poc-muted); font-size: 12px; }
+    #vnc-poc-mockup .connect-steps { display: grid; gap: 9px; margin-top: 20px; }
+    #vnc-poc-mockup .connect-step { display: flex; align-items: center; gap: 8px; color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .connect-step-num { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; color: var(--poc-blue); background: var(--poc-blue-soft); font-size: 10px; font-weight: 700; }
+    #vnc-poc-mockup .connect-panel { padding: 19px; border: 1px solid var(--poc-line); border-radius: 13px; background: color-mix(in srgb, var(--poc-panel-strong) 88%, transparent); box-shadow: 0 14px 32px rgba(31, 51, 77, .09); }
+    #vnc-poc-mockup .connect-panel h4 { margin: 0; font-size: 15px; font-weight: 600; }
+    #vnc-poc-mockup .connect-panel p { margin: 5px 0 15px; color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .field-label { display: block; margin: 12px 0 5px; color: var(--poc-muted); font-size: 10px; font-weight: 600; }
+    #vnc-poc-mockup .fake-field { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--poc-line); border-radius: 7px; background: var(--poc-panel); }
+    #vnc-poc-mockup .fake-field i { width: 14px; color: var(--poc-muted); }
+    #vnc-poc-mockup .fake-field span { flex: 1; color: var(--poc-ink); font-size: 11px; }
+    #vnc-poc-mockup .fake-field.password span { letter-spacing: .15em; }
+    #vnc-poc-mockup .show-password { border: 0; color: var(--poc-blue); background: transparent; cursor: pointer; font-size: 10px; }
+    #vnc-poc-mockup .connect-panel .poc-action { width: 100%; margin-top: 16px; }
+    #vnc-poc-mockup .connect-footnote { display: flex; align-items: center; gap: 6px; margin-top: 11px; color: var(--poc-muted); font-size: 9px; }
+    #vnc-poc-mockup .connect-footnote i { width: 12px; color: var(--poc-green); }
+    #vnc-poc-mockup .live-view { display: none; }
+    #vnc-poc-mockup[data-client-state="connected"] .connect-view { display: none; }
+    #vnc-poc-mockup[data-client-state="connected"] .live-view { display: block; }
+    #vnc-poc-mockup .live-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+    #vnc-poc-mockup .live-heading h3 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -.045em; }
+    #vnc-poc-mockup .live-heading p { margin: 5px 0 0; color: var(--poc-muted); font-size: 11px; }
+    #vnc-poc-mockup .live-heading .poc-action { width: auto; margin: 0; }
+    #vnc-poc-mockup .live-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(230px, .7fr); gap: 14px; }
+    #vnc-poc-mockup .live-screen { position: relative; min-height: 260px; overflow: hidden; border: 1px solid var(--poc-line); border-radius: 11px; background: #101b2e; }
+    #vnc-poc-mockup .live-screen::before { content: ""; position: absolute; inset: 9% 7%; border: 1px solid rgba(255,255,255,.16); border-radius: 5px; background: linear-gradient(135deg, rgba(92,169,230,.75), rgba(22,42,74,.8) 44%, rgba(224,177,105,.45)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+    #vnc-poc-mockup .live-screen::after { content: "Primary display · live"; position: absolute; left: 16px; bottom: 13px; color: rgba(255,255,255,.82); font-size: 10px; }
+    #vnc-poc-mockup .live-overlay { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; color: rgba(255,255,255,.8); font-size: 9px; }
+    #vnc-poc-mockup .live-overlay .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 5px; color: white; background: rgba(8, 16, 30, .55); }
+    #vnc-poc-mockup .live-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #3dd885; }
+    #vnc-poc-mockup .live-side { display: grid; gap: 12px; align-content: start; }
+    #vnc-poc-mockup .live-control { padding: 15px; border: 1px solid var(--poc-line); border-radius: 11px; background: var(--poc-panel-strong); }
+    #vnc-poc-mockup .live-control h4 { margin: 0; font-size: 12px; font-weight: 600; }
+    #vnc-poc-mockup .live-control p { margin: 5px 0 13px; color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #vnc-poc-mockup .toggle-row span { font-size: 10px; }
+    #vnc-poc-mockup .toggle { width: 32px; height: 18px; padding: 2px; border: 0; border-radius: 999px; background: var(--poc-green); cursor: pointer; text-align: left; }
+    #vnc-poc-mockup .toggle::after { content: ""; display: block; width: 14px; height: 14px; margin-left: 14px; border-radius: 50%; background: white; }
+    #vnc-poc-mockup .metric-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--poc-line); }
+    #vnc-poc-mockup .metric-row:first-of-type { margin-top: 10px; }
+    #vnc-poc-mockup .metric-row span { color: var(--poc-muted); font-size: 10px; }
+    #vnc-poc-mockup .metric-row strong { font-size: 10px; font-weight: 600; }
+    #vnc-poc-mockup .poc-principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    #vnc-poc-mockup .poc-principle { padding: 11px 12px; border-left: 2px solid var(--poc-blue); background: var(--poc-panel); }
+    #vnc-poc-mockup .poc-principle strong { display: block; font-size: 10px; font-weight: 600; }
+    #vnc-poc-mockup .poc-principle span { display: block; margin-top: 3px; color: var(--poc-muted); font-size: 9px; }
+    @media (max-width: 820px) {
+      #vnc-poc-mockup .poc-header { align-items: start; flex-direction: column; }
+      #vnc-poc-mockup .poc-mode { align-self: stretch; }
+      #vnc-poc-mockup .poc-mode button { flex: 1; }
+      #vnc-poc-mockup .poc-flow { grid-template-columns: 1fr; }
+      #vnc-poc-mockup .poc-flow-arrow { justify-content: center; transform: rotate(90deg); }
+      #vnc-poc-mockup .server-body, #vnc-poc-mockup .connect-view, #vnc-poc-mockup .live-grid { grid-template-columns: 1fr; }
+      #vnc-poc-mockup .poc-principles { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 520px) {
+      #vnc-poc-mockup .poc-wrap { padding: 20px 14px 30px; }
+      #vnc-poc-mockup .server-body, #vnc-poc-mockup .browser-content { padding: 18px; }
+      #vnc-poc-mockup .poc-principles { grid-template-columns: 1fr; }
+      #vnc-poc-mockup .client-nav { gap: 10px; }
+      #vnc-poc-mockup .client-nav-link { display: none; }
+      #vnc-poc-mockup .client-brand { margin-right: 0; }
+      #vnc-poc-mockup .live-heading { align-items: start; flex-direction: column; }
+    }
+  </style>
+
+  <div class="poc-wrap">
+    <header class="poc-header">
+      <div>
+        <div class="poc-kicker">One screen / one URL</div>
+        <h1>Run it. Open it. Control it.</h1>
+        <p class="poc-lede">The smallest useful proof: one server, one primary display, one generated password, and a browser client served from the server itself.</p>
+      </div>
+      <div class="poc-mode" aria-label="Browser client state">
+        <button type="button" data-client-view="connect" aria-pressed="true">Connect state</button>
+        <button type="button" data-client-view="connected" aria-pressed="false">Connected state</button>
+      </div>
+    </header>
+
+    <div class="poc-flow" aria-label="POC flow">
+      <div class="poc-flow-step"><span class="poc-flow-icon"><i data-lucide="play" aria-hidden="true"></i></span><span><strong>1 · Start the server</strong><span>It shows the address and password.</span></span></div>
+      <div class="poc-flow-arrow">local network</div>
+      <div class="poc-flow-step"><span class="poc-flow-icon"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i></span><span><strong>2 · Connect in a browser</strong><span>See and control the primary display.</span></span></div>
+    </div>
+
+    <section aria-labelledby="poc-server-title">
+      <div class="poc-window">
+        <div class="poc-titlebar"><span class="poc-titlebar-name">Remote Display Server · Studio PC</span><span class="poc-titlebar-status">Ready on local network</span><span class="poc-win-controls" aria-hidden="true"><i></i><i></i><i></i></span></div>
+        <div class="server-body">
+          <div>
+            <div class="server-intro"><span class="server-state"><i data-lucide="radio-tower" aria-hidden="true"></i>Sharing is ready</span><h2 id="poc-server-title">Your screen is ready.</h2><p>Give the person at the other computer this address and password. Nothing else needs to be configured for the local-network proof of concept.</p></div>
+            <div class="server-surface">
+              <div class="surface-label">Open this address on the client</div>
+              <div class="address-line"><i data-lucide="link-2" aria-hidden="true"></i><code>http://192.168.1.42:4382</code><button type="button" class="copy-button">Copy</button></div>
+              <div class="server-note"><i data-lucide="info" aria-hidden="true"></i><span>Use a browser on the same local network. The server hosts the client page and the connection service.</span></div>
+            </div>
+            <div class="server-surface">
+              <div class="surface-label">Connection password</div>
+              <div class="password-box"><div class="password-value">ABCD-EFGH</div><button type="button" class="regen"><i data-lucide="refresh-cw" aria-hidden="true"></i>New password</button></div>
+              <div class="server-note"><i data-lucide="shield-check" aria-hidden="true"></i><span>Valid for this server session. Regenerating it disconnects current browser clients.</span></div>
+            </div>
+            <div class="server-actions"><button type="button" class="poc-action primary"><i data-lucide="square-arrow-out-up-right" aria-hidden="true"></i>Open client here</button><button type="button" class="poc-action danger"><i data-lucide="square" aria-hidden="true"></i>Stop sharing</button></div>
+          </div>
+          <aside class="server-meta">
+            <div class="display-preview"><div class="display-preview-head"><strong>Primary display</strong><span>Streaming</span></div><div class="screen-mini"></div><div class="monitor-line"><span>1920 × 1080</span><strong>60 Hz</strong></div></div>
+            <div class="tech-list"><div class="tech-row"><span>Video</span><strong>H.264 · hardware</strong></div><div class="tech-row"><span>Transport</span><strong>WebRTC · encrypted</strong></div><div class="tech-row"><span>Input</span><strong>Keyboard + mouse</strong></div><div class="tech-row"><span>Network</span><strong>Local subnet only</strong></div></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="browser-section" aria-labelledby="poc-browser-title">
+      <div class="browser-section-head"><h2 id="poc-browser-title">Browser client</h2><p>Served by the same process at the address above.</p></div>
+      <div class="browser-window">
+        <div class="browser-chrome"><div class="browser-dots"><i></i><i></i><i></i></div><div class="browser-address">http://192.168.1.42:4382</div><i data-lucide="lock-keyhole" aria-hidden="true" style="width:13px;color:var(--poc-green)"></i></div>
+        <div class="browser-content">
+          <nav class="client-nav" aria-label="Browser client navigation"><div class="client-brand"><span class="client-brand-mark"><i data-lucide="monitor-up" aria-hidden="true"></i></span>Remote Display</div><span class="client-nav-link active">Connect</span><span class="client-nav-link">Help</span></nav>
+          <div class="connect-view">
+            <div class="connect-copy"><h3>Connect to Studio PC.</h3><p>Enter the password shown in the server window. Once connected, this page becomes a live view of the primary display.</p><div class="connect-steps"><div class="connect-step"><span class="connect-step-num">1</span>Open the address from the server.</div><div class="connect-step"><span class="connect-step-num">2</span>Enter the short connection password.</div><div class="connect-step"><span class="connect-step-num">3</span>Choose when to enable keyboard and mouse.</div></div></div>
+            <div class="connect-panel"><h4>Connect securely</h4><p>Studio PC · Local network</p><span class="field-label">Password</span><div class="fake-field password"><i data-lucide="key-round" aria-hidden="true"></i><span>••••-••••</span><button type="button" class="show-password">Show</button></div><button type="button" class="poc-action primary">Connect <i data-lucide="arrow-right" aria-hidden="true"></i></button><div class="connect-footnote"><i data-lucide="shield-check" aria-hidden="true"></i>Only the server owner can generate this password.</div></div>
+          </div>
+          <div class="live-view">
+            <div class="live-heading"><div><h3>Studio PC</h3><p>Connected · one display · quality adapts automatically</p></div><button type="button" class="poc-action"><i data-lucide="maximize-2" aria-hidden="true"></i>Fullscreen</button></div>
+            <div class="live-grid"><div class="live-screen"><div class="live-overlay"><span class="live-badge">Live view</span><span>60 fps</span></div></div><div class="live-side"><div class="live-control"><h4>Keyboard and mouse</h4><p>Control stays off until you choose to enable it.</p><div class="toggle-row"><span>Control enabled</span><button type="button" class="toggle" aria-label="Disable keyboard and mouse"></button></div></div><div class="live-control"><h4>Connection</h4><div class="metric-row"><span>Quality</span><strong>Excellent</strong></div><div class="metric-row"><span>Round trip</span><strong>24 ms</strong></div><div class="metric-row"><span>Stream</span><strong>1080p · 60 fps</strong></div></div><button type="button" class="poc-action danger" style="width:100%"><i data-lucide="log-out" aria-hidden="true"></i>Disconnect</button></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="poc-principles" aria-label="POC principles"><div class="poc-principle"><strong>One executable</strong><span>No separate web server or account setup.</span></div><div class="poc-principle"><strong>One obvious secret</strong><span>Human-friendly password, visible at a glance.</span></div><div class="poc-principle"><strong>Control by consent</strong><span>Keyboard and mouse begin disabled.</span></div></div>
+  </div>
+
+  <script>
+    const poc = document.getElementById("vnc-poc-mockup");
+    const viewButtons = poc.querySelectorAll("[data-client-view]");
+    function setClientView(view) {
+      poc.dataset.clientState = view;
+      viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.clientView === view)));
+    }
+    viewButtons.forEach((button) => button.addEventListener("click", () => setClientView(button.dataset.clientView)));
+    setClientView("connect");
+  </script>
+</div>

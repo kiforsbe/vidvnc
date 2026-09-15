@@ -1,0 +1,12 @@
+node_modules/
+.deps/
+build/
+bin/
+obj/
+diagnostics/
+apps/windows-host/
+out/
+native/**/*.cpp
+native/**/*.hpp
+*.log
+package-lock.json

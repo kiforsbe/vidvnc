@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "VidVNC Host": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    },
+    "VidVNC Host + Node inspector": {
+      "commandName": "Project",
+      "nativeDebugging": true,
+      "environmentVariables": { "VIDVNC_INSPECT": "1" }
+    }
+  }
+}

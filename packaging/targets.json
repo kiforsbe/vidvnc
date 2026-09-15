@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "status": "structure-only",
+  "payloadGroups": {
+    "server-common": {
+      "sourceDirectories": ["apps/server", "apps/web-client"],
+      "requiredRuntimeContents": [
+        "private-node-runtime",
+        "production-js-dependencies",
+        "browser-assets"
+      ]
+    },
+    "windows-media": {
+      "sourceDirectories": ["native/media-worker"],
+      "requiredRuntimeContents": [
+        "windows-media-worker",
+        "required-media-plugins-and-transitive-libraries"
+      ]
+    },
+    "macos-media": {
+      "sourceDirectories": [],
+      "implementationStatus": "not-implemented",
+      "requiredRuntimeContents": ["macos-media-worker", "required-media-libraries"]
+    },
+    "windows-host": {
+      "sourceDirectories": ["apps/windows-host"],
+      "requiredRuntimeContents": ["winui-host", "required-dotnet-and-windows-app-sdk-runtime"]
+    },
+    "macos-host": {
+      "sourceDirectories": ["apps/macos-host"],
+      "implementationStatus": "not-implemented",
+      "requiredRuntimeContents": ["native-macos-host", "required-non-system-runtime-libraries"]
+    },
+    "windows-client": {
+      "sourceDirectories": ["apps/windows-client"],
+      "implementationStatus": "not-implemented",
+      "requiredRuntimeContents": ["winui-viewer", "viewer-runtime-and-decoding-dependencies"]
+    },
+    "macos-client": {
+      "sourceDirectories": ["apps/macos-client"],
+      "implementationStatus": "not-implemented",
+      "requiredRuntimeContents": ["native-macos-viewer", "viewer-runtime-and-decoding-dependencies"]
+    }
+  },
+  "targets": [
+    {
+      "id": "windows-server",
+      "os": "windows",
+      "minimumOS": "11-25H2",
+      "architecture": "x64",
+      "product": "server-host",
+      "payloadGroups": ["server-common", "windows-media", "windows-host"],
+      "status": "self-signed-development-build"
+    },
+    {
+      "id": "windows-client",
+      "os": "windows",
+      "minimumOS": "11-25H2",
+      "architecture": "x64",
+      "product": "native-client",
+      "payloadGroups": ["windows-client"],
+      "status": "planned"
+    },
+    {
+      "id": "windows-cli",
+      "os": "windows",
+      "minimumOS": "11-25H2",
+      "architecture": "x64",
+      "product": "cli-server",
+      "payloadGroups": ["server-common", "windows-media"],
+      "status": "unsigned-development-build"
+    },
+    {
+      "id": "macos-server",
+      "os": "macos",
+      "minimumOS": "27",
+      "architecture": "arm64",
+      "product": "server-host",
+      "payloadGroups": ["server-common", "macos-media", "macos-host"],
+      "status": "planned"
+    },
+    {
+      "id": "macos-client",
+      "os": "macos",
+      "minimumOS": "27",
+      "architecture": "arm64",
+      "product": "native-client",
+      "payloadGroups": ["macos-client"],
+      "status": "planned",
+      "futureUniversal": "targets-to-be-decided"
+    },
+    {
+      "id": "macos-cli",
+      "os": "macos",
+      "minimumOS": "27",
+      "architecture": "arm64",
+      "product": "cli-server",
+      "payloadGroups": ["server-common", "macos-media"],
+      "status": "planned"
+    }
+  ]
+}

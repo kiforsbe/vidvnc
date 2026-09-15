@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>VidVNC · Live diagnostics</title>
+    <link rel="stylesheet" href="/diagnostics.css" />
+    <script type="module" src="/diagnostics.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="eyebrow">VIDVNC / PERFORMANCE</div>
+        <h1>Diagnostics</h1>
+        <label id="stream-picker" hidden
+          >Stream
+          <select id="diagnosticStream" aria-label="Diagnostic stream"></select
+        ></label>
+        <div id="state" role="status">Waiting for samples…</div>
+        <p id="profile">Profile: waiting for a session…</p>
+        <p id="profile-settings"></p>
+        <p id="source-display">Source display: waiting for a session…</p>
+      </header>
+      <section class="metrics">
+        <article>
+          <label>Capture → encode → decode</label><strong id="rates">— → — → —</strong
+          ><small>frames per second</small>
+        </article>
+        <article>
+          <label>Server output / browser input</label><strong id="bandwidth">— / —</strong
+          ><small>Mbit/s · encoded payload / received RTP payload</small>
+        </article>
+        <article>
+          <label>Encode / decode time</label><strong id="timing">— / —</strong
+          ><small>milliseconds per frame · interval averages</small>
+        </article>
+      </section>
+      <section class="charts">
+        <article>
+          <h2>Frame flow</h2>
+          <div class="legend">
+            <span class="capture">— Capture</span><span class="encode">– – Encode</span
+            ><span class="decode">··· Decode</span>
+          </div>
+          <svg
+            id="fps"
+            viewBox="0 0 600 240"
+            role="img"
+            aria-label="Capture, encode and decode frames per second over time"
+          ></svg>
+        </article>
+        <article>
+          <h2>Bandwidth</h2>
+          <div class="legend">
+            <span class="encode">— Encoded</span><span class="decode">– – Received</span>
+          </div>
+          <svg
+            id="mbps"
+            viewBox="0 0 600 240"
+            role="img"
+            aria-label="Encoded and received megabits per second over time"
+          ></svg>
+        </article>
+      </section>
+      <section class="details">
+        <h2>Where is time being spent?</h2>
+        <dl id="numbers"></dl>
+      </section>
+      <section class="details">
+        <h2>Transport &amp; packet recovery</h2>
+        <dl id="transport-numbers"></dl>
+      </section>
+      <footer>
+        <details>
+          <summary>Measurement notes &amp; logs</summary>
+          <p>
+            Graphs show the last two minutes. — means unavailable. Red status means samples are
+            stale, not proof of a specific failure.
+          </p>
+          <p>
+            Burst peaks cover the last reporting interval. ICE input includes encrypted media and
+            control traffic, measured before the network sink—not on the wire. Queue values are
+            once-per-second samples, not peak backlog or OS socket buffers.
+          </p>
+          <p>
+            Capture gaps and frames pending are not confirmed drops. QoS drops are the largest
+            per-element reported cumulative count, not an end-to-end sum. Encode time is
+            input-to-output residence time, not GPU-only time. Jitter-buffer time and RTT are not
+            glass-to-glass latency.
+          </p>
+          <p>
+            Logs: <code>%LOCALAPPDATA%/VidVNC/logs</code> (or VIDVNC_LOG_DIR) · Local server view
+            only · No passwords, input contents, video, SDP or network addresses logged.
+          </p>
+        </details>
+      </footer>
+    </main>
+  </body>
+</html>

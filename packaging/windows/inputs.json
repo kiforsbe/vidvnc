@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "gstreamer": {
+    "sdk": ".deps/gstreamer",
+    "version": "1.28.6",
+    "installer": {
+      "file": "gstreamer-1.0-msvc-x86_64-1.28.6.exe",
+      "sha256": "059251444d1267b486eba390b18d25fed87e10315e72f757ec6c7e912fa746b5"
+    },
+    "plugins": [
+      "gstapp.dll",
+      "gstaudioconvert.dll",
+      "gstaudioresample.dll",
+      "gstcoreelements.dll",
+      "gstd3d11.dll",
+      "gstdtls.dll",
+      "gstnice.dll",
+      "gstnvcodec.dll",
+      "gstopus.dll",
+      "gstrtp.dll",
+      "gstrtpmanager.dll",
+      "gstsctp.dll",
+      "gstsrtp.dll",
+      "gstvideoparsersbad.dll",
+      "gstwasapi.dll",
+      "gstwebrtc.dll"
+    ],
+    "components": {
+      "glib": {
+        "license": "LGPL-2.0-or-later",
+        "files": ["gio-2.0-0.dll", "glib-2.0-0.dll", "gmodule-2.0-0.dll", "gobject-2.0-0.dll"]
+      },
+      "gst-plugins-bad-1.0": {
+        "license": "LGPL-2.0-or-later AND BSD-3-Clause",
+        "files": [
+          "gstcodecparsers-1.0-0.dll",
+          "gstcodecs-1.0-0.dll",
+          "gstcuda-1.0-0.dll",
+          "gstd3d11-1.0-0.dll",
+          "gstd3d11.dll",
+          "gstd3d12-1.0-0.dll",
+          "gstd3dshader-1.0-0.dll",
+          "gstdtls.dll",
+          "gstdxva-1.0-0.dll",
+          "gstnvcodec.dll",
+          "gstsctp-1.0-0.dll",
+          "gstsctp.dll",
+          "gstsrtp.dll",
+          "gstvideoparsersbad.dll",
+          "gstwasapi.dll",
+          "gstwebrtc-1.0-0.dll",
+          "gstwebrtc.dll",
+          "gstwebrtcnice-1.0-0.dll"
+        ]
+      },
+      "gst-plugins-base-1.0": {
+        "license": "LGPL-2.0-or-later",
+        "files": [
+          "gstapp-1.0-0.dll",
+          "gstapp.dll",
+          "gstaudio-1.0-0.dll",
+          "gstaudioconvert.dll",
+          "gstaudioresample.dll",
+          "gstgl-1.0-0.dll",
+          "gstopus.dll",
+          "gstpbutils-1.0-0.dll",
+          "gstrtp-1.0-0.dll",
+          "gstsdp-1.0-0.dll",
+          "gsttag-1.0-0.dll",
+          "gstvideo-1.0-0.dll"
+        ]
+      },
+      "gst-plugins-good-1.0": {
+        "license": "LGPL-2.1-or-later",
+        "licenseFiles": ["share/licenses/json-glib/LGPL-2.1-or-later.txt"],
+        "note": "The SDK has no license directory for this recipe; the LGPL-2.1 text is taken from json-glib.",
+        "files": ["gstrtp.dll", "gstrtpmanager.dll"]
+      },
+      "gstreamer-1.0": {
+        "license": "LGPL-2.0-or-later",
+        "files": [
+          "gstbase-1.0-0.dll",
+          "gstcoreelements.dll",
+          "gstnet-1.0-0.dll",
+          "gstreamer-1.0-0.dll"
+        ]
+      },
+      "json-glib": {
+        "license": "LGPL-2.1-or-later",
+        "files": ["json-glib-1.0-0.dll"]
+      },
+      "libffi": {
+        "license": "MIT",
+        "files": ["ffi-7.dll"]
+      },
+      "libnice": {
+        "license": "LGPL-2.1-or-later OR MPL-1.1",
+        "files": ["gstnice.dll", "nice-10.dll"]
+      },
+      "libsrtp": {
+        "license": "BSD-3-Clause",
+        "files": ["srtp2-1.dll"]
+      },
+      "openssl": {
+        "license": "Apache-2.0",
+        "files": ["libcrypto-3-x64.dll", "libssl-3-x64.dll"]
+      },
+      "opus": {
+        "license": "BSD-3-Clause",
+        "files": ["opus-0.dll"]
+      },
+      "orc": {
+        "license": "BSD-2-Clause",
+        "files": ["orc-0.4-0.dll"]
+      },
+      "pcre2": {
+        "license": "BSD-3-Clause",
+        "files": ["pcre2-8-0.dll"]
+      },
+      "proxy-libintl": {
+        "license": "LGPL-2.0-or-later",
+        "files": ["intl-8.dll"]
+      },
+      "zlib": {
+        "license": "Zlib",
+        "files": ["z-1.dll"]
+      }
+    }
+  },
+  "host": {
+    "project": "apps/windows-host/VidVnc.Host.csproj",
+    "executable": "VidVnc.Host.exe",
+    "packageOf": {
+      "Microsoft.Web.WebView2.Core.dll": "Microsoft.Web.WebView2",
+      "Microsoft.Web.WebView2.Core.Projection.dll": "Microsoft.Web.WebView2"
+    }
+  },
+  "msix": {
+    "name": "VidVNC",
+    "displayName": "VidVNC",
+    "description": "Share this PC's desktop with your devices on your local network.",
+    "publisher": "CN=VidVNC Development",
+    "publisherDisplayName": "VidVNC (development build)",
+    "minimumOSVersion": "10.0.26200.0",
+    "certificate": ".deps/signing/vidvnc-development.pfx"
+  },
+  "prerequisites": {
+    "nodejs": {
+      "name": "Node.js",
+      "minimumVersion": "24",
+      "download": "https://nodejs.org/",
+      "products": ["windows-cli", "windows-server"],
+      "bundle": {
+        "file": "node-v24.21.0-win-x64.zip",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+        "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+        "version": "24.21.0",
+        "license": "MIT"
+      }
+    },
+    "dotnet-runtime": {
+      "name": ".NET 10 Runtime (x64)",
+      "minimumVersion": "10.0",
+      "download": "https://dotnet.microsoft.com/download/dotnet/10.0",
+      "products": ["windows-server"],
+      "installer": {
+        "file": "dotnet-runtime-10.0.12-win-x64.exe",
+        "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.12/dotnet-runtime-10.0.12-win-x64.exe",
+        "sha256": "02ea072c08f890f9dc0d3ac71b5fd4c2bfcdced4e1133e2d917ce5422b025585",
+        "license": "MIT"
+      }
+    },
+    "windows-app-runtime": {
+      "name": "Windows App Runtime",
+      "minimumVersion": "2.2",
+      "download": "https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads",
+      "products": ["windows-server"],
+      "dlls": ["Microsoft.WindowsAppRuntime.dll"],
+      "installer": {
+        "file": "Microsoft.WindowsAppRuntime.2.msix",
+        "nuget": "microsoft.windowsappsdk.runtime/2.2.0/tools/MSIX/win10-x64/Microsoft.WindowsAppRuntime.2.msix",
+        "sha256": "a71c600b2fb719c8d70120151965891f360857c1ff3d9d5c47ed92622a60f665",
+        "license": "LicenseRef-Microsoft-Windows-App-SDK"
+      }
+    },
+    "vc-redist-x64": {
+      "name": "Microsoft Visual C++ Redistributable (x64)",
+      "minimumVersion": "14.44",
+      "download": "https://aka.ms/vc14/vc_redist.x64.exe",
+      "products": ["windows-cli", "windows-server"],
+      "dlls": [
+        "concrt140.dll",
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll",
+        "vccorlib140.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "vcruntime140_threads.dll"
+      ],
+      "installer": {
+        "file": "vc_redist.x64.exe",
+        "url": "https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe",
+        "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c",
+        "license": "LicenseRef-Microsoft-Visual-CPP-Redistributable"
+      }
+    }
+  }
+}

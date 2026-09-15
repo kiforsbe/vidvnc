@@ -1,0 +1,21 @@
+{
+  "name": "@vidvnc/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.mjs": "./src/*.mjs"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "prestart": "node ../../tools/format.mjs web",
+    "start": "node src/main.mjs",
+    "test": "node ../../tools/test.mjs server"
+  },
+  "dependencies": {
+    "@vidvnc/web-client": "0.1.0",
+    "@vidvnc/media-worker": "0.1.0"
+  }
+}

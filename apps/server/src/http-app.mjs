@@ -1,0 +1,441 @@
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
+import { SessionStore } from './session-store.mjs';
+import { chooseProfile, profileNames } from './profiles.mjs';
+import { audioModes, chooseAudioMode } from './audio.mjs';
+import { defaultStreamPolicy, resolveStreamPolicy } from './stream-policy.mjs';
+import { applyProfileOrder } from './profile-order.mjs';
+
+function send(response, status, body) {
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  response.end(body === undefined ? undefined : JSON.stringify(body));
+}
+async function readJson(request) {
+  let size = 0,
+    text = '';
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 128 * 1024) throw Object.assign(new Error('Request too large'), { status: 413 });
+    text += chunk;
+  }
+  let value;
+  try {
+    value = JSON.parse(text || '{}');
+  } catch {
+    throw Object.assign(new Error('Invalid JSON'), { status: 400 });
+  }
+  if (!value || Array.isArray(value) || typeof value !== 'object')
+    throw Object.assign(new Error('Expected JSON object'), { status: 400 });
+  return value;
+}
+export function createHttpApp({
+  serverName = 'This PC',
+  display = null,
+  media = null,
+  diagnostics = null,
+  policy = null,
+  inventory = null,
+  profileOrderFile = null,
+  runtime = null,
+  sessionStore = new SessionStore(),
+} = {}) {
+  const reconnecting = new Set();
+  const telemetryTimes = new Map();
+  const allowedHosts = new Set([
+    'localhost',
+    '127.0.0.1',
+    '[::1]',
+    ...Object.values(networkInterfaces())
+      .flat()
+      .map((n) => n.address),
+  ]);
+  const server = createServer(async (request, response) => {
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('referrer-policy', 'no-referrer');
+    response.setHeader(
+      'content-security-policy',
+      "default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
+    try {
+      const host = new URL(`http://${request.headers.host}`).hostname;
+      if (!allowedHosts.has(host))
+        return send(response, 403, { error: 'Use the server IP address.' });
+      if (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)
+        return send(response, 403, { error: 'Cross-origin request denied' });
+      const route = new URL(request.url, 'http://localhost').pathname;
+      if (route === '/diagnostics' || route === '/api/diagnostics') {
+        const local =
+          ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress) &&
+          ['127.0.0.1', 'localhost', '[::1]'].includes(host);
+        if (!local)
+          return send(response, 403, { error: 'Diagnostics are available on the server PC only.' });
+        if (request.method !== 'GET') return send(response, 405, { error: 'GET required' });
+        if (route === '/api/diagnostics') {
+          if (!runtime) return send(response, 200, diagnostics?.snapshot() || {});
+          const streams = runtime.diagnosticStreams();
+          const selectedStreamId =
+            new URL(request.url, 'http://localhost').searchParams.get('stream') ??
+            streams[0]?.id ??
+            null;
+          return send(response, 200, {
+            ...(runtime.diagnostics(selectedStreamId) ?? { at: Date.now(), history: [] }),
+            streams,
+            selectedStreamId,
+          });
+        }
+        response.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' });
+        return response.end(
+          await readFile(new URL(import.meta.resolve('@vidvnc/web-client/diagnostics.html'))),
+        );
+      }
+      if (
+        request.method === 'GET' &&
+        [
+          '/',
+          '/app.js',
+          '/password-entry.js',
+          '/receiver-stats.js',
+          '/stream-subscriptions.js',
+          '/diagnostics.js',
+          '/diagnostics.css',
+          '/style.css',
+          '/theme.js',
+          '/shell.css',
+        ].includes(route)
+      ) {
+        const file = route === '/' ? 'index.html' : route.slice(1);
+        const body = await readFile(new URL(import.meta.resolve(`@vidvnc/web-client/${file}`)));
+        response.writeHead(200, {
+          'content-type': file.endsWith('.js')
+            ? 'text/javascript'
+            : file.endsWith('.css')
+              ? 'text/css'
+              : 'text/html',
+          'cache-control': 'no-store',
+        });
+        return response.end(body);
+      }
+      if (request.method === 'GET' && route === '/api/info')
+        return send(response, 200, {
+          serverName,
+          display: null,
+          profiles: profileNames(),
+          audio: {
+            modes: audioModes(),
+            default: 'on',
+            codec: 'Opus',
+            compression: 'lossy',
+            systemOutputOnly: true,
+          },
+          media: {
+            state: media ? 'ready' : 'unavailable',
+            codec: 'H.264 + Opus',
+            transport: 'WebRTC',
+          },
+          control: { available: !!media },
+        });
+      if (
+        request.method !== 'POST' ||
+        ![
+          '/api/connect',
+          '/api/offer',
+          '/api/heartbeat',
+          '/api/disconnect',
+          '/api/telemetry',
+          '/api/profiles',
+          '/api/reconnect',
+          '/api/streams',
+          '/api/stream-offer',
+          '/api/audio-offer',
+          '/api/audio-telemetry',
+          '/api/stream-stop',
+          '/api/stream-select',
+          '/api/stream-telemetry',
+        ].includes(route)
+      )
+        return send(response, 404, { error: 'Not found' });
+      if (!request.headers['content-type']?.startsWith('application/json'))
+        return send(response, 415, { error: 'JSON required' });
+      if (Number(request.headers['content-length']) > 128 * 1024) {
+        request.resume();
+        return send(response, 413, { error: 'Request too large' });
+      }
+      const body = await readJson(request);
+      if (route === '/api/connect') {
+        if (policy?.busy)
+          return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
+        if (typeof body.password !== 'string' || body.password.length > 64)
+          return send(response, 400, { error: 'Password is required' });
+        const result = sessionStore.connect(
+          body.password.trim().toUpperCase(),
+          request.socket.remoteAddress,
+          request.headers['user-agent'] || '',
+        );
+        if (!result.ok)
+          return send(response, { busy: 409, 'rate-limited': 429 }[result.reason] || 401, {
+            error:
+              result.reason === 'busy'
+                ? 'The server has reached its connected-device limit.'
+                : 'Unable to authenticate. Try again later.',
+          });
+        let effective, selectedDisplay;
+        try {
+          if (inventory)
+            selectedDisplay = inventory.select(
+              policy.snapshot(),
+              body.displayId,
+              body.inventoryRevision,
+            );
+          if (policy)
+            effective = resolveStreamPolicy(policy.snapshot(), {
+              profileId: typeof body.profile === 'string' ? body.profile : 'auto',
+              displayId: selectedDisplay?.id,
+              userAgent: request.headers['user-agent'] || '',
+              custom: body.custom,
+              audio: body.audio !== 'off',
+            });
+        } catch (error) {
+          sessionStore.disconnect(result.sessionId);
+          return send(response, 403, { error: error.message });
+        }
+        const profile =
+          effective?.profile ??
+          chooseProfile(
+            typeof body.profile === 'string' ? body.profile : 'auto',
+            request.headers['user-agent'] || '',
+          );
+        sessionStore.setProfile(result.sessionId, profile);
+        sessionStore.setDisplay(result.sessionId, selectedDisplay, inventory?.revision);
+        const audio = chooseAudioMode(
+          effective?.audio.mode ?? (typeof body.audio === 'string' ? body.audio : 'on'),
+        );
+        if (effective) sessionStore.setPolicyRevision(result.sessionId, effective.revision);
+        sessionStore.setAudio(result.sessionId, audio);
+        return send(response, 201, {
+          sessionId: result.sessionId,
+          mode: runtime ? 'streams' : undefined,
+          controlEnabled: false,
+          profile,
+          audio,
+          display: selectedDisplay,
+        });
+      }
+      const token = request.headers.authorization?.match(/^Bearer ([a-f0-9-]{36})$/)?.[1];
+      const session = sessionStore.get(token);
+      if (!session || session.clientKey !== request.socket.remoteAddress)
+        return send(response, 401, { error: 'Session expired. Reconnect.' });
+      if (runtime) {
+        if (['/api/offer', '/api/reconnect', '/api/telemetry'].includes(route))
+          return send(response, 409, { error: 'Reload the viewer to use stream subscriptions.' });
+        if (route === '/api/streams') return send(response, 200, { streams: runtime.list(token) });
+        if (route === '/api/audio-telemetry') {
+          if (runtime.audio.get(token)?.id !== body.streamId)
+            return send(response, 404, { error: 'Unknown audio stream' });
+          return runtime.recordAudio(token, body.streamId, body)
+            ? send(response, 204)
+            : send(response, 429, { error: 'Sample rate exceeded or audio inactive' });
+        }
+        if (route === '/api/stream-select')
+          return send(response, 200, await runtime.selectStream(token, body.streamId));
+        if (route === '/api/stream-offer' || route === '/api/audio-offer') {
+          if (
+            typeof body.sdp !== 'string' ||
+            !body.sdp.startsWith('v=0') ||
+            body.sdp.length > 65536
+          )
+            return send(response, 400, { error: 'Invalid SDP' });
+          try {
+            return send(
+              response,
+              200,
+              await (route === '/api/audio-offer'
+                ? runtime.offerAudio(token, body.sdp)
+                : runtime.offerVideo(token, body)),
+            );
+          } catch (error) {
+            return send(response, error.status || 503, {
+              error: error.status
+                ? error.message
+                : 'Stream negotiation failed. Check server diagnostics.',
+            });
+          }
+        }
+        if (['/api/stream-stop', '/api/stream-telemetry'].includes(route)) {
+          if (!runtime.registry.get(token, body.streamId))
+            return send(response, 404, { error: 'Unknown stream' });
+          if (route === '/api/stream-stop') {
+            await runtime.stopStream(token, body.streamId);
+            return send(response, 204);
+          }
+          return runtime.record(token, body.streamId, body)
+            ? send(response, 204)
+            : send(response, 429, { error: 'Sample rate exceeded or stream inactive' });
+        }
+        if (route === '/api/heartbeat')
+          return send(response, 200, {
+            controlAllowed: runtime.control.owner?.sessionId === token,
+            controlStreamId:
+              runtime.control.owner?.sessionId === token ? runtime.control.owner.streamId : null,
+            streams: runtime.list(token),
+            inventoryRevision: inventory?.revision,
+          });
+      } else if (route.startsWith('/api/stream'))
+        return send(response, 404, { error: 'Not found' });
+      if (reconnecting.has(token) && !['/api/heartbeat', '/api/disconnect'].includes(route))
+        return send(response, 409, { error: 'This session is reconnecting. Retry shortly.' });
+      if (route === '/api/profiles') {
+        const catalog = policy?.snapshot() ?? defaultStreamPolicy();
+        return send(response, 200, {
+          serverName,
+          profiles: await applyProfileOrder(
+            profileOrderFile,
+            catalog.profiles.filter((p) => p.enabled),
+          ),
+          clientMode: catalog.clientMode,
+          allowedOptions: catalog.clientMode === 'options' ? catalog.allowedOptions : null,
+          allowAudio: catalog.allowAudio,
+          revision: catalog.revision,
+          displays: inventory?.allowed(catalog),
+          inventoryRevision: inventory?.revision,
+          display:
+            session.display ??
+            (display
+              ? {
+                  id: 'primary',
+                  name: 'Primary display',
+                  width: display.width,
+                  height: display.height,
+                }
+              : null),
+        });
+      }
+      if (route === '/api/reconnect') {
+        if (policy?.busy)
+          return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
+        const snapshot = policy?.snapshot() ?? defaultStreamPolicy();
+        let effective, selectedDisplay;
+        try {
+          if (inventory)
+            selectedDisplay = inventory.select(
+              snapshot,
+              body.displayId ?? session.display?.id,
+              body.inventoryRevision ?? session.inventoryRevision,
+            );
+          effective = resolveStreamPolicy(snapshot, {
+            displayId: selectedDisplay?.id,
+            profileId: body.profile ?? 'auto',
+            custom: body.custom,
+            audio: body.audio !== 'off',
+            userAgent: request.headers['user-agent'] || '',
+          });
+        } catch (error) {
+          return send(response, 403, { error: error.message });
+        }
+        // Validate first. Retire the old worker completely before issuing a new token.
+        const inventoryRevision = inventory?.revision;
+        reconnecting.add(token);
+        try {
+          const passwordGeneration = sessionStore.password;
+          await media?.stop(token);
+          if (
+            sessionStore.password !== passwordGeneration ||
+            (inventory && inventory.revision !== inventoryRevision) ||
+            (policy && (policy.busy || policy.snapshot().revision !== snapshot.revision))
+          ) {
+            sessionStore.disconnect(token);
+            return send(response, 409, { error: 'Host settings changed. Reconnect.' });
+          }
+          const result = sessionStore.replaceSession(token);
+          if (!result.ok)
+            return send(response, 409, {
+              error: 'Session ended or another client connected. Reconnect.',
+            });
+          const audio = chooseAudioMode(effective.audio.mode);
+          sessionStore.setProfile(result.sessionId, effective.profile);
+          sessionStore.setDisplay(result.sessionId, selectedDisplay, inventory?.revision);
+          sessionStore.setAudio(result.sessionId, audio);
+          if (policy) sessionStore.setPolicyRevision(result.sessionId, effective.revision);
+          return send(response, 201, {
+            sessionId: result.sessionId,
+            controlEnabled: false,
+            profile: effective.profile,
+            audio,
+            display: selectedDisplay,
+          });
+        } finally {
+          reconnecting.delete(token);
+        }
+      }
+      if (route === '/api/telemetry') {
+        const now = Date.now();
+        if (now - (telemetryTimes.get(token) ?? -Infinity) < 800)
+          return send(response, 429, { error: 'Sample rate exceeded' });
+        telemetryTimes.set(token, now);
+        const streamDiagnostics = media?.workers?.get(token)?.diagnostics ?? diagnostics;
+        streamDiagnostics?.record('client', body);
+        media?.receiverFeedback?.(token, body);
+        return send(response, 204);
+      }
+      if (route === '/api/disconnect') {
+        sessionStore.disconnect(token);
+        await runtime?.stopSession(token);
+        await media?.stop(token);
+        return send(response, 204);
+      }
+      if (route === '/api/heartbeat') return send(response, 204);
+      if (policy && (policy.busy || session.policyRevision !== policy.snapshot().revision)) {
+        sessionStore.disconnect(token);
+        return send(response, 409, { error: 'Host settings changed. Reconnect.' });
+      }
+      if (!media) return send(response, 503, { error: 'Native media is unavailable.' });
+      if (typeof body.sdp !== 'string' || body.sdp.length > 65536 || !body.sdp.startsWith('v=0'))
+        return send(response, 400, { error: 'Invalid SDP' });
+      try {
+        if (inventory)
+          inventory.select(policy.snapshot(), session.display?.id, session.inventoryRevision);
+        const answer = await media.offer(
+          token,
+          body.sdp,
+          session.profile,
+          session.audio,
+          session.display,
+        );
+        if (!sessionStore.get(token)) return send(response, 401, { error: 'Session expired' });
+        return send(response, 200, { type: 'answer', sdp: answer });
+      } catch (error) {
+        if (error.code === 'MEDIA_BUSY')
+          return send(response, 409, { error: 'Stream already active or media capacity reached.' });
+        sessionStore.disconnect(token);
+        await media?.stop(token);
+        return send(response, 503, {
+          error: 'Media negotiation failed. Check the server diagnostics log.',
+        });
+      }
+    } catch (error) {
+      if (!response.headersSent && !response.destroyed)
+        send(response, error.status || 500, {
+          error: error.status ? error.message : 'Server error',
+        });
+    }
+  });
+  const revoke = sessionStore.onRevoke;
+  sessionStore.onRevoke = (id) => {
+    telemetryTimes.delete(id);
+    revoke(id);
+    media?.stop(id);
+  };
+  const sweep = setInterval(() => sessionStore.sweep(), 1000).unref();
+  server.on('close', () => {
+    clearInterval(sweep);
+    sessionStore.stop();
+  });
+  server.requestTimeout = 15000;
+  server.headersTimeout = 10000;
+  server.maxConnections = 32;
+  server.sessionStore = sessionStore;
+  return server;
+}

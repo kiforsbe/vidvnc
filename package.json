@@ -1,0 +1,36 @@
+{
+  "name": "vidvnc",
+  "workspaces": [
+    "apps/server",
+    "apps/web-client",
+    "native/media-worker"
+  ],
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "build": ".\\build-native.cmd",
+    "prestart": "npm run format:web",
+    "start": "node apps/server/src/main.mjs",
+    "config": "node apps/server/src/main.mjs config",
+    "build:host": "dotnet build apps/windows-host/VidVnc.Host.csproj",
+    "prepare:host": "node tools/debug/prepare.mjs",
+    "screenshot:host": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/screenshot-host.ps1",
+    "test:host": "dotnet run --project apps/windows-host/tests/RuntimeContract/RuntimeContract.csproj",
+    "package:prepare": "node packaging/windows/prepare.mjs",
+    "package:cli": "node packaging/windows/build.mjs windows-cli",
+    "package:app": "node packaging/windows/build.mjs windows-server",
+    "format": "node tools/format.mjs all",
+    "format:check": "node tools/format.mjs all --check",
+    "format:native": "node tools/format.mjs native",
+    "format:web": "node tools/format.mjs web",
+    "test": "node tools/test.mjs",
+    "test:hardware": "node tools/test.mjs hardware"
+  },
+  "devDependencies": {
+    "@wasm-fmt/clang-format": "23.1.0",
+    "prettier": "3.9.6"
+  }
+}

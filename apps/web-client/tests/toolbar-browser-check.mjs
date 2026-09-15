@@ -1,0 +1,55 @@
+// Local UI-only check: no desktop capture or remote input is started.
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { createHttpApp } from '@vidvnc/server/http-app.mjs';
+const { chromium } = createRequire(import.meta.url)(process.argv[2]);
+const server = createHttpApp();
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+let browser;
+try {
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(() => document.querySelector('#fullscreen svg'));
+  await page.evaluate(() => {
+    document.getElementById('welcome').hidden = true;
+    document.getElementById('viewer').hidden = false;
+    document.getElementById('immersiveToolbar').classList.add('visible');
+  });
+  await page.locator('#fullscreen').click();
+  await page.waitForFunction(() => document.fullscreenElement?.id === 'stage');
+  await page.waitForTimeout(250);
+  const dock = page.locator('#immersiveToolbar');
+  const rect = await dock.boundingBox();
+  assert.equal(rect.y, 0, 'Fullscreen toolbar must meet the top edge exactly');
+  assert.ok(rect.width < 200, 'Icon toolbar must remain compact');
+  assert.equal(await dock.locator('button svg').count(), 3);
+  assert.equal((await dock.innerText()).trim(), '', 'Buttons are icon-only');
+  await page.locator('#audioToggle').click();
+  assert.equal(await page.locator('#audioToggle').getAttribute('aria-pressed'), 'false');
+  assert.match(await page.locator('#audioToggle').getAttribute('aria-label'), /Unmute/);
+  assert.equal(await page.locator('#audioToggle svg').count(), 1);
+  await page.locator('#video').focus();
+  await page.mouse.move(20, 400);
+  await page.waitForTimeout(3100);
+  assert.equal(
+    await dock.evaluate((el) => getComputedStyle(el).opacity),
+    '0',
+    'Video focus must not pin toolbar open',
+  );
+  await page.mouse.move(640, 1);
+  await page.waitForTimeout(250);
+  assert.equal(await dock.evaluate((el) => getComputedStyle(el).opacity), '1');
+  await page.locator('#fullscreen').click();
+  await page.waitForFunction(() => !document.fullscreenElement);
+  assert.match(await page.locator('#fullscreen').getAttribute('aria-label'), /^Full screen/);
+  assert.deepEqual(errors, []);
+  console.log(
+    'Toolbar passed: flush fullscreen position, icons, mute state, auto-hide, edge reveal, fullscreen exit.',
+  );
+} finally {
+  await browser?.close();
+  await new Promise((resolve) => server.close(resolve));
+}
