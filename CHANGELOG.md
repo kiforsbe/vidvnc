@@ -17,6 +17,11 @@ may include breaking changes.
 
 - Sessions in the VidVNC app and the `sessions` command show each stream's codec.
 
+### Fixed
+
+- H.265 video stayed black in Safari on iPhone. Video now plays when a browser
+  numbers its codec below 96 (Safari numbers H.265 as 35).
+
 ## [0.2.0] - 2026-09-15
 
 ### Added

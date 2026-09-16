@@ -213,6 +213,76 @@ static void attach_recovery(GstElement *pipe) {
     gst_object_unref(pad);
     gst_object_unref(encoder);
 }
+// GStreamer payloaders only produce payload types 96-127 and silently replace a lower `pt`, but
+// browsers also number codecs 35-63 (Safari offers H.265 as 35). This probe on the payloader's
+// src pad relabels the payload type everywhere webrtcbin and the browser see it: the caps event
+// and caps query results (webrtcbin pairs the offer's m-line with a pad by intersecting caps,
+// so a mismatch answers the m-line inactive) and every RTP header. No-op when they already match.
+static GstCaps *with_payload_type(GstCaps *caps, guint8 pt) {
+    auto result = gst_caps_copy(caps);
+    for (guint i = 0; i < gst_caps_get_size(result); ++i)
+        gst_structure_set(gst_caps_get_structure(result, i), "payload", G_TYPE_INT,
+                          static_cast<gint>(pt), nullptr);
+    return result;
+}
+static bool payload_type_differs(GstBuffer *buffer, guint8 pt) {
+    guint8 second = 0;
+    return gst_buffer_extract(buffer, 1, &second, 1) == 1 && (second & 0x7f) != pt;
+}
+static void set_payload_type(GstBuffer *buffer, guint8 pt) {
+    guint8 second = 0;
+    if (gst_buffer_extract(buffer, 1, &second, 1) != 1)
+        return;
+    second = static_cast<guint8>((second & 0x80) | pt);
+    gst_buffer_fill(buffer, 1, &second, 1);
+}
+static GstPadProbeReturn payload_type_probe(GstPad *, GstPadProbeInfo *info, gpointer data) {
+    const auto pt = static_cast<guint8>(GPOINTER_TO_UINT(data));
+    if (info->type & GST_PAD_PROBE_TYPE_BUFFER) {
+        auto buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+        if (payload_type_differs(buffer, pt)) {
+            buffer = gst_buffer_make_writable(buffer);
+            set_payload_type(buffer, pt);
+            GST_PAD_PROBE_INFO_DATA(info) = buffer;
+        }
+    } else if (info->type & GST_PAD_PROBE_TYPE_BUFFER_LIST) {
+        auto list = GST_PAD_PROBE_INFO_BUFFER_LIST(info);
+        bool differs = false;
+        for (guint i = 0; i < gst_buffer_list_length(list) && !differs; ++i)
+            differs = payload_type_differs(gst_buffer_list_get(list, i), pt);
+        if (differs) {
+            list = gst_buffer_list_make_writable(list);
+            for (guint i = 0; i < gst_buffer_list_length(list); ++i)
+                set_payload_type(gst_buffer_list_get_writable(list, i), pt);
+            GST_PAD_PROBE_INFO_DATA(info) = list;
+        }
+    } else if (info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
+        const auto event = GST_PAD_PROBE_INFO_EVENT(info);
+        if (GST_EVENT_TYPE(event) == GST_EVENT_CAPS) {
+            GstCaps *caps = nullptr;
+            gst_event_parse_caps(event, &caps);
+            const auto relabelled = with_payload_type(caps, pt);
+            GST_PAD_PROBE_INFO_DATA(info) = gst_event_new_caps(relabelled);
+            gst_caps_unref(relabelled);
+            gst_event_unref(event);
+        }
+    } else if ((info->type & GST_PAD_PROBE_TYPE_QUERY_UPSTREAM) &&
+               (info->type & GST_PAD_PROBE_TYPE_PULL)) {
+        // Answered caps queries from downstream (webrtcbin) only; the payloader's own queries
+        // go downstream and keep its 96-127 view.
+        const auto query = GST_PAD_PROBE_INFO_QUERY(info);
+        if (GST_QUERY_TYPE(query) == GST_QUERY_CAPS) {
+            GstCaps *result = nullptr;
+            gst_query_parse_caps_result(query, &result);
+            if (result && !gst_caps_is_any(result) && !gst_caps_is_empty(result)) {
+                const auto relabelled = with_payload_type(result, pt);
+                gst_query_set_caps_result(query, relabelled);
+                gst_caps_unref(relabelled);
+            }
+        }
+    }
+    return GST_PAD_PROBE_OK;
+}
 
 static bool inject(INPUT &input) { return SendInput(1, &input, sizeof(input)) == 1; }
 static void key_input(WORD vk, bool down) {
@@ -854,8 +924,8 @@ static void add_peer(const std::string &id, const std::string &text) {
     const bool h264 = video_codec->id == "h264";
     const std::string video_branch =
         "queue leaky=downstream max-size-buffers=8 max-size-time=200000000 max-size-bytes=0 ! " +
-        video_codec->payloader + " mtu=" + std::to_string(profile.mtu) + " pt=" + payloads.video +
-        " ssrc=" + video_ssrc +
+        video_codec->payloader + " name=video-payloader mtu=" + std::to_string(profile.mtu) +
+        " pt=" + payloads.video + " ssrc=" + video_ssrc +
         (video_codec->payloader_extra.empty() ? "" : " " + video_codec->payloader_extra) +
         (h264 ? " aggregate-mode=" + std::string(profile.fps == 15 ? "none" : "zero-latency")
               : "") +
@@ -912,6 +982,19 @@ static void add_peer(const std::string &id, const std::string &text) {
     // Link order matches the previous single-peer pipeline: video first, then audio.
     if (video_enabled)
         add_branch(video_branch, "video_sink");
+    if (video_enabled && failure.empty()) {
+        auto payloader = gst_bin_get_by_name(GST_BIN(peer.bin), "video-payloader");
+        auto pad = gst_element_get_static_pad(payloader, "src");
+        gst_pad_add_probe(pad,
+                          static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER |
+                                                       GST_PAD_PROBE_TYPE_BUFFER_LIST |
+                                                       GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM |
+                                                       GST_PAD_PROBE_TYPE_QUERY_UPSTREAM),
+                          payload_type_probe,
+                          GUINT_TO_POINTER(static_cast<guint>(std::stoi(payloads.video))), nullptr);
+        gst_object_unref(pad);
+        gst_object_unref(payloader);
+    }
     if (audio_channels)
         add_branch(audio_branch, "audio_sink");
     if (!failure.empty()) {
