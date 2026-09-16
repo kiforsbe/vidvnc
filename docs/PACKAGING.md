@@ -68,7 +68,8 @@ Structural preparation now lives under `packaging/windows`, `packaging/macos` an
 `packaging/shared`. `packaging/targets.json` records all six products and reusable
 payload membership. The Windows CLI bundle (`npm run package:cli`, unsigned ZIP) and
 the Windows server/host package (`npm run package:app`, MSIX signed with a self-signed
-development certificate) have working builders; the other products are still
+development certificate) have working builders, and `npm run package` builds all of their
+variants; the other products are still
 definitions and ownership guides, not working installer recipes.
 Stage generated payloads and installers under ignored `out/packages` and
 `out/installers`, organized by product, OS, architecture and version.

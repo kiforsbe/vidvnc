@@ -3,7 +3,8 @@
 Targets: `windows-server`, `windows-client`, `windows-cli` in `../targets.json`.
 Status: `build.mjs` builds `windows-cli` (unsigned development ZIPs) and `windows-server`
 (MSIX signed with the self-signed development certificate from `prepare.mjs`), with
-inputs in `inputs.json`. The MSIX manifest template is `msix/AppxManifest.xml`. Hardware
+inputs in `inputs.json`. `package-all.mjs` (`npm run package`) runs `prepare.mjs` and every
+`build.mjs` variant. The MSIX manifest template is `msix/AppxManifest.xml`. Hardware
 checks: `tests/cli-bundle-check.mjs` and `tests/server-package-check.mjs`. No
 `windows-client` recipe yet.
 

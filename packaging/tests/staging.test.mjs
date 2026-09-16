@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -87,4 +88,40 @@ test('swaps a built tree into place and removes only the previous tree', (t) => 
   mkdirSync(elsewhere, { recursive: true });
   assert.throws(() => replaceDirectory(elsewhere, destination), /sibling/);
   assert.deepEqual(readdirSync(destination), ['new.txt']);
+});
+
+// Antivirus and indexers briefly lock freshly written trees on Windows.
+const locked = (syscall) => Object.assign(new Error(`EPERM: ${syscall}`), { code: 'EPERM' });
+
+test('retries a swap that a short-lived lock refuses', (t) => {
+  const root = workspace(t);
+  const destination = path.join(root, 'Release');
+  mkdirSync(destination);
+  writeFileSync(path.join(destination, 'old.txt'), 'old');
+  const built = siblingDirectory(destination);
+  writeFileSync(path.join(built, 'new.txt'), 'new');
+  let refusals = 2;
+  const rename = (from, to) => {
+    if (from === built && refusals-- > 0) throw locked('rename');
+    renameSync(from, to);
+  };
+  replaceDirectory(built, destination, { rename, pause: () => {} });
+  assert.deepEqual(readdirSync(destination), ['new.txt']);
+  assert.deepEqual(readdirSync(root), ['Release']);
+});
+
+test('restores the previous tree when the built tree cannot be swapped in', (t) => {
+  const root = workspace(t);
+  const destination = path.join(root, 'Release');
+  mkdirSync(destination);
+  writeFileSync(path.join(destination, 'old.txt'), 'old');
+  const built = siblingDirectory(destination);
+  writeFileSync(path.join(built, 'new.txt'), 'new');
+  const rename = (from, to) => {
+    if (from === built) throw locked('rename');
+    renameSync(from, to);
+  };
+  assert.throws(() => replaceDirectory(built, destination, { rename, pause: () => {} }), /EPERM/);
+  assert.deepEqual(readdirSync(destination), ['old.txt']);
+  assert.deepEqual(readdirSync(root).sort(), [path.basename(built), 'Release'].sort());
 });

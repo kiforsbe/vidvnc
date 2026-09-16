@@ -19,6 +19,7 @@
       "gstopus.dll",
       "gstrtp.dll",
       "gstrtpmanager.dll",
+      "gstrsrtp.dll",
       "gstsctp.dll",
       "gstsrtp.dll",
       "gstvideoparsersbad.dll",
@@ -69,6 +70,11 @@
           "gsttag-1.0-0.dll",
           "gstvideo-1.0-0.dll"
         ]
+      },
+      "gst-plugins-rs": {
+        "license": "Apache-2.0 AND MIT AND LGPL-2.1-or-later",
+        "note": "Provides rtpav1pay for AV1 streaming.",
+        "files": ["gstrsrtp.dll"]
       },
       "gst-plugins-good-1.0": {
         "license": "LGPL-2.1-or-later",

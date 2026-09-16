@@ -5,6 +5,21 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- `npm run package` builds every Windows package: the CLI ZIP with and without
+  prerequisite installers, and the VidVNC app MSIX with and without bundled Node.js.
+  `npm run build` now also builds the VidVNC app.
+
+### Fixed
+
+- AV1 streaming now works from the packages. They were missing the plugin AV1 needs, so
+  the installed app and CLI server only offered H.264 and H.265.
+- A package build no longer loses the previous build output when Windows briefly locks
+  the new files; it retries the swap and restores the previous output if it still fails.
+
 ## [0.3.0] - 2026-09-16
 
 ### Added

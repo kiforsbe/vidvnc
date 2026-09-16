@@ -13,7 +13,8 @@
     "node": ">=20.6"
   },
   "scripts": {
-    "build": ".\\build-native.cmd",
+    "build": "npm run build:native && npm run build:host",
+    "build:native": ".\\build-native.cmd",
     "prestart": "npm run format:web",
     "start": "node apps/server/src/main.mjs",
     "config": "node apps/server/src/main.mjs config",
@@ -21,6 +22,7 @@
     "prepare:host": "node tools/debug/prepare.mjs",
     "screenshot:host": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/screenshot-host.ps1",
     "test:host": "dotnet run --project apps/windows-host/tests/RuntimeContract/RuntimeContract.csproj",
+    "package": "node packaging/windows/package-all.mjs",
     "package:prepare": "node packaging/windows/prepare.mjs",
     "package:cli": "node packaging/windows/build.mjs windows-cli",
     "package:app": "node packaging/windows/build.mjs windows-server",

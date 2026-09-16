@@ -162,6 +162,16 @@ first. The image shows this PC's name, and its size follows the display scale.
 ### Windows packages
 
 ```powershell
+npm run build
+npm run package
+```
+
+`npm run package` builds every Windows package: it runs `package:prepare`, then writes
+the CLI ZIP with and without the prerequisite installers, and the VidVNC app MSIX with
+and without bundled Node.js, each also as a ZIP with the prerequisite installers. It
+lists the files when it finishes. The commands below build one package at a time.
+
+```powershell
 npm run package:cli
 ```
 
@@ -242,13 +252,15 @@ networks/local subnet only; do not disable the firewall globally.
 | `npm test --workspace @vidvnc/server`     | Server-owned portable tests                                        |
 | `npm test --workspace @vidvnc/web-client` | Browser-owned utility tests                                        |
 | `npm run test:hardware`                   | Windows/NVIDIA worker and whole-system lifecycle checks            |
-| `npm run build`                           | Native formatting, CMake Release build and module-local C++ tests  |
+| `npm run build`                           | `build:native`, then `build:host`                                  |
+| `npm run build:native`                    | Native formatting, CMake Release build and module-local C++ tests  |
 | `npm run build:host`                      | Native WinUI/MSBuild project                                       |
+| `npm run package`                         | Every Windows package (see [Windows packages](#windows-packages))  |
 | `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                   |
 | `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them    |
 
 For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`.
-Direct CMake builds do not run the development formatter hook; `npm run build` does.
+Direct CMake builds do not run the development formatter hook; `npm run build:native` does.
 `npm start` and the server workspace's start command format JS/web sources first.
 Direct `node apps/server/src/main.mjs` bypasses formatting for runtime launches.
 Native host/client formatting remains deferred as requested.

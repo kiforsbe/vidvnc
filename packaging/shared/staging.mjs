@@ -50,15 +50,37 @@ export function siblingDirectory(destination) {
   return directory;
 }
 
-// Moves a completely built tree to `destination`, then deletes the tree it replaced.
-export function replaceDirectory(built, destination) {
+const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// Antivirus scanners and indexers briefly lock freshly written files on Windows.
+function renameRetrying(from, to, rename, pause) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return rename(from, to);
+    } catch (error) {
+      if (attempt >= 8 || !TRANSIENT.has(error.code)) throw error;
+      pause(250 * attempt);
+    }
+  }
+}
+
+// Moves a completely built tree to `destination`, then deletes the tree it replaced. If the
+// built tree cannot be moved in, the replaced tree is put back and `built` is left for the
+// caller to remove.
+export function replaceDirectory(built, destination, { rename = renameSync, pause = sleep } = {}) {
   if (path.dirname(path.resolve(built)) !== path.dirname(path.resolve(destination)))
     throw new Error(`${built} is not a sibling of ${destination}`);
   let previous;
   if (plainDirectory(destination)) {
     previous = `${built}.previous`;
-    renameSync(destination, previous);
+    renameRetrying(destination, previous, rename, pause);
   }
-  renameSync(built, destination);
+  try {
+    renameRetrying(built, destination, rename, pause);
+  } catch (error) {
+    if (previous) renameRetrying(previous, destination, rename, pause);
+    throw error;
+  }
   if (previous) rmSync(previous, { recursive: true, force: true });
 }
