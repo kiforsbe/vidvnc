@@ -1,6 +1,6 @@
 {
   "name": "@vidvnc/server",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -16,7 +16,7 @@
     "test": "node ../../tools/test.mjs server"
   },
   "dependencies": {
-    "@vidvnc/web-client": "0.3.0",
-    "@vidvnc/media-worker": "0.3.0"
+    "@vidvnc/web-client": "0.3.1",
+    "@vidvnc/media-worker": "0.3.1"
   }
 }

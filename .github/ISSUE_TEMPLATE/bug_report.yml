@@ -20,7 +20,7 @@ body:
     id: version
     attributes:
       label: Version or commit
-      placeholder: 0.3.0, or the commit hash if you built from source
+      placeholder: 0.3.1, or the commit hash if you built from source
     validations:
       required: true
   - type: textarea
