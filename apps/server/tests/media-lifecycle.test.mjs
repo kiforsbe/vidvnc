@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { NativeMedia } from '../src/native-media.mjs';
 import { SessionStore } from '../src/session-store.mjs';
@@ -98,6 +99,35 @@ test('sources negotiate peers independently, share metrics and keep capacity unt
   await media.start('c', { video: true, profile: profile(15) });
   await media.shutdown();
   assert.equal(media.workers.size, 0);
+});
+
+test('start forwards the requested codec to the worker, and omits it by default', async (t) => {
+  const media = new NativeMedia({ maxWorkers: 2, launch });
+  t.after(() => media.shutdown());
+  const readyMessage = (worker) =>
+    new Promise((resolve) => {
+      const lines = createInterface({ input: worker.child.stdout });
+      lines.on('line', (line) => {
+        const message = JSON.parse(line);
+        if (message.type === 'ready') {
+          lines.close();
+          resolve(message);
+        }
+      });
+    });
+  const startedWithCodec = media.start('h265source', {
+    video: true,
+    profile: profile(15),
+    codec: 'h265',
+  });
+  const readyWithCodec = readyMessage(media.workers.get('h265source'));
+  await startedWithCodec;
+  assert.equal((await readyWithCodec).codec, 'h265');
+
+  const startedDefault = media.start('defaultSource', { video: true, profile: profile(15) });
+  const readyDefault = readyMessage(media.workers.get('defaultSource'));
+  await startedDefault;
+  assert.equal((await readyDefault).codec, undefined);
 });
 
 test('peer failure, negotiation timeout and removal stay within one peer', async (t) => {

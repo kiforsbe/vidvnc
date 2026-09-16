@@ -71,7 +71,7 @@ export class Diagnostics {
     this.history = [];
     this.configuration = configuration;
   }
-  startStream(profile, audio, display) {
+  startStream(profile, audio, display, codec) {
     this.reset({
       profile: { ...profile },
       audio: {
@@ -87,6 +87,7 @@ export class Diagnostics {
             ),
           )
         : null,
+      codec,
     });
   }
   snapshot() {

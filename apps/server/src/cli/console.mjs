@@ -23,6 +23,7 @@ export function createLiveContext({
   urls,
   port,
   confirm,
+  hostCodecs = [],
 }) {
   const saving = async (write) => {
     try {
@@ -82,6 +83,7 @@ export function createLiveContext({
     orderedProfiles: () => applyProfileOrder(profileOrderFile, policy.snapshot().profiles),
     saveProfileOrder: (ids) => saveProfileOrder(profileOrderFile, ids),
     displays: async () => inventory.rows,
+    hostCodecs: async () => hostCodecs,
     async info() {
       return [
         ['Connect', urls().join(', ')],

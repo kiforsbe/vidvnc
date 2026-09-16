@@ -35,3 +35,36 @@ test('sessions table marks streams shared with other devices', () => {
   assert.match(sharedRow, /\s×2$/);
   assert.doesNotMatch(ownRow, /\s×\d+$/);
 });
+
+test('sessions table shows the codec label for each stream', () => {
+  const text = formatSessions(
+    {
+      sessions: [
+        {
+          id: 'bearer',
+          device: 'iPhone',
+          address: '10.0.0.2',
+          health: 'Smooth',
+          audio: false,
+          control: 'View only',
+          streams: [
+            {
+              id: 'stream-a',
+              name: 'Main',
+              width: 1280,
+              height: 720,
+              targetFps: 15,
+              profile: 'Mobile',
+              viewers: 1,
+              codec: 'h265',
+            },
+          ],
+        },
+      ],
+    },
+    new SessionNumbers(),
+  );
+  assert.match(text, /^\s*Stream\s+Display\s+Size\s+Target\s+Profile\s+Codec\s+Shared$/m);
+  const [row] = text.split('\n').filter((line) => line.includes('stream-a'));
+  assert.match(row, /\bH\.265\b/);
+});

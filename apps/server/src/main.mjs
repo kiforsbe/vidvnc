@@ -19,6 +19,7 @@ import { runOffline } from './cli/offline.mjs';
 import { seedDisplaySharing } from './cli/policy-edits.mjs';
 import { ApprovedClientStore } from './approved-clients.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
+import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
 
 if (process.argv[2] === 'config') {
   process.exitCode = await runOffline(process.argv.slice(3), {
@@ -39,6 +40,7 @@ async function serve() {
       await waitForOwner(process.stdin);
     }
     const info = probe();
+    const hostCodecs = info.codecs?.length ? info.codecs : ['h264'];
     const directory = dataDirectory();
     const files = settingsFiles(directory);
     const access = await AccessSettings.open(files.access);
@@ -72,6 +74,7 @@ async function serve() {
       policy,
       access,
       approvedClients,
+      videoCodecs: hostCodecs,
     });
     const server = createHttpApp({
       runtime,
@@ -410,6 +413,7 @@ async function serve() {
             policy: policy.snapshot(),
             access: access.snapshot(),
             clients: approvedClients.status(store.list()),
+            codecs: hostCodecs,
           }),
         );
         return;
@@ -421,8 +425,11 @@ async function serve() {
       }
       console.log(`Local preview: http://127.0.0.1:${port}\nPassword: ${store.password}\n`);
       console.log(`Live diagnostics (this PC only): http://127.0.0.1:${port}/diagnostics`);
+      const codecLabels = VIDEO_CODECS.filter((codec) => hostCodecs.includes(codec))
+        .map((codec) => CODEC_LABELS[codec])
+        .join(' / ');
       console.log(
-        `${info.width} × ${info.height} · NVIDIA H.264 · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
+        `${info.width} × ${info.height} · NVIDIA ${codecLabels} · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
       );
       console.log(
         `Type help for commands. Default control: ${accessLabel(access.snapshot().defaultControl)}.`,
@@ -447,6 +454,7 @@ async function serve() {
             urls: connectionUrls,
             port,
             confirm,
+            hostCodecs,
           }),
       });
     });

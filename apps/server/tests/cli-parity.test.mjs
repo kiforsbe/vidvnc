@@ -14,6 +14,7 @@ const script = [
   'display-default 2 balanced',
   'default-profile desktop',
   'audio off',
+  'codecs set h264,av1',
   'client-mode options',
   'options add size 3840x2160',
   'options add framerate 60',
@@ -76,6 +77,7 @@ test('every editable setting has a CLI command that changes it', async (t) => {
     directory,
     logDirectory: join(directory, 'logs'),
     listDisplays: async () => rawDisplays(),
+    probeCodecs: async () => ['h264', 'av1'],
     alive: () => false,
   });
   const state = async () => ({

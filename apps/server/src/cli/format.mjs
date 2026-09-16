@@ -1,3 +1,5 @@
+import { CODEC_LABELS, VIDEO_CODECS } from '../video-codecs.mjs';
+
 const ACCESS_LABELS = { approval: 'Require host approval', available: 'Allow when available' };
 const CONNECTION_MODE_LABELS = {
   'session-key': 'Reusable session key',
@@ -102,6 +104,35 @@ export function formatOptions(policy) {
   ].join('\n');
 }
 
+// Enabled codecs first, in saved order, then the remaining known codecs (disabled, no order).
+export function codecRows(policy, hostCodecs) {
+  const order = policy.videoCodecs;
+  const ids = [...order, ...VIDEO_CODECS.filter((id) => !order.includes(id))];
+  return ids.map((id) => {
+    const index = order.indexOf(id);
+    return {
+      id,
+      label: CODEC_LABELS[id],
+      enabled: index !== -1,
+      order: index === -1 ? null : index + 1,
+      supported: hostCodecs.includes(id),
+    };
+  });
+}
+
+export function formatCodecs(policy, hostCodecs) {
+  const rows = codecRows(policy, hostCodecs).map((row) => [
+    row.order ?? '',
+    row.label,
+    row.enabled ? 'yes' : 'no',
+    row.supported ? 'supported' : 'not supported',
+  ]);
+  return [
+    table(['#', 'Codec', 'Enabled', 'This GPU'], rows),
+    'Devices use the first enabled codec their browser can decode in hardware; H.264 is always the fallback.',
+  ].join('\n');
+}
+
 export function optionLabel(kind, value) {
   if (kind === 'size') return `output size ${size(value)}`;
   return kind === 'framerate' ? `${value} fps` : mbps(value);
@@ -129,13 +160,14 @@ export function formatSessions(status, numbers) {
       const header = `#${numbers.number(row.id)}  ${clean(row.device)} · ${clean(row.address)} · ${row.health} · audio ${row.audio ? 'on' : 'off'} · ${control}`;
       if (!row.streams.length) return `${header}\n    Waiting for a display stream.`;
       const streams = table(
-        ['Stream', 'Display', 'Size', 'Target', 'Profile', 'Shared'],
+        ['Stream', 'Display', 'Size', 'Target', 'Profile', 'Codec', 'Shared'],
         row.streams.map((stream) => [
           stream.id,
           stream.name,
           stream.width && stream.height ? size(stream) : 'pending',
           stream.targetFps ? `${stream.targetFps} fps` : 'unknown',
           stream.profile,
+          CODEC_LABELS[stream.codec] ?? '',
           stream.viewers > 1 ? `×${stream.viewers}` : '',
         ]),
       );

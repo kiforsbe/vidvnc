@@ -5,6 +5,18 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- AV1 and H.265 hardware encoding, alongside H.264, with the codec chosen per device
+  from what the browser can decode and the host's configured order. A `codecs` command
+  and a Video codecs card let the host view and reorder supported codecs.
+
+### Changed
+
+- Sessions in the VidVNC app and the `sessions` command show each stream's codec.
+
 ## [0.2.0] - 2026-09-15
 
 ### Added

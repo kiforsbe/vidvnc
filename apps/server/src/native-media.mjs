@@ -66,7 +66,7 @@ export class NativeMedia {
   }
   start(
     sourceId,
-    { video = true, profile = { name: 'desktop' }, display = null, audioFormat } = {},
+    { video = true, profile = { name: 'desktop' }, display = null, audioFormat, codec } = {},
   ) {
     if (this.workers.has(sourceId))
       return Promise.reject(busy('This stream already has a worker.'));
@@ -151,6 +151,7 @@ export class NativeMedia {
               },
         display: (video && display) || undefined,
         audioFormat,
+        codec: video ? codec : undefined,
       }) + '\n',
     );
     return ready;

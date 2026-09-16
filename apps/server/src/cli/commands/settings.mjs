@@ -2,15 +2,20 @@ import { UsageError } from '../usage-error.mjs';
 import { capitalize, expectArguments, onOff, outcome } from '../arguments.mjs';
 import {
   clean,
+  codecRows,
   displayLabel,
   formatAccess,
+  formatCodecs,
   formatConnectionMode,
   formatDisplays,
   formatMaxSessions,
 } from '../format.mjs';
 import { MAX_SESSIONS_LIMIT } from '../../access-settings.mjs';
+import { CODEC_LABELS, VIDEO_CODECS } from '../../video-codecs.mjs';
 import { resolveDisplay, resolveProfile } from '../resolve.mjs';
 import * as edits from '../policy-edits.mjs';
+
+const CODEC_ALIASES = { 'h.264': 'h264', 'h.265': 'h265' };
 
 export const settingsCommands = [
   {
@@ -117,6 +122,45 @@ export const settingsCommands = [
         { yes: flags.yes === true },
       );
       return outcome(result, `Desktop audio is now ${state}.`);
+    },
+  },
+  {
+    name: 'codecs',
+    usage: 'codecs [set <codec,codec,…>]',
+    summary: 'Show or set which video codecs the host offers, and in what order.',
+    where: 'both',
+    json: true,
+    mayDisconnect: true,
+    run: async (context, { positionals, flags }) => {
+      if (!positionals.length) {
+        const hostCodecs = await context.hostCodecs();
+        const policy = context.policy();
+        return { text: formatCodecs(policy, hostCodecs), data: codecRows(policy, hostCodecs) };
+      }
+      expectArguments(positionals, 2);
+      if (positionals[0] !== 'set') throw new UsageError('Use codecs set <codec,codec,…>.');
+      const ids = positionals[1].split(',').map((token) => {
+        const id = token.trim().toLowerCase();
+        return CODEC_ALIASES[id] ?? id;
+      });
+      const unknown = ids.find((id) => !VIDEO_CODECS.includes(id));
+      if (unknown)
+        throw new UsageError(`Unknown codec "${unknown}". Use ${VIDEO_CODECS.join(', ')}.`);
+      const labels = ids.map((id) => CODEC_LABELS[id]);
+      // Probe before saving: if the GPU/worker is unavailable this throws before the policy
+      // is touched, instead of leaving the user unsure whether their change was saved.
+      const hostCodecs = await context.hostCodecs();
+      const result = await context.updatePolicy(
+        `Use video codecs ${labels.join(', ')}`,
+        (policy) => edits.setVideoCodecs(policy, ids),
+        { yes: flags.yes === true },
+      );
+      const unsupported = ids
+        .filter((id) => !hostCodecs.includes(id))
+        .map((id) => `${CODEC_LABELS[id]} is not supported by this GPU and will be skipped.`);
+      const message = [`Video codec order is now ${labels.join(', ')}.`, ...unsupported].join('\n');
+      const policy = result.applied ? result.policy : context.policy();
+      return { ...outcome(result, message), data: codecRows(policy, hostCodecs) };
     },
   },
   {

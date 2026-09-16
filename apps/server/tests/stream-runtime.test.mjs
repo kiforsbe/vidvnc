@@ -15,11 +15,47 @@ async function waitFor(condition, timeout = 2000) {
   }
 }
 
+const videoSdp = (marker = '') =>
+  [
+    'v=0',
+    'o=- 0 0 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    'a=rtpmap:96 H264/90000',
+    'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+    'a=rtpmap:111 opus/48000/2',
+    ...(marker ? [`a=tag:${marker}`] : []),
+  ].join('\r\n');
+const av1H264Sdp = () =>
+  [
+    'v=0',
+    'o=- 0 0 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96 97',
+    'a=rtpmap:96 AV1/90000',
+    'a=rtpmap:97 H264/90000',
+    'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+    'a=rtpmap:111 opus/48000/2',
+  ].join('\r\n');
+const noKnownCodecSdp = () =>
+  [
+    'v=0',
+    'o=- 0 0 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    'a=rtpmap:96 VP8/90000',
+    'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+    'a=rtpmap:111 opus/48000/2',
+  ].join('\r\n');
+
 async function setup(
   t,
   defaultControl = 'approval',
   approvedClients = undefined,
-  { registry, ...mediaOptions } = {},
+  { registry, videoCodecs = ['av1', 'h265', 'h264'], ...mediaOptions } = {},
 ) {
   const { StreamRuntime } = await import('../src/stream-runtime.mjs');
   const sessions = new SessionStore({ maxSessions: 2 });
@@ -57,6 +93,7 @@ async function setup(
     approvedClients,
     policy: { snapshot: () => structuredClone(policy) },
     ...(registry ? { registry } : {}),
+    videoCodecs,
   });
   t.after(() => runtime.shutdown());
   const a = sessions.connect(sessions.password, 'a').sessionId;
@@ -69,9 +106,15 @@ async function setup(
       fps: 15,
       bitrateKbps: 2000,
     });
-  const offer = (sessionId, index = 0, profile = 'mobile', sdp = 'v=0') =>
+  const offer = (sessionId, index = 0, profile = 'mobile', sdp = videoSdp()) =>
     runtime.offerVideo(sessionId, { sdp, displayId: displays[index].id, profile });
-  return { sessions, media, runtime, a, b, displays, inventory, offer, access };
+  const starts = [];
+  const start = media.start.bind(media);
+  media.start = (sourceId, options) => {
+    starts.push([sourceId, options]);
+    return start(sourceId, options);
+  };
+  return { sessions, media, runtime, a, b, displays, inventory, offer, access, starts };
 }
 
 test('automatic access grants once, never steals control or undoes a host revoke', async (t) => {
@@ -335,11 +378,11 @@ test('negotiation timeout removes the peer and stops a source without viewers', 
     negotiationTimeoutMs: 200,
   });
   const first = await offer(a);
-  await assert.rejects(offer(b, 0, 'mobile', 'v=0 hang'), /timed out/);
+  await assert.rejects(offer(b, 0, 'mobile', videoSdp('hang')), /timed out/);
   assert.deepEqual(runtime.list(b), []);
   assert.equal(media.workers.size, 1);
   await runtime.stopStream(a, first.streamId);
-  await assert.rejects(offer(b, 0, 'mobile', 'v=0 hang'), /timed out/);
+  await assert.rejects(offer(b, 0, 'mobile', videoSdp('hang')), /timed out/);
   assert.equal(media.workers.size, 0);
 });
 
@@ -366,7 +409,7 @@ test('control transfers between two viewers of one source and addresses each pee
 test('an unacknowledged revoke removes only that peer', async (t) => {
   const { runtime, media, a, b, offer } = await setup(t);
   await offer(a);
-  const second = await offer(b, 0, 'mobile', 'v=0 no-revoke');
+  const second = await offer(b, 0, 'mobile', videoSdp('no-revoke'));
   await runtime.control.grant(b, second.streamId);
   await runtime.control.revoke(b);
   assert.equal(runtime.control.owner, null);
@@ -380,7 +423,7 @@ test('an unacknowledged removal stops the whole source', async (t) => {
     removalTimeoutMs: 200,
   });
   await offer(a);
-  const second = await offer(b, 0, 'mobile', 'v=0 no-revoke no-remove');
+  const second = await offer(b, 0, 'mobile', videoSdp('no-revoke no-remove'));
   await runtime.control.grant(b, second.streamId);
   await runtime.control.revoke(b);
   assert.deepEqual(runtime.list(a), []);
@@ -438,4 +481,41 @@ test('budget refusals happen only when a new source is required', async (t) => {
   await offer(a);
   await offer(b);
   await assert.rejects(offer(b, 1), (error) => error.status === 409);
+});
+
+test('an offer containing AV1 is started, answered and reported with the AV1 codec', async (t) => {
+  const { runtime, a, offer, starts } = await setup(t);
+  const first = await offer(a, 0, 'mobile', av1H264Sdp());
+  assert.equal(starts.at(-1)[1].codec, 'av1');
+  assert.equal(first.codec, 'av1');
+  assert.equal(runtime.status().sessions[0].streams[0].codec, 'av1');
+});
+
+test('two sessions on the same profile and display get separate sources when they support different codecs', async (t) => {
+  const { a, b, offer, media, starts } = await setup(t);
+  await offer(a, 0, 'mobile', av1H264Sdp());
+  await offer(b, 0, 'mobile', videoSdp());
+  assert.equal(media.workers.size, 2);
+  assert.deepEqual(starts.map(([, options]) => options.codec).sort(), ['av1', 'h264']);
+});
+
+test('two sessions both offering AV1 share one source', async (t) => {
+  const { a, b, offer, media } = await setup(t);
+  await offer(a, 0, 'mobile', av1H264Sdp());
+  await offer(b, 0, 'mobile', av1H264Sdp());
+  assert.equal(media.workers.size, 1);
+});
+
+test('an offer without any known video codec is rejected and admits nothing', async (t) => {
+  const { a, offer, runtime, starts } = await setup(t);
+  await assert.rejects(offer(a, 0, 'mobile', noKnownCodecSdp()), (error) => error.status === 400);
+  assert.deepEqual(runtime.registry.sources(), []);
+  assert.equal(starts.length, 0);
+});
+
+test('a runtime restricted to H.264 ignores AV1 support in the offer', async (t) => {
+  const { a, offer, starts } = await setup(t, 'approval', undefined, { videoCodecs: ['h264'] });
+  const first = await offer(a, 0, 'mobile', av1H264Sdp());
+  assert.equal(first.codec, 'h264');
+  assert.equal(starts.at(-1)[1].codec, 'h264');
 });

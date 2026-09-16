@@ -19,6 +19,7 @@ public sealed partial class HostWindow : Window
     bool closing;
     bool stopping;
     bool starting;
+    string[] hostCodecs = ["h264"];
 
     public HostWindow()
     {
@@ -64,11 +65,14 @@ public sealed partial class HostWindow : Window
                 if (ready.GetProperty("type").GetString() == "status") { UpdateSessions(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "displays") { UpdateDisplays(ready.GetProperty("displays")); continue; }
                 if (ready.GetProperty("type").GetString() != "ready") continue;
+                if (ready.TryGetProperty("codecs", out var readyCodecs) && readyCodecs.ValueKind == JsonValueKind.Array)
+                    hostCodecs = readyCodecs.EnumerateArray().Select(codec => codec.GetString()!).ToArray();
+                var codecLabel = string.Join(" / ", hostCodecs.Select(CodecLabel));
                 heading.Text = "Your desktop is ready";
-                detail.Text = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · NVIDIA H.264\nConnect from your browser. Keyboard and mouse start off.";
+                detail.Text = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · NVIDIA {codecLabel}\nConnect from your browser. Keyboard and mouse start off.";
                 address.Text = ready.GetProperty("urls")[0].GetString() ?? "";
                 password.Text = ready.GetProperty("password").GetString() ?? "";
-                displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · NVIDIA H.264";
+                displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · NVIDIA {codecLabel}";
                 if (ready.TryGetProperty("displays", out var displays)) UpdateDisplays(displays);
                 if (ready.TryGetProperty("policy", out var policy)) UpdatePolicy(policy);
                 if (ready.TryGetProperty("access", out var access)) UpdateAccess(access);

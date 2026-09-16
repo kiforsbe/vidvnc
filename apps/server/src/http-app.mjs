@@ -154,6 +154,7 @@ export function createHttpApp({
           '/password-entry.js',
           '/receiver-stats.js',
           '/stream-subscriptions.js',
+          '/codec-preferences.js',
           '/diagnostics.js',
           '/diagnostics.css',
           '/style.css',

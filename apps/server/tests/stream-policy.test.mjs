@@ -5,6 +5,7 @@ import {
   validateStreamPolicy,
   resolveStreamPolicy,
 } from '../src/stream-policy.mjs';
+import { VIDEO_CODECS } from '../src/video-codecs.mjs';
 
 test('seeds preserve working iPhone and desktop numeric plans', () => {
   const policy = defaultStreamPolicy();
@@ -90,6 +91,30 @@ test('schema rejects invalid data and unsafe references', () => {
     mutate(policy);
     assert.throws(() => validateStreamPolicy(policy));
   }
+});
+
+test('default policy allows every known video codec, in default order', () => {
+  assert.deepEqual(defaultStreamPolicy().videoCodecs, ['av1', 'h265', 'h264']);
+});
+
+test('a policy without videoCodecs validates and receives the default list', () => {
+  const policy = defaultStreamPolicy();
+  delete policy.videoCodecs;
+  assert.deepEqual(validateStreamPolicy(policy).videoCodecs, [...VIDEO_CODECS]);
+});
+
+test('video codec lists are rejected without H.264, with duplicates, unknown ids, or the wrong shape', () => {
+  for (const videoCodecs of [['av1', 'h265'], ['h264', 'h264'], ['vp9', 'h264'], [], 'h264', [1]]) {
+    const policy = defaultStreamPolicy();
+    policy.videoCodecs = videoCodecs;
+    assert.throws(() => validateStreamPolicy(policy));
+  }
+});
+
+test('a policy allowing only H.264 is valid', () => {
+  const policy = defaultStreamPolicy();
+  policy.videoCodecs = ['h264'];
+  assert.deepEqual(validateStreamPolicy(policy).videoCodecs, ['h264']);
 });
 
 test('custom named profile survives validation and does not mutate source through results', () => {

@@ -183,6 +183,7 @@ public sealed partial class HostWindow
         page.Children.Add(Card(new ScrollViewer { Content = list, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled }, 0));
         RenderClientCustomization();
+        RenderVideoCodecs();
     }
 
     static Grid ProfileTableRow()

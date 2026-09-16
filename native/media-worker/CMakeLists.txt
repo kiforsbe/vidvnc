@@ -26,7 +26,7 @@ configure_worker_target(media-worker)
 target_compile_definitions(media-worker PRIVATE GST_USE_UNSTABLE_API)
 target_link_libraries(media-worker PRIVATE gstreamer_sdk gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0 user32)
 if(BUILD_TESTING)
-  foreach(name input-policy transport-telemetry display-coordinates stream-profile peer-permission keyframe-limiter sdp-payload)
+  foreach(name input-policy transport-telemetry display-coordinates stream-profile peer-permission keyframe-limiter sdp-payload video-codec)
     add_executable(${name}-test tests/${name}.cpp)
     configure_worker_target(${name}-test)
     # Existing tests use assert(); retain assertions in Release.

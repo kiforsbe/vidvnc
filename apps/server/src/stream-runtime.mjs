@@ -5,6 +5,7 @@ import { hostStatus } from './host-status.mjs';
 import { Diagnostics } from './diagnostics.mjs';
 import { Recovery } from './recovery.mjs';
 import { peerSample } from './media-sample.mjs';
+import { selectVideoCodec } from './video-codecs.mjs';
 
 export class StreamRuntime {
   constructor({
@@ -16,8 +17,18 @@ export class StreamRuntime {
     approvedClients,
     registry = new StreamRegistry(),
     clock = Date.now,
+    videoCodecs = ['h264'],
   }) {
-    Object.assign(this, { sessions, media, inventory, policy, approvedClients, registry, clock });
+    Object.assign(this, {
+      sessions,
+      media,
+      inventory,
+      policy,
+      approvedClients,
+      registry,
+      clock,
+      videoCodecs,
+    });
     this.stopping = false;
     this.sessionStops = new Map();
     this.telemetryTimes = new Map();
@@ -153,6 +164,7 @@ export class StreamRuntime {
           id: stream.id,
           state: stream.state,
           viewers: this.registry.source(stream.sourceId)?.subscriptions.length ?? 1,
+          codec: stream.plan.codec ?? 'h264',
         };
       });
       row.health =
@@ -286,15 +298,22 @@ export class StreamRuntime {
     } catch (error) {
       throw Object.assign(error, { status: 403 });
     }
+    const codec = selectVideoCodec(
+      request.sdp,
+      policy.videoCodecs,
+      this.videoCodecs,
+      effective.profile,
+    );
     const plan = {
       profile: effective.profile,
       display,
       revision: effective.revision,
       audio: { mode: 'off', enabled: false },
+      codec,
     };
     const { stream, answer } = await this.#subscribe(sessionId, plan, request.sdp, {
-      start: { video: true, profile: effective.profile, display },
-      configure: (diagnostics) => diagnostics.startStream(plan.profile, plan.audio, display),
+      start: { video: true, profile: effective.profile, display, codec },
+      configure: (diagnostics) => diagnostics.startStream(plan.profile, plan.audio, display, codec),
       valid: () => this.valid({ plan }),
     });
     return {
@@ -303,6 +322,7 @@ export class StreamRuntime {
       sdp: answer,
       profile: stream.plan.profile,
       display,
+      codec: stream.plan.codec,
     };
   }
   record(sessionId, streamId, sample) {

@@ -53,7 +53,7 @@ public partial class App : Application
                     var updatePolicy = typeof(HostWindow).GetMethod("UpdatePolicy", flags);
                     if (updatePolicy is null) throw new Exception("Streaming profiles administration view is missing");
                     using var policyFixture = JsonDocument.Parse("""
-                    {"schemaVersion":1,"revision":0,"profiles":[{"id":"balanced","name":"Balanced","description":"Everyday desktop use","enabled":true,"width":1920,"height":1080,"fps":30,"bitrateKbps":4000,"frameDelivery":"fixed"}],"clientMode":"profiles","defaultProfileId":"auto","displayDefaults":{},"allowAudio":true,"allowedOptions":{"resolutions":[{"width":960,"height":540},{"width":1280,"height":720},{"width":1920,"height":1080},{"width":2560,"height":1440}],"frameRates":[15,30],"bitratesKbps":[1000,2000,4000,6000]}}
+                    {"schemaVersion":1,"revision":0,"profiles":[{"id":"balanced","name":"Balanced","description":"Everyday desktop use","enabled":true,"width":1920,"height":1080,"fps":30,"bitrateKbps":4000,"frameDelivery":"fixed"}],"clientMode":"profiles","defaultProfileId":"auto","displayDefaults":{},"allowAudio":true,"videoCodecs":["av1","h264"],"allowedOptions":{"resolutions":[{"width":960,"height":540},{"width":1280,"height":720},{"width":1920,"height":1080},{"width":2560,"height":1440}],"frameRates":[15,30],"bitratesKbps":[1000,2000,4000,6000]}}
                     """);
                     updatePolicy.Invoke(window, new object[] { policyFixture.RootElement });
                     var updateDisplays = typeof(HostWindow).GetMethod("UpdateDisplays", flags);
@@ -323,6 +323,34 @@ public partial class App : Application
                                     var editOptions = Descendants(shell).OfType<Button>().Single(b => b.Content as string == "Edit allowed options");
                                     if (!editOptions.IsEnabled || editOptions.TransformToVisual(shell).TransformPoint(new(0, 0)).X <= modes[0].TransformToVisual(shell).TransformPoint(new(0, 0)).X + modes[0].ActualWidth)
                                         throw new Exception("Edit allowed options must be enabled beside the mode choices");
+                                    var hostCodecsField = typeof(HostWindow).GetField("hostCodecs", flags)!;
+                                    hostCodecsField.SetValue(window, new[] { "h264", "h265", "av1" });
+                                    typeof(HostWindow).GetMethod("RenderPage", flags)!.Invoke(window, null);
+                                    await Task.Delay(80);
+                                    string CodecOf(Grid row) => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(Descendants(row).OfType<ToggleSwitch>().Single()).Replace("Use ", "");
+                                    var codecRows = Descendants(shell).OfType<Grid>().Where(g => g.Tag as string == "codec-row").ToArray();
+                                    if (codecRows.Length != 3) throw new Exception("Expected three video codec rows");
+                                    var codecOrder = codecRows.Select(CodecOf).ToArray();
+                                    if (!codecOrder.SequenceEqual(new[] { "AV1", "H.264", "H.265" }))
+                                        throw new Exception("Video codec rows out of order: " + string.Join(", ", codecOrder));
+                                    var h264Toggle = Descendants(codecRows.Single(r => CodecOf(r) == "H.264")).OfType<ToggleSwitch>().Single();
+                                    if (!h264Toggle.IsOn || h264Toggle.IsEnabled) throw new Exception("H.264 codec toggle must stay on and disabled");
+                                    var h265Toggle = Descendants(codecRows.Single(r => CodecOf(r) == "H.265")).OfType<ToggleSwitch>().Single();
+                                    if (h265Toggle.IsOn) throw new Exception("H.265 codec toggle must start off");
+                                    if (!Descendants(shell).OfType<TextBlock>().Any(t => t.Text == "Always on"))
+                                        throw new Exception("Video codecs card is missing the Always on label for H.264");
+                                    hostCodecsField.SetValue(window, new[] { "h264" });
+                                    typeof(HostWindow).GetMethod("RenderPage", flags)!.Invoke(window, null);
+                                    await Task.Delay(80);
+                                    codecRows = Descendants(shell).OfType<Grid>().Where(g => g.Tag as string == "codec-row").ToArray();
+                                    var h265Row = codecRows.Single(r => CodecOf(r) == "H.265");
+                                    if (!Descendants(h265Row).OfType<TextBlock>().Any(t => t.Text == "Not supported by this GPU") ||
+                                        Descendants(h265Row).OfType<ToggleSwitch>().Single().IsEnabled)
+                                        throw new Exception("Unsupported H.265 must show the GPU warning with a disabled toggle");
+                                    var av1Row = codecRows.Single(r => CodecOf(r) == "AV1");
+                                    if (!Descendants(av1Row).OfType<ToggleSwitch>().Single().IsEnabled)
+                                        throw new Exception("Stored-on AV1 codec must keep an enabled toggle so it can be turned off");
+                                    hostCodecsField.SetValue(window, new[] { "h264", "h265", "av1" });
                                     serverField.SetValue(window, null);
                                     var optionsMethod = typeof(HostWindow).GetMethod("CreateAllowedOptionsEditor", flags);
                                     if (optionsMethod is null) throw new Exception("Allowed options editor is missing");
@@ -529,12 +557,15 @@ public partial class App : Application
                                 secondDevice["device"] = "Windows browser"; secondDevice["streams"]!.AsArray().RemoveAt(1);
                                 secondDevice["streams"]![0]!["id"] = "stream-three";
                                 secondDevice["selectedStreamId"] = "stream-three";
+                                device["streams"]![0]!["codec"] = "av1";
                                 device["streams"]![0]!["viewers"] = 2; secondDevice["streams"]![0]!["viewers"] = 2;
                                 multiple["sessions"]!.AsArray().Add(secondDevice); multiple["streamCount"] = 3;
                                 using var multiStatus = JsonDocument.Parse(multiple.ToJsonString());
                                 update.Invoke(window, new object[] { multiStatus.RootElement });
                                 await Task.Delay(100);
                                 if (Descendants(list).OfType<Canvas>().Count() != 3) throw new Exception("Each stream needs its own graph");
+                                if (!Descendants(list).OfType<TextBlock>().Any(t => t.Text == "AV1")) throw new Exception("Stream codec value missing for the AV1 stream");
+                                if (!Descendants(list).OfType<TextBlock>().Any(t => t.Text == "H.264")) throw new Exception("Stream codec value missing the default H.264 fallback");
                                 if (Descendants(list).OfType<Button>().Count(b => b.Content as string == "Grant control") != 2)
                                     throw new Exception("Each device needs a host control action");
                                 if (Descendants(list).OfType<Button>().Count(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(b) == "Stop stream") != 3)

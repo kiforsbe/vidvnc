@@ -125,6 +125,12 @@ test('removing or disabling a default profile asks to change the default first',
   );
 });
 
+test('video codecs are reordered but must keep H.264 enabled', () => {
+  const shared = defaultStreamPolicy();
+  assert.deepEqual(edits.setVideoCodecs(shared, ['h264', 'av1']).videoCodecs, ['h264', 'av1']);
+  assert.throws(() => edits.setVideoCodecs(shared, ['av1']), /H\.264 must stay enabled/);
+});
+
 test('allowed options add and remove values without duplicates or empty lists', () => {
   const policy = defaultStreamPolicy();
   assert.deepEqual(

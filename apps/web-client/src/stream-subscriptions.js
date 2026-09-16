@@ -1,4 +1,9 @@
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
+import { videoCodecPreferences } from './codec-preferences.js';
+
+// Used for the hardware-decode capability check before any answer has told us the real
+// profile dimensions (see videoCodecPreferences in codec-preferences.js).
+const DECODE_CHECK_PROFILE = { width: 1920, height: 1080, fps: 30, bitrateKbps: 4000 };
 
 // One browser device owns several video peers and one independent audio peer.
 export class StreamSubscriptions {
@@ -8,6 +13,7 @@ export class StreamSubscriptions {
     this.selected = null;
     this.closed = false;
     this.controlStreamId = null;
+    this.lastProfile = DECODE_CHECK_PROFILE;
     this.timer = setInterval(() => this.sample(), 2000);
   }
   async negotiate(row, route, request) {
@@ -34,6 +40,7 @@ export class StreamSubscriptions {
       throw new Error('Connection cancelled.');
     }
     Object.assign(row, { profile: answer.profile, display: answer.display });
+    if (answer.profile) this.lastProfile = answer.profile;
     await row.pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
   }
   async select(request) {
@@ -53,12 +60,12 @@ export class StreamSubscriptions {
         closed: false,
       };
       const video = row.pc.addTransceiver('video', { direction: 'recvonly' });
-      const codecs = RTCRtpReceiver.getCapabilities('video').codecs.filter((c) =>
-        ['video/h264', 'video/rtx'].includes(c.mimeType.toLowerCase()),
-      );
-      if (!codecs.some((c) => c.mimeType.toLowerCase() === 'video/h264')) {
+      let codecs;
+      try {
+        codecs = await videoCodecPreferences(this.lastProfile);
+      } catch (error) {
         row.pc.close();
-        throw new Error('This browser cannot decode H.264.');
+        throw error;
       }
       video.setCodecPreferences(codecs);
       row.channel = row.pc.createDataChannel('input', { ordered: true });

@@ -1,5 +1,6 @@
 import { commands, findCommand } from './commands.mjs';
 import { MAX_SESSIONS_LIMIT } from '../access-settings.mjs';
+import { VIDEO_CODECS } from '../video-codecs.mjs';
 
 const ON_OFF = ['on', 'off'];
 const OPTION_KINDS = ['size', 'framerate', 'bitrate'];
@@ -46,6 +47,7 @@ const ARGUMENTS = {
   'display-default': [displays, (context) => [...profiles(context), 'host']],
   'default-profile': [(context) => ['auto', ...profiles(context)]],
   audio: [() => ON_OFF],
+  codecs: [() => ['set'], () => VIDEO_CODECS],
   access: [() => ['approval', 'available']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
   'max-devices': [

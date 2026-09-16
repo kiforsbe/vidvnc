@@ -9,7 +9,8 @@ export function audioFormat(profile) {
 }
 
 // Everything that changes captured or encoded bytes, and nothing else: profile names and ids
-// never participate, so differently named but identical profiles share one encode.
+// never participate, so differently named but identical profiles share one encode. The codec
+// changes the encoded bytes too, so it joins bitrate as a key field.
 export function sourceKey(plan) {
   if (plan.kind === 'audio') return `audio|${plan.format}`;
   const { profile, display = {}, revision } = plan;
@@ -20,6 +21,7 @@ export function sourceKey(plan) {
     [display.x, display.y, display.width, display.height, display.rotation].join(','),
     `${profile.width}x${profile.height}@${profile.fps}`,
     profile.bitrateKbps,
+    plan.codec ?? 'h264',
   ].join('|');
 }
 

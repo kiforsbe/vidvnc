@@ -7,6 +7,7 @@ import {
 } from './approved-client.js';
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
+import { videoCodecPreferences } from './codec-preferences.js';
 const $ = (id) => document.getElementById(id);
 const toolbarIcons = {
   control:
@@ -570,12 +571,7 @@ async function startStream(result, attempt) {
   const connection = (pc = new RTCPeerConnection({ iceServers: [] }));
   const transceiver = connection.addTransceiver('video', { direction: 'recvonly' });
   if (result.audio.enabled) connection.addTransceiver('audio', { direction: 'recvonly' });
-  const codecs = RTCRtpReceiver.getCapabilities('video').codecs.filter((c) =>
-    ['video/h264', 'video/rtx'].includes(c.mimeType.toLowerCase()),
-  );
-  if (!codecs.some((c) => c.mimeType.toLowerCase() === 'video/h264'))
-    throw new Error('This browser cannot decode H.264.');
-  transceiver.setCodecPreferences(codecs);
+  transceiver.setCodecPreferences(await videoCodecPreferences(undefined));
   channel = connection.createDataChannel('input', { ordered: true });
   channel.onmessage = (event) => {
     try {

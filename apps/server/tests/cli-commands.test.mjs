@@ -221,6 +221,48 @@ test('connection-mode shows and saves the ordinary admission policy', async (t) 
   );
 });
 
+test('codecs shows support and order, and set changes the saved order', async (t) => {
+  const { run, context } = await offline(t, {
+    probeCodecs: async () => ['h264', 'av1'],
+  });
+  const { text } = await run('codecs');
+  assert.match(text, /^#\s+Codec\s+Enabled\s+This GPU$/m);
+  assert.match(text, /^1\s+AV1\s+yes\s+supported$/m);
+  assert.match(text, /^2\s+H\.265\s+yes\s+not supported$/m);
+  assert.match(text, /^3\s+H\.264\s+yes\s+supported$/m);
+  assert.match(
+    text,
+    /Devices use the first enabled codec their browser can decode in hardware; H\.264 is always the fallback\.$/,
+  );
+  const json = await run('codecs --json');
+  assert.equal(json.json, true);
+  assert.deepEqual(
+    json.data.map((row) => row.order),
+    [1, 2, 3],
+  );
+  assert.equal(
+    (await run('codecs set h264,av1 --yes')).text,
+    'Video codec order is now H.264, AV1.',
+  );
+  assert.deepEqual(context.policy().videoCodecs, ['h264', 'av1']);
+  assert.equal(
+    (await run('codecs set av1,h265,h264 --yes')).text,
+    'Video codec order is now AV1, H.265, H.264.\nH.265 is not supported by this GPU and will be skipped.',
+  );
+  await assert.rejects(run('codecs set av1'), /H\.264 must stay enabled/);
+  await assert.rejects(run('codecs set vp9,h264'), usage(/^Unknown codec "vp9"\./));
+  await assert.rejects(run('codecs bogus'), usage(/^Wrong number of arguments\./));
+});
+
+test('codecs falls back to a GPU probe in offline mode, reporting failures clearly', async (t) => {
+  const { run } = await offline(t, {
+    probeCodecs: async () => {
+      throw new Error('spawn ENOENT');
+    },
+  });
+  await assert.rejects(run('codecs'), /Codec information is unavailable: spawn ENOENT\./);
+});
+
 test('offline changes refuse while a server instance is alive but reads still work', async (t) => {
   const { run, directory } = await offline(t, { alive: (pid) => pid === 4242 });
   await mkdir(join(directory, 'instances'));

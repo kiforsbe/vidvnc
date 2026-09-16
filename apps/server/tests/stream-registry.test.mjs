@@ -16,6 +16,7 @@ const plan = (overrides = {}) => ({
   display: display(),
   profile: { id: 'mobile', name: 'Mobile', width: 1280, height: 720, fps: 30, bitrateKbps: 2000 },
   audio: { mode: 'off', enabled: false },
+  codec: 'h264',
   ...overrides,
 });
 
@@ -63,6 +64,7 @@ test('each differing key field creates a new source', () => {
     plan({ profile: { ...base.profile, width: 1920 } }),
     plan({ profile: { ...base.profile, fps: 15 } }),
     plan({ profile: { ...base.profile, bitrateKbps: 3000 } }),
+    plan({ codec: 'av1' }),
   ];
   const ids = variants.map((p) => registry.subscribe('alice', p).source.id);
   assert.equal(new Set(ids).size, variants.length);

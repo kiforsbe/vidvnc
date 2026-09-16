@@ -10,7 +10,8 @@ input.on('line', (line) => {
   if (message.type === 'start') {
     if (started || message.display?.id === 'fail') return process.exit(2);
     started = message;
-    send({ type: 'ready' });
+    // Echoes the received codec so tests can observe what NativeMedia forwarded.
+    send({ type: 'ready', codec: message.codec });
   }
   if (message.type === 'add-peer') {
     if (message.sdp === 'crash') return process.exit(2);

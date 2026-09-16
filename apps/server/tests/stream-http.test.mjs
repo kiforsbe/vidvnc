@@ -9,6 +9,17 @@ import { StreamRuntime } from '../src/stream-runtime.mjs';
 import { DisplayInventory } from '../src/displays.mjs';
 import { defaultStreamPolicy } from '../src/stream-policy.mjs';
 
+const videoSdp = [
+  'v=0',
+  'o=- 0 0 IN IP4 127.0.0.1',
+  's=-',
+  't=0 0',
+  'm=video 9 UDP/TLS/RTP/SAVPF 96',
+  'a=rtpmap:96 H264/90000',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+  'a=rtpmap:111 opus/48000/2',
+].join('\r\n');
+
 test('authenticated stream routes isolate owners and cannot bypass the stream runtime', async (t) => {
   const sessions = new SessionStore({ maxSessions: 2 });
   const media = new NativeMedia({
@@ -57,10 +68,10 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
   const b = await (await post('connect', { password: sessions.password })).json();
   assert.equal(a.mode, 'streams');
   assert.equal(
-    (await post('stream-offer', { sdp: 'v=0', profile: 'not-approved' }, a.sessionId)).status,
+    (await post('stream-offer', { sdp: videoSdp, profile: 'not-approved' }, a.sessionId)).status,
     403,
   );
-  const response = await post('stream-offer', { sdp: 'v=0', profile: 'mobile' }, a.sessionId);
+  const response = await post('stream-offer', { sdp: videoSdp, profile: 'mobile' }, a.sessionId);
   assert.equal(response.status, 200);
   const stream = await response.json();
   assert.notEqual(stream.streamId, a.sessionId);
@@ -103,10 +114,10 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
   );
   assert.equal((await post('offer', { sdp: 'v=0' }, a.sessionId)).status, 409);
   const second = await (
-    await post('stream-offer', { sdp: 'v=0', profile: 'mobile' }, a.sessionId)
+    await post('stream-offer', { sdp: videoSdp, profile: 'mobile' }, a.sessionId)
   ).json();
   assert.equal(
-    (await post('stream-offer', { sdp: 'v=0', profile: 'mobile' }, a.sessionId)).status,
+    (await post('stream-offer', { sdp: videoSdp, profile: 'mobile' }, a.sessionId)).status,
     409,
   );
   await post('stream-stop', { streamId: second.streamId }, a.sessionId);

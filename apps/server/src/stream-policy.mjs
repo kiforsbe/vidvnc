@@ -1,4 +1,5 @@
 import { getProfile } from './profiles.mjs';
+import { VIDEO_CODECS } from './video-codecs.mjs';
 
 const seeds = [
   ['iphone-720p-test', 'iPhone 720p', 'Conservative starting point for iPhone'],
@@ -80,6 +81,7 @@ export function defaultStreamPolicy() {
     displayDefaults: {},
     displaySharing: null,
     allowAudio: true,
+    videoCodecs: [...VIDEO_CODECS],
     clientMode: 'profiles',
     allowedOptions: {
       resolutions: [
@@ -97,6 +99,8 @@ export function defaultStreamPolicy() {
 export function validateStreamPolicy(value) {
   if (value && typeof value === 'object' && !Object.hasOwn(value, 'displaySharing'))
     value = { ...value, displaySharing: null };
+  if (value && typeof value === 'object' && !Object.hasOwn(value, 'videoCodecs'))
+    value = { ...value, videoCodecs: [...VIDEO_CODECS] };
   object(
     value,
     [
@@ -107,6 +111,7 @@ export function validateStreamPolicy(value) {
       'displayDefaults',
       'displaySharing',
       'allowAudio',
+      'videoCodecs',
       'clientMode',
       'allowedOptions',
     ],
@@ -169,6 +174,19 @@ export function validateStreamPolicy(value) {
     requireValue(enabled.has(profile), 'Display default must refer to an available profile');
   }
   requireValue(typeof value.allowAudio === 'boolean', 'Audio policy must be boolean');
+  requireValue(
+    Array.isArray(value.videoCodecs) && value.videoCodecs.length > 0,
+    'Video codecs must be a list',
+  );
+  requireValue(
+    value.videoCodecs.every((codec) => VIDEO_CODECS.includes(codec)),
+    'Unknown video codec',
+  );
+  requireValue(
+    new Set(value.videoCodecs).size === value.videoCodecs.length,
+    'Video codecs contain duplicates',
+  );
+  requireValue(value.videoCodecs.includes('h264'), 'H.264 must stay enabled');
   requireValue(
     value.displaySharing === null ||
       (typeof value.displaySharing === 'object' &&

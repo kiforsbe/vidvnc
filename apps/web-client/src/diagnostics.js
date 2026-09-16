@@ -1,3 +1,4 @@
+import { CODEC_LABELS } from './codec-preferences.js';
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 1) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
@@ -118,8 +119,9 @@ async function refresh() {
     $('profile').textContent = profile
       ? `${serverFresh ? 'Current' : 'Last selected'} profile: ${profile.name}`
       : 'Profile: waiting for a session…';
+    const codecLabel = CODEC_LABELS[data.configuration?.codec] ?? 'H.264';
     $('profile-settings').textContent = profile
-      ? `Targets: ${fmt(profile.width, 0)} × ${fmt(profile.height, 0)} · ${fmt(profile.fps, 0)} fps · H.264 ${fmt(profile.bitrateKbps, 0)} kbit/s · ${audio?.enabled ? `${audio.codec} ${fmt(audio.bitrateKbps, 0)} kbit/s ${audio.channels === 1 ? 'mono' : 'stereo'}` : 'Audio off'}`
+      ? `Targets: ${fmt(profile.width, 0)} × ${fmt(profile.height, 0)} · ${fmt(profile.fps, 0)} fps · ${codecLabel} ${fmt(profile.bitrateKbps, 0)} kbit/s · ${audio?.enabled ? `${audio.codec} ${fmt(audio.bitrateKbps, 0)} kbit/s ${audio.channels === 1 ? 'mono' : 'stereo'}` : 'Audio off'}`
       : '';
     $('state').className = serverFresh && clientFresh ? '' : 'stale';
     $('state').textContent =

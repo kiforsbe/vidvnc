@@ -21,6 +21,7 @@
 #include "input-policy.hpp"
 #include "peer-permission.hpp"
 #include "keyframe-limiter.hpp"
+#include "video-codec.hpp"
 #include "sdp-payload.hpp"
 #include "display-inventory.hpp"
 #include "stream-profile.hpp"
@@ -100,6 +101,7 @@ static bool playing = false;
 static StreamProfile profile;
 static bool video_enabled = true;
 static int audio_channels = 0; // 0: no audio chain; 1: mono-32k; 2: stereo-96k
+static const VideoCodec *video_codec = &video_codecs()[0];
 static bool host_control_required = false;
 static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
@@ -184,6 +186,8 @@ static GstPadProbeReturn recovery_probe(GstPad *, GstPadProbeInfo *info, gpointe
         auto buffer = GST_PAD_PROBE_INFO_BUFFER(info);
         if (!GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT))
             ++keyframes;
+        if (video_codec->id != "h264")
+            return GST_PAD_PROBE_OK;
         GstMapInfo map{};
         if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
             for (gsize i = 0; i + 6 < map.size; ++i) {
@@ -471,23 +475,23 @@ static std::string pipeline_description(int frames = -1) {
         capture_display ? "monitor-handle=" +
                               std::to_string(reinterpret_cast<uintptr_t>(capture_display->handle))
                         : "monitor-index=-1";
+    const bool h264 = video_codec->id == "h264";
     return "d3d11screencapturesrc name=capture " + target +
            " show-cursor=true num-buffers=" + std::to_string(frames) +
            " ! d3d11convert ! "
            "video/x-raw(memory:D3D11Memory),format=NV12,width=" +
            std::to_string(profile.width) + ",height=" + std::to_string(profile.height) +
-           ",framerate=" + std::to_string(profile.fps) +
-           "/1 ! "
-           "nvd3d11h264enc name=encoder preset=p3 tune=ultra-low-latency "
+           ",framerate=" + std::to_string(profile.fps) + "/1 ! " + video_codec->encoder +
+           " name=encoder preset=p3 tune=ultra-low-latency "
            "rc-mode=cbr bitrate=" +
            std::to_string(profile.bitrate) + " gop-size=" + std::to_string(profile.fps) +
-           " bframes=0 zerolatency=true "
-           "repeat-sequence-header=true ! "
-           "video/x-h264,profile=constrained-baseline,stream-format=byte-stream,alignment=au" +
-           std::string(profile.fps == 15 && profile.width <= 1280 && profile.height <= 720
+           " bframes=0 zerolatency=true" +
+           (video_codec->encoder_extra.empty() ? "" : " " + video_codec->encoder_extra) + " ! " +
+           video_codec->caps +
+           std::string(h264 && profile.fps == 15 && profile.width <= 1280 && profile.height <= 720
                            ? ",level=(string)3.1"
                            : "") +
-           " ! h264parse";
+           " ! " + video_codec->parser;
 }
 static std::string audio_source_description() {
     return "wasapisrc name=audio-capture loopback=true low-latency=true ! audioconvert ! "
@@ -600,6 +604,7 @@ static int self_test() {
     json_object_set_int_member(result, "forceEvents", force_events.load());
     json_object_set_int_member(result, "spsProfile", sps_profile.load());
     json_object_set_int_member(result, "spsLevel", sps_level.load());
+    json_object_set_string_member(result, "codec", video_codec->id.c_str());
     json_object_set_object_member(result, "metrics", telemetry.snapshot());
     auto node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, result);
@@ -827,10 +832,9 @@ static void add_peer(const std::string &id, const std::string &text) {
     const auto sdp = parse_offer(text);
     if (!sdp)
         return refuse("Invalid SDP");
-    const auto payloads = select_payloads(sdp);
+    const auto payloads = select_payloads(sdp, *video_codec);
     const char *unsupported =
-        video_enabled && payloads.video.empty()
-            ? "Browser must offer constrained-baseline H.264 with packetization-mode=1."
+        video_enabled && payloads.video.empty()    ? video_codec->unsupported.c_str()
         : audio_channels && payloads.audio.empty() ? "Browser must offer Opus audio."
                                                    : nullptr;
     if (unsupported) {
@@ -847,13 +851,16 @@ static void add_peer(const std::string &id, const std::string &text) {
     // during SDP answer creation. Without this, webrtcbin emits FID 0 <rtx-ssrc> and
     // attaches MSID only to the RTX repair stream, causing the browser to decode RTP
     // packets but fail to route frames to the MediaStreamTrack (video readyState remains 0).
+    const bool h264 = video_codec->id == "h264";
     const std::string video_branch =
-        "queue leaky=downstream max-size-buffers=8 max-size-time=200000000 max-size-bytes=0 ! "
-        "rtph264pay mtu=" +
-        std::to_string(profile.mtu) + " config-interval=-1 pt=" + payloads.video +
-        " aggregate-mode=" + (profile.fps == 15 ? "none" : "zero-latency") + " ssrc=" + video_ssrc +
-        " ! application/x-rtp,media=video,encoding-name=H264,ssrc=(uint)" + video_ssrc +
-        " ! identity name=video-output";
+        "queue leaky=downstream max-size-buffers=8 max-size-time=200000000 max-size-bytes=0 ! " +
+        video_codec->payloader + " mtu=" + std::to_string(profile.mtu) + " pt=" + payloads.video +
+        " ssrc=" + video_ssrc +
+        (video_codec->payloader_extra.empty() ? "" : " " + video_codec->payloader_extra) +
+        (h264 ? " aggregate-mode=" + std::string(profile.fps == 15 ? "none" : "zero-latency")
+              : "") +
+        " ! application/x-rtp,media=video,encoding-name=" + video_codec->encoding_name +
+        ",ssrc=(uint)" + video_ssrc + " ! identity name=video-output";
     const std::string audio_branch =
         "queue leaky=downstream max-size-time=100000000 max-size-buffers=5 ! rtpopuspay pt=" +
         payloads.audio + " mtu=1200 ssrc=" + audio_ssrc +
@@ -1013,6 +1020,12 @@ static void start_source(JsonObject *object) {
         return fatal("Invalid stream profile");
     if (video_enabled && !set_display(object))
         return fatal("Selected display is unavailable or changed");
+    if (video_enabled) {
+        const std::string codec_id = string_member(object, "codec");
+        video_codec = codec_id.empty() ? &video_codecs()[0] : find_video_codec(codec_id);
+        if (!video_codec)
+            return fatal("Invalid video codec");
+    }
     std::string description;
     if (video_enabled)
         description = pipeline_description() + " ! tee name=video-fanout allow-not-linked=true";
@@ -1116,6 +1129,7 @@ static int session() {
                 json_object_set_int_member(sample, "encodedKeyframes", keyframes.load());
                 json_object_set_int_member(sample, "spsProfile", sps_profile.load());
                 json_object_set_int_member(sample, "spsLevel", sps_level.load());
+                json_object_set_string_member(sample, "codec", video_codec->id.c_str());
                 auto rows = json_object_new();
                 for (auto &entry : peers) {
                     if (entry.second->removing)
@@ -1195,6 +1209,22 @@ int main(int argc, char **argv) {
             json_object_set_int_member(object, "height", GetSystemMetrics(SM_CYSCREEN));
             json_object_set_string_member(object, "encoder", "nvd3d11h264enc");
             json_object_set_string_member(object, "capture", "dxgi");
+            auto codecs = json_array_new();
+            for (const auto &codec : video_codecs()) {
+                const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
+                auto encoder_factory = gst_element_factory_find(codec.encoder.c_str());
+                auto parser_factory = gst_element_factory_find(parser_name.c_str());
+                auto payloader_factory = gst_element_factory_find(codec.payloader.c_str());
+                if (encoder_factory && parser_factory && payloader_factory)
+                    json_array_add_string_element(codecs, codec.id.c_str());
+                if (encoder_factory)
+                    gst_object_unref(encoder_factory);
+                if (parser_factory)
+                    gst_object_unref(parser_factory);
+                if (payloader_factory)
+                    gst_object_unref(payloader_factory);
+            }
+            json_object_set_array_member(object, "codecs", codecs);
             json_object_set_array_member(object, "displays",
                                          display_inventory_json(enumerate_displays()));
             auto root = json_node_new(JSON_NODE_OBJECT);
@@ -1209,6 +1239,13 @@ int main(int argc, char **argv) {
             return self_test();
         if (argc == 2 && std::string(argv[1]) == "--self-test-mobile") {
             profile = {1280, 720, 15, 2000, 1200};
+            return self_test();
+        }
+        if (argc == 3 && std::string(argv[1]) == "--self-test-codec") {
+            video_codec = find_video_codec(argv[2]);
+            if (!video_codec)
+                throw std::runtime_error("Invalid video codec");
+            profile = {1280, 720, 30, 4000, 1200};
             return self_test();
         }
         if (argc == 2 && std::string(argv[1]) == "--session")

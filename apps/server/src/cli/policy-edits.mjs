@@ -67,6 +67,12 @@ export function setAudio(policy, allowed) {
   });
 }
 
+export function setVideoCodecs(policy, ids) {
+  return edit(policy, (next) => {
+    next.videoCodecs = ids;
+  });
+}
+
 export function setClientMode(policy, mode) {
   return edit(policy, (next) => {
     next.clientMode = mode;

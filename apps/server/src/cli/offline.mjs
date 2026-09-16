@@ -24,16 +24,24 @@ async function defaultListDisplays() {
   return listDisplays();
 }
 
+async function defaultProbeCodecs() {
+  // Loaded lazily: only the codecs command needs the native worker.
+  const { probe } = await import('../native-media.mjs');
+  return probe().codecs ?? ['h264'];
+}
+
 export async function createOfflineContext({
   directory,
   logDirectory,
   listDisplays = defaultListDisplays,
+  probeCodecs = defaultProbeCodecs,
   alive = isAlive,
 }) {
   const files = settingsFiles(directory);
   const store = await StreamPolicyStore.open(files.policy);
   const access = await AccessSettings.open(files.access);
   let displays;
+  let codecs;
   const ensureStopped = () => {
     const [running] = runningInstances(files.instances, { alive });
     if (running) {
@@ -76,6 +84,16 @@ export async function createOfflineContext({
         );
       }
       return displays;
+    },
+    async hostCodecs() {
+      try {
+        codecs ??= await probeCodecs();
+      } catch (error) {
+        throw new Error(
+          `Codec information is unavailable: ${error.message}. Check that the media worker is installed and the NVIDIA driver is working.`,
+        );
+      }
+      return codecs;
     },
     async info() {
       const running = runningInstances(files.instances, { alive });
