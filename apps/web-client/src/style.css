@@ -363,11 +363,13 @@ footer span {
   stroke-linejoin: round;
   pointer-events: none;
 }
-.immersive-toolbar #fullscreen {
+.immersive-toolbar #pictureInPicture:not([hidden]),
+.immersive-toolbar #pictureInPicture[hidden] + #fullscreen {
   margin-left: 5px;
   position: relative;
 }
-.immersive-toolbar #fullscreen::before {
+.immersive-toolbar #pictureInPicture:not([hidden])::before,
+.immersive-toolbar #pictureInPicture[hidden] + #fullscreen::before {
   content: '';
   position: absolute;
   left: -5px;

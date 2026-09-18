@@ -25,7 +25,12 @@ try {
   const rect = await dock.boundingBox();
   assert.equal(rect.y, 0, 'Fullscreen toolbar must meet the top edge exactly');
   assert.ok(rect.width < 200, 'Icon toolbar must remain compact');
-  assert.equal(await dock.locator('button svg').count(), 3);
+  assert.equal(await dock.locator('button svg').count(), 4);
+  assert.match(
+    await page.locator('#pictureInPicture').getAttribute('aria-label'),
+    /Picture-in-picture/,
+  );
+  assert.equal(await page.locator('#pictureInPicture').isDisabled(), true);
   assert.equal((await dock.innerText()).trim(), '', 'Buttons are icon-only');
   await page.locator('#audioToggle').click();
   assert.equal(await page.locator('#audioToggle').getAttribute('aria-pressed'), 'false');
@@ -47,7 +52,7 @@ try {
   assert.match(await page.locator('#fullscreen').getAttribute('aria-label'), /^Full screen/);
   assert.deepEqual(errors, []);
   console.log(
-    'Toolbar passed: flush fullscreen position, icons, mute state, auto-hide, edge reveal, fullscreen exit.',
+    'Toolbar passed: flush fullscreen position, icons, PiP readiness, mute state, auto-hide, edge reveal, fullscreen exit.',
   );
 } finally {
   await browser?.close();

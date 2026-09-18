@@ -5,6 +5,14 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.4.0] - 2026-09-18
+
+### Added
+
+- The web client can show the remote desktop in Chrome Picture-in-Picture. Entering
+  Picture-in-Picture releases keyboard and mouse control, and control remains unavailable
+  until returning to the browser.
+
 ## [0.3.1] - 2026-09-16
 
 ### Added

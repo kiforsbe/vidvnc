@@ -44,6 +44,7 @@ const media = {
     return sender.evaluate(
       async ({ id, sdp }) => {
         window.senders ??= new Map();
+        window.inputMessages ??= [];
         const pc = new RTCPeerConnection({ iceServers: [] });
         const canvas = document.createElement('canvas');
         canvas.width = 1280;
@@ -77,6 +78,7 @@ const media = {
         pc.ondatachannel = (event) => {
           event.channel.onmessage = (message) => {
             const value = JSON.parse(message.data);
+            window.inputMessages.push({ id, value });
             if (value.type === 'control')
               event.channel.send(JSON.stringify({ control: value.enabled }));
           };
@@ -290,6 +292,38 @@ try {
   await page.locator('#video').hover({ position: { x: 20, y: 1 } });
   await page.locator('#control').click();
   assert.equal(await page.locator('#control').getAttribute('aria-pressed'), 'true');
+  const releasesBeforePictureInPicture = await sender.evaluate(
+    () => window.inputMessages.filter(({ value }) => value.type === 'release').length,
+  );
+  await page.locator('#pictureInPicture').click();
+  await page.waitForFunction(() => document.pictureInPictureElement?.id === 'video');
+  await sender.waitForFunction(
+    (before) =>
+      window.inputMessages.filter(({ value }) => value.type === 'release').length > before,
+    releasesBeforePictureInPicture,
+    { timeout: 5000 },
+  );
+  assert.equal(
+    await page.locator('#control').getAttribute('aria-pressed'),
+    'false',
+    'Entering picture-in-picture must relinquish remote control',
+  );
+  assert.equal(
+    await page.locator('#control').isDisabled(),
+    true,
+    'Remote control must stay unavailable while picture-in-picture is active',
+  );
+  assert.match(
+    await page.locator('#pictureInPicture').getAttribute('aria-label'),
+    /^Exit picture-in-picture/,
+  );
+  await page.locator('#pictureInPicture').click();
+  await page.waitForFunction(() => !document.pictureInPictureElement);
+  assert.equal(
+    await page.locator('#control').isDisabled(),
+    false,
+    'Leaving picture-in-picture must restore the session control eligibility',
+  );
   await page.locator('#qualitySummary').click();
   assert.equal(await page.locator('#control').getAttribute('aria-pressed'), 'false');
   await page.locator('#qualitySummary').click();
@@ -303,8 +337,15 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `${output}/viewer-mobile-dark.png` });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.locator('#pictureInPicture').click();
+  await page.waitForFunction(() => document.pictureInPictureElement?.id === 'video');
   await page.locator('#disconnect').click();
   await page.locator('#connect').waitFor({ state: 'visible' });
+  assert.equal(
+    await page.evaluate(() => document.pictureInPictureElement),
+    null,
+    'Disconnecting must close the picture-in-picture window',
+  );
   assert.equal(server.sessionStore.list().length, 0);
 
   const setup = server.sessionStore.keys.createSetup({ ttlMs: 60_000 });
@@ -382,7 +423,7 @@ try {
   await diagnosticsPage.close();
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: connection-key editing/error recovery; approved-client registration and sign-in; responsive system/light/dark; width/height-fitted real WebRTC reception; automatic/approved profile reconnect; remote control release; fullscreen; disconnect.',
+    'PASS: connection-key editing/error recovery; approved-client registration and sign-in; responsive system/light/dark; width/height-fitted real WebRTC reception; automatic/approved profile reconnect; remote control release; picture-in-picture; fullscreen; disconnect.',
   );
 } finally {
   await new Promise((resolve) => server.close(resolve));

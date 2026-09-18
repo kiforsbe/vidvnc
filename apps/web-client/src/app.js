@@ -14,6 +14,8 @@ const toolbarIcons = {
     '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 13h.01M11 13h.01M15 13h.01M8 16h8"/>',
   sound: '<path d="M11 4 6 8H3v8h3l5 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/>',
   muted: '<path d="M11 4 6 8H3v8h3l5 4zM16 9l5 6M21 9l-5 6"/>',
+  pictureInPicture:
+    '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
   expand: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5"/>',
   collapse: '<path d="M3 8h5V3M16 3v5h5M21 16h-5v5M8 21v-5H3"/>',
 };
@@ -24,11 +26,28 @@ function toolbarButton(id, label, icon) {
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${toolbarIcons[icon]}</svg>`;
 }
 function renderControl() {
+  $('control').disabled = !controlAllowed || document.pictureInPictureElement === $('video');
   $('control').setAttribute('aria-pressed', String(enabled));
   toolbarButton(
     'control',
     enabled ? 'Release keyboard & mouse (Esc)' : 'Enable keyboard & mouse',
     'control',
+  );
+}
+function renderPictureInPicture() {
+  const video = $('video');
+  const button = $('pictureInPicture');
+  const supported =
+    document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function';
+  const active = document.pictureInPictureElement === video;
+  button.hidden = !supported;
+  button.disabled =
+    !active && (!video.srcObject || video.readyState === HTMLMediaElement.HAVE_NOTHING);
+  button.setAttribute('aria-pressed', String(active));
+  toolbarButton(
+    'pictureInPicture',
+    active ? 'Exit picture-in-picture' : 'Picture-in-picture',
+    'pictureInPicture',
   );
 }
 function renderAudio() {
@@ -62,6 +81,7 @@ let token,
   ping,
   playback,
   enabled = false,
+  controlAllowed = false,
   connecting = false,
   reconnecting = false,
   connectionAttempt = 0,
@@ -117,6 +137,7 @@ function fitVideo() {
   );
 }
 $('video').addEventListener('loadedmetadata', fitVideo);
+$('video').addEventListener('loadedmetadata', renderPictureInPicture);
 $('video').addEventListener('resize', fitVideo);
 window.addEventListener('resize', fitVideo);
 window.visualViewport?.addEventListener('resize', fitVideo);
@@ -155,6 +176,8 @@ async function disconnect(
   message = 'Disconnected. Your PC is no longer being shared with this browser.',
 ) {
   connectionAttempt++;
+  if (document.pictureInPictureElement === $('video'))
+    await document.exitPictureInPicture().catch(() => {});
   release();
   clearInterval(heartbeat);
   clearInterval(ping);
@@ -163,6 +186,7 @@ async function disconnect(
   const old = token;
   token = null;
   $('video').srcObject = null;
+  renderPictureInPicture();
   $('audio').srcObject = null;
   $('sessionIdentity').hidden = true;
   $('disconnect').hidden = true;
@@ -213,6 +237,7 @@ function closeMedia({ deferPeers = false } = {}) {
   channel = null;
   if (!retiring || !deferPeers) previous?.close();
   $('video').srcObject = null;
+  renderPictureInPicture();
   $('audio').srcObject = null;
   return retiring;
 }
@@ -577,23 +602,28 @@ async function startStream(result, attempt) {
     try {
       const state = JSON.parse(event.data);
       if (typeof state.control === 'boolean') {
-        enabled = state.control;
-        renderControl();
+        if (state.control && document.pictureInPictureElement === $('video')) release();
+        else {
+          enabled = state.control;
+          renderControl();
+        }
       }
     } catch {
       /* Ignore unknown protocol messages. */
     }
   };
   channel.onopen = () => {
-    $('control').disabled = false;
+    controlAllowed = true;
+    renderControl();
     ping = setInterval(() => send({ type: 'ping' }), 1000);
   };
   channel.onclose = () => {
     enabled = false;
-    $('control').disabled = true;
+    controlAllowed = false;
     renderControl();
   };
-  $('control').disabled = true;
+  controlAllowed = false;
+  renderControl();
   connection.ontrack = (event) => {
     if (event.track.kind === 'audio') {
       $('audio').srcObject = new MediaStream([event.track]);
@@ -603,6 +633,7 @@ async function startStream(result, attempt) {
     } else {
       $('video').playsInline = true;
       $('video').srcObject = new MediaStream([event.track]);
+      renderPictureInPicture();
       $('video')
         .play()
         .catch(() => status('Tap the desktop to start video playback.'));
@@ -711,6 +742,7 @@ async function startSubscriptions(result, attempt) {
       pc = row?.pc;
       channel = row?.channel;
       $('video').srcObject = row?.stream ?? null;
+      renderPictureInPicture();
       if (row?.profile) {
         currentRequest = row.request;
         catalog.display = row.display;
@@ -724,8 +756,11 @@ async function startSubscriptions(result, attempt) {
     },
     onControl: (value, allowed) => {
       if (subscriptions !== peers) return;
-      if (value !== null) enabled = value && allowed;
-      $('control').disabled = !allowed;
+      controlAllowed = allowed;
+      if (value !== null) {
+        if (value && document.pictureInPictureElement === $('video')) release();
+        else enabled = value && allowed;
+      }
       renderControl();
     },
     onState: (state) => {
@@ -753,7 +788,8 @@ async function startSubscriptions(result, attempt) {
         .catch(() => status('Tap the audio button to start desktop audio.'));
     },
   }));
-  $('control').disabled = true;
+  controlAllowed = false;
+  renderControl();
   $('welcome').hidden = true;
   $('viewer').hidden = false;
   let heartbeatBusy = false;
@@ -807,6 +843,7 @@ $('audioToggle').onclick = async () => {
   if (!audio.muted) await audio.play().catch(() => {});
 };
 $('control').onclick = () => {
+  if (document.pictureInPictureElement === $('video')) return;
   if (enabled) {
     release();
     status('Connected · View only');
@@ -820,6 +857,29 @@ $('control').onclick = () => {
   }
 };
 $('control').onpointerdown = (event) => event.preventDefault();
+$('pictureInPicture').onclick = async () => {
+  const video = $('video');
+  try {
+    if (document.pictureInPictureElement === video) await document.exitPictureInPicture();
+    else {
+      release();
+      await video.requestPictureInPicture();
+    }
+  } catch (error) {
+    status(error.message || 'Picture-in-picture is unavailable.');
+  }
+};
+$('video').addEventListener('enterpictureinpicture', () => {
+  if (enabled) release();
+  renderControl();
+  renderPictureInPicture();
+  status('Picture-in-picture · View only');
+});
+$('video').addEventListener('leavepictureinpicture', () => {
+  renderControl();
+  renderPictureInPicture();
+  status('Connected · View only');
+});
 $('fullscreen').onclick = async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -851,6 +911,7 @@ $('stage').addEventListener('pointerdown', (event) => {
 });
 renderControl();
 renderAudio();
+renderPictureInPicture();
 renderFullscreen();
 function position(event) {
   const video = $('video'),
