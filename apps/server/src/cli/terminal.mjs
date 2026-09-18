@@ -1,4 +1,4 @@
-import { clearScreenDown, createInterface, cursorTo, moveCursor } from 'node:readline';
+import { Interface, clearScreenDown, createInterface, cursorTo, moveCursor } from 'node:readline';
 
 const endsLine = (chunk) =>
   typeof chunk === 'string' ? chunk.endsWith('\n') : chunk[chunk.length - 1] === 0x0a;
@@ -34,6 +34,16 @@ export function createTerminal({
     completer,
     historySize: 100,
   });
+  // `terminal: true` is an explicit promise that these streams support an interactive
+  // terminal. Node otherwise replaces its editor with a minimal one when TERM=dumb,
+  // dropping redraw, history navigation and completion even though we draw with ANSI.
+  const forceInteractive = process.env.TERM === 'dumb';
+  if (forceInteractive) reader._ttyWrite = Interface.prototype._ttyWrite.bind(reader);
+  const refresh = () => {
+    if (reader.paused) reader.resume();
+    if (forceInteractive) reader._refreshLine();
+    else reader.prompt(true);
+  };
   let closing = false;
   const closeReader = reader.close.bind(reader);
   // Ctrl+D on an empty line would close the console while the server keeps running.
@@ -79,7 +89,7 @@ export function createTerminal({
       if (!endsLine(chunk)) write('\n');
       // Drawn from a fresh line now, not from the rows the old prompt occupied.
       reader.prevRows = 0;
-      reader.prompt(true);
+      refresh();
       return result;
     };
     return () => {
@@ -101,7 +111,7 @@ export function createTerminal({
       if (!shown && !reader.line && !atLineStart) write('\n');
       shown = true;
       reader.setPrompt(prompt);
-      reader.prompt(true);
+      refresh();
     },
     close() {
       if (closing) return;
