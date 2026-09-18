@@ -5,6 +5,13 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.4.1] - 2026-09-18
+
+### Fixed
+
+- The interactive server console keeps prompt editing, command history and Tab completion
+  working when the host environment reports a dumb terminal.
+
 ## [0.4.0] - 2026-09-18
 
 ### Added
