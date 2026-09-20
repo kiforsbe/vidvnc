@@ -158,8 +158,14 @@ Exit codes: 0 success, 1 failure, 2 usage error.
 
 `npm run build:host` builds `apps/windows-host/VidVnc.Host.csproj` with MSBuild.
 Use `npm run prepare:host` to build the Debug worker and host together and write
-the development runtime manifest. Then run `VidVnc.Host.exe` from
+the development runtime manifest. Then run `npm run start:host` to start the Debug host
+(`npm run start:host -- Release` for Release), or run `VidVnc.Host.exe` from
 `apps/windows-host/bin/Debug/net10.0-windows10.0.26100.0/win-x64/` directly.
+`npm run start:host` first rebuilds what changed: the media worker when anything under
+`native/` (other than its tests) is newer than the worker, and the host through an
+incremental `dotnet build`. It also refreshes the runtime manifest, so it works without
+`prepare:host`. It refuses to start while VidVNC is already running, then stays attached
+until the window closes. `npm run start:cli` is the same as `npm start`.
 This development output depends on the checkout/SDK; it is not the distribution
 payload described in [packaging](docs/PACKAGING.md).
 

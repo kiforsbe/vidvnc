@@ -17,6 +17,8 @@
     "build:native": ".\\build-native.cmd",
     "prestart": "npm run format:web",
     "start": "node apps/server/src/main.mjs",
+    "start:cli": "npm start",
+    "start:host": "node tools/debug/start-host.mjs",
     "config": "node apps/server/src/main.mjs config",
     "build:host": "dotnet build apps/windows-host/VidVnc.Host.csproj",
     "prepare:host": "node tools/debug/prepare.mjs",

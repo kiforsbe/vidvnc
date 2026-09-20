@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { writeDevelopmentManifest } from '../debug/runtime.mjs';
+import { isStale } from '../debug/host-build.mjs';
 import { loadRuntimeManifest } from '../../native/media-worker/runtime-manifest.mjs';
 
 test('Debug preparation requires Debug output and writes a validated explicit manifest', (t) => {
@@ -39,4 +40,27 @@ test('Debug preparation requires Debug output and writes a validated explicit ma
     () => writeDevelopmentManifest({ root, configuration: 'Other', filename }),
     /configuration/,
   );
+});
+
+test('worker staleness follows source and output timestamps and ignores tests', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'vidvnc stale '));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, 'native/media-worker/src'), { recursive: true });
+  mkdirSync(path.join(root, 'native/media-worker/tests'), { recursive: true });
+  const source = path.join(root, 'native/media-worker/src/media-worker.cpp');
+  const test = path.join(root, 'native/media-worker/tests/rate-control.cpp');
+  const output = path.join(root, 'media-worker.exe');
+  const inputs = [path.join(root, 'native')];
+  const at = (file, seconds) => utimesSync(file, seconds, seconds);
+  writeFileSync(source, 'source');
+  writeFileSync(test, 'test');
+  assert.equal(isStale(inputs, output, ['tests']), true);
+  writeFileSync(output, 'built');
+  at(source, 100);
+  at(test, 300);
+  at(output, 200);
+  assert.equal(isStale(inputs, output, ['tests']), false);
+  assert.equal(isStale(inputs, output), true);
+  at(source, 400);
+  assert.equal(isStale(inputs, output, ['tests']), true);
 });
