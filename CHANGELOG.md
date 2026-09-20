@@ -5,6 +5,29 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.5.0] - 2026-09-20
+
+### Added
+
+- Streaming profiles can use variable bitrate. Each profile has a bitrate mode (Constant or
+  Variable) and a quality level (Efficient, Balanced or High). In Variable mode the bitrate
+  setting is the sustained maximum: the encoder spends less on simple content and can burst
+  above it briefly. Existing profiles stay Constant. The profile editor, the CLI `profiles`
+  commands, the profile picker and diagnostics all show the mode.
+- `npm run start:cli` and `npm run start:host` run the CLI and the Windows host from a
+  checkout. `start:host` first rebuilds whatever is out of date: the media worker, the host
+  and the runtime manifest.
+
+### Changed
+
+- The profile editor is tidier. Output size is one editable dropdown of `width × height`
+  sizes that shows the aspect ratio, frame rate is an editable dropdown, and bitrate mode
+  and quality share a row. The unused fixed/variable frame delivery option is gone.
+- The Streaming profiles table shows the bitrate on two short lines so the columns fit.
+- Sessions in the VidVNC app, the CLI `sessions` list, the web diagnostics page and the web
+  profile picker show a profile's name instead of its id. A tooltip gives the description
+  and the size, frame rate and bitrate.
+
 ## [0.4.1] - 2026-09-18
 
 ### Fixed
