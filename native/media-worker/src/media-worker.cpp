@@ -25,6 +25,7 @@
 #include "sdp-payload.hpp"
 #include "display-inventory.hpp"
 #include "stream-profile.hpp"
+#include "rate-control.hpp"
 #include "telemetry.hpp"
 #include "transport-telemetry.hpp"
 static MediaTelemetry telemetry;
@@ -99,6 +100,19 @@ static bool failed = false;
 static bool started = false;
 static bool playing = false;
 static StreamProfile profile;
+static const char *bitrate_mode_name(BitrateMode mode) {
+    return mode == BitrateMode::Vbr ? "vbr" : "cbr";
+}
+static const char *quality_name(Quality quality) {
+    switch (quality) {
+    case Quality::Efficient:
+        return "efficient";
+    case Quality::High:
+        return "high";
+    default:
+        return "balanced";
+    }
+}
 static bool video_enabled = true;
 static int audio_channels = 0; // 0: no audio chain; 1: mono-32k; 2: stereo-96k
 static const VideoCodec *video_codec = &video_codecs()[0];
@@ -552,10 +566,8 @@ static std::string pipeline_description(int frames = -1) {
            "video/x-raw(memory:D3D11Memory),format=NV12,width=" +
            std::to_string(profile.width) + ",height=" + std::to_string(profile.height) +
            ",framerate=" + std::to_string(profile.fps) + "/1 ! " + video_codec->encoder +
-           " name=encoder preset=p3 tune=ultra-low-latency "
-           "rc-mode=cbr bitrate=" +
-           std::to_string(profile.bitrate) + " gop-size=" + std::to_string(profile.fps) +
-           " bframes=0 zerolatency=true" +
+           " name=encoder preset=p3 tune=ultra-low-latency " +
+           rate_control(video_codec->id, profile).properties + " bframes=0 zerolatency=true" +
            (video_codec->encoder_extra.empty() ? "" : " " + video_codec->encoder_extra) + " ! " +
            video_codec->caps +
            std::string(h264 && profile.fps == 15 && profile.width <= 1280 && profile.height <= 720
@@ -675,6 +687,8 @@ static int self_test() {
     json_object_set_int_member(result, "spsProfile", sps_profile.load());
     json_object_set_int_member(result, "spsLevel", sps_level.load());
     json_object_set_string_member(result, "codec", video_codec->id.c_str());
+    json_object_set_string_member(result, "bitrateMode", bitrate_mode_name(profile.bitrate_mode));
+    json_object_set_string_member(result, "quality", quality_name(profile.quality));
     json_object_set_object_member(result, "metrics", telemetry.snapshot());
     auto node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, result);
@@ -1213,6 +1227,9 @@ static int session() {
                 json_object_set_int_member(sample, "spsProfile", sps_profile.load());
                 json_object_set_int_member(sample, "spsLevel", sps_level.load());
                 json_object_set_string_member(sample, "codec", video_codec->id.c_str());
+                json_object_set_string_member(sample, "bitrateMode",
+                                              bitrate_mode_name(profile.bitrate_mode));
+                json_object_set_string_member(sample, "quality", quality_name(profile.quality));
                 auto rows = json_object_new();
                 for (auto &entry : peers) {
                     if (entry.second->removing)
@@ -1331,9 +1348,18 @@ int main(int argc, char **argv) {
             profile = {1280, 720, 30, 4000, 1200};
             return self_test();
         }
+        if (argc == 3 && std::string(argv[1]) == "--self-test-vbr") {
+            video_codec = find_video_codec(argv[2]);
+            if (!video_codec)
+                throw std::runtime_error("Invalid video codec");
+            profile = {2560, 1440, 30, 6000, 1200, BitrateMode::Vbr, Quality::Balanced};
+            return self_test();
+        }
         if (argc == 2 && std::string(argv[1]) == "--session")
             return session();
-        throw std::runtime_error("Expected --probe or --self-test.");
+        throw std::runtime_error(
+            "Expected --probe, --self-test, --self-test-mobile, --self-test-codec <codec> or "
+            "--self-test-vbr <codec>.");
     } catch (const std::exception &error) {
         std::cerr << error.what() << std::endl;
         return 1;

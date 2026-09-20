@@ -57,6 +57,16 @@ test('arguments complete from displays, profiles and fixed words', async () => {
   assert.deepEqual(await matches('profile add "My '), []);
 });
 
+test('rate control flags complete their values', async () => {
+  assert.deepEqual(await matches('profile edit mobile --bitrate-mode '), ['cbr', 'vbr']);
+  assert.deepEqual(await matches('profile add Sharp --quality '), [
+    'efficient',
+    'balanced',
+    'high',
+  ]);
+  assert.deepEqual(await matches('profile edit mobile --bitrate-mode v'), ['vbr ']);
+});
+
 test('devices complete as console numbers and stream IDs, never session IDs', async () => {
   assert.deepEqual(await matches('grant '), ['#1', 'stream-a']);
   assert.deepEqual(await matches('disconnect #'), ['#1 ']);
@@ -79,6 +89,8 @@ test('flags complete for the command, skipping ones already given and flag value
     '--description',
     '--fps',
     '--bitrate',
+    '--bitrate-mode',
+    '--quality',
     '--name',
     '--enabled',
     '--disabled',

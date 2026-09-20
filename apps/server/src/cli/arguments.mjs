@@ -48,6 +48,12 @@ export function parseWhole(value, label) {
   return Number(value);
 }
 
+export function parseChoice(value, choices, label) {
+  if (choices.includes(value)) return value;
+  const list = `${choices.slice(0, -1).join(', ')} or ${choices.at(-1)}`;
+  throw new UsageError(`${label} must be ${list}.`);
+}
+
 export const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 export const outcome = (result, message) => ({

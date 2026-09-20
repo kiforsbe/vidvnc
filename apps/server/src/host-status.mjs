@@ -52,6 +52,8 @@ export function hostStatus(sessions, activeId, metrics = {}) {
               height: sample?.frameHeight || session.profile?.height || null,
               fps: sample?.decodeFps ?? null,
               targetFps: session.profile?.fps ?? null,
+              bitrateMode: session.profile?.bitrateMode ?? null,
+              quality: session.profile?.quality ?? null,
               stability: sessionStability(metrics, session.createdAt),
             },
           ]

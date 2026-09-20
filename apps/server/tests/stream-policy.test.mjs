@@ -16,6 +16,8 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
     height: 720,
     fps: 15,
     bitrateKbps: 1000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   });
   assert.deepEqual(resolveStreamPolicy(policy, {}).profile, {
@@ -24,6 +26,8 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
     height: 1440,
     fps: 30,
     bitrateKbps: 6000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   });
 });
@@ -62,6 +66,8 @@ test('custom plans require approved mode and all approved dimensions, fps and bi
   assert.deepEqual(resolveStreamPolicy(policy, { custom }).profile, {
     name: 'custom',
     ...custom,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   });
   for (const change of [{ width: 1920 }, { fps: 60 }, { bitrateKbps: 5000 }, { mtu: 9000 }])
@@ -115,6 +121,61 @@ test('a policy allowing only H.264 is valid', () => {
   const policy = defaultStreamPolicy();
   policy.videoCodecs = ['h264'];
   assert.deepEqual(validateStreamPolicy(policy).videoCodecs, ['h264']);
+});
+
+test('default policy seeds every profile as cbr and balanced', () => {
+  for (const profile of defaultStreamPolicy().profiles) {
+    assert.equal(profile.bitrateMode, 'cbr');
+    assert.equal(profile.quality, 'balanced');
+  }
+});
+
+test('profiles without bitrate mode or quality upgrade to cbr and balanced without mutating input', () => {
+  const policy = defaultStreamPolicy();
+  for (const profile of policy.profiles) {
+    delete profile.bitrateMode;
+    delete profile.quality;
+  }
+  const upgraded = validateStreamPolicy(policy);
+  for (const profile of upgraded.profiles) {
+    assert.equal(profile.bitrateMode, 'cbr');
+    assert.equal(profile.quality, 'balanced');
+  }
+  for (const profile of policy.profiles) {
+    assert.equal(Object.hasOwn(profile, 'bitrateMode'), false);
+    assert.equal(Object.hasOwn(profile, 'quality'), false);
+  }
+});
+
+test('bitrate mode and quality are validated', () => {
+  const policy = defaultStreamPolicy();
+  Object.assign(policy.profiles[0], { bitrateMode: 'vbr', quality: 'high' });
+  assert.doesNotThrow(() => validateStreamPolicy(policy));
+  policy.profiles[0].bitrateMode = 'abr';
+  assert.throws(() => validateStreamPolicy(policy), /Bitrate mode is invalid/);
+  policy.profiles[0].bitrateMode = 'vbr';
+  policy.profiles[0].quality = 'ultra';
+  assert.throws(() => validateStreamPolicy(policy), /Quality is invalid/);
+});
+
+test('resolution carries bitrate mode and quality, and custom settings stay cbr and balanced', () => {
+  const policy = defaultStreamPolicy();
+  Object.assign(
+    policy.profiles.find((p) => p.id === 'balanced'),
+    {
+      bitrateMode: 'vbr',
+      quality: 'efficient',
+    },
+  );
+  const named = resolveStreamPolicy(policy, { profileId: 'balanced' }).profile;
+  assert.equal(named.bitrateMode, 'vbr');
+  assert.equal(named.quality, 'efficient');
+  policy.clientMode = 'options';
+  const custom = resolveStreamPolicy(policy, {
+    custom: { width: 1280, height: 720, fps: 15, bitrateKbps: 1000 },
+  }).profile;
+  assert.equal(custom.bitrateMode, 'cbr');
+  assert.equal(custom.quality, 'balanced');
 });
 
 test('custom named profile survives validation and does not mutate source through results', () => {

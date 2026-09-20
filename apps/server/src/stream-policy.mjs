@@ -1,5 +1,11 @@
 import { getProfile } from './profiles.mjs';
 import { VIDEO_CODECS } from './video-codecs.mjs';
+import {
+  BITRATE_MODES,
+  QUALITY_LEVELS,
+  DEFAULT_BITRATE_MODE,
+  DEFAULT_QUALITY,
+} from './rate-control.mjs';
 
 const seeds = [
   ['iphone-720p-test', 'iPhone 720p', 'Conservative starting point for iPhone'],
@@ -64,7 +70,7 @@ export function defaultStreamPolicy() {
     schemaVersion: 1,
     revision: 0,
     profiles: seeds.map(([id, name, description]) => {
-      const { width, height, fps, bitrateKbps } = getProfile(id);
+      const { width, height, fps, bitrateKbps, bitrateMode, quality } = getProfile(id);
       return {
         id,
         name,
@@ -74,6 +80,8 @@ export function defaultStreamPolicy() {
         height,
         fps,
         bitrateKbps,
+        bitrateMode,
+        quality,
         frameDelivery: 'fixed',
       };
     }),
@@ -101,6 +109,21 @@ export function validateStreamPolicy(value) {
     value = { ...value, displaySharing: null };
   if (value && typeof value === 'object' && !Object.hasOwn(value, 'videoCodecs'))
     value = { ...value, videoCodecs: [...VIDEO_CODECS] };
+  if (value && typeof value === 'object' && Array.isArray(value.profiles))
+    value = {
+      ...value,
+      profiles: value.profiles.map((profile) =>
+        profile && typeof profile === 'object' && !Array.isArray(profile)
+          ? {
+              ...profile,
+              ...(Object.hasOwn(profile, 'bitrateMode')
+                ? {}
+                : { bitrateMode: DEFAULT_BITRATE_MODE }),
+              ...(Object.hasOwn(profile, 'quality') ? {} : { quality: DEFAULT_QUALITY }),
+            }
+          : profile,
+      ),
+    };
   object(
     value,
     [
@@ -133,6 +156,8 @@ export function validateStreamPolicy(value) {
         'height',
         'fps',
         'bitrateKbps',
+        'bitrateMode',
+        'quality',
         'frameDelivery',
       ],
       'Profile',
@@ -149,6 +174,8 @@ export function validateStreamPolicy(value) {
     text(profile.description, 0, 240, 'Description');
     requireValue(typeof profile.enabled === 'boolean', 'Profile availability must be boolean');
     requireValue(profile.frameDelivery === 'fixed', 'Variable frame delivery is not supported yet');
+    requireValue(BITRATE_MODES.includes(profile.bitrateMode), 'Bitrate mode is invalid');
+    requireValue(QUALITY_LEVELS.includes(profile.quality), 'Quality is invalid');
     numericPlan(profile);
   }
   const enabled = new Set(value.profiles.filter((p) => p.enabled).map((p) => p.id));
@@ -241,7 +268,12 @@ export function resolveStreamPolicy(
         options.bitratesKbps.includes(custom.bitrateKbps),
       'Requested settings are not allowed',
     );
-    source = { ...custom, id: 'custom' };
+    source = {
+      ...custom,
+      id: 'custom',
+      bitrateMode: DEFAULT_BITRATE_MODE,
+      quality: DEFAULT_QUALITY,
+    };
     selectedBy = 'client';
   } else {
     let id = profileId;
@@ -265,9 +297,9 @@ export function resolveStreamPolicy(
     source = policy.profiles.find((p) => p.id === id && p.enabled);
     requireValue(!!source, 'Requested profile is not allowed');
   }
-  const { width, height, fps, bitrateKbps } = source;
+  const { width, height, fps, bitrateKbps, bitrateMode, quality } = source;
   return {
-    profile: { name: source.id, width, height, fps, bitrateKbps, mtu: 1200 },
+    profile: { name: source.id, width, height, fps, bitrateKbps, bitrateMode, quality, mtu: 1200 },
     audio: { mode: policy.allowAudio && audio ? 'on' : 'off' },
     revision: policy.revision,
     selectedBy,

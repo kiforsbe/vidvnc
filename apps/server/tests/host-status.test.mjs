@@ -79,6 +79,16 @@ test('stability history uses interval events, excludes old sessions and preserve
   assert.equal(hostStatus(sessions, 'other', metrics).sessions[0].streams.length, 0);
 });
 
+test('stream rows report the profile bitrate mode and quality, or null without a resolved profile', () => {
+  const vbr = { name: 'sharp', fps: 30, bitrateMode: 'vbr', quality: 'high' };
+  const row = (profile) =>
+    hostStatus([{ sessionId: 'a', createdAt: 1000, profile }], 'a').sessions[0].streams[0];
+  assert.equal(row(vbr).bitrateMode, 'vbr');
+  assert.equal(row(vbr).quality, 'high');
+  assert.equal(row(undefined).bitrateMode, null);
+  assert.equal(row(undefined).quality, null);
+});
+
 test('device labels identify browser platforms without trusting a claimed user identity', () => {
   const store = new SessionStore();
   store.connect(store.password, '127.0.0.1', 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0)');

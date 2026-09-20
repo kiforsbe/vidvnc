@@ -84,6 +84,7 @@ test('native self-test captures and hardware-encodes sixty desktop frames', asyn
   const result = await run('--self-test');
   assert.equal(result.code, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).frames, 60);
+  assert.equal(JSON.parse(result.stdout).bitrateMode, 'cbr');
   const metrics = JSON.parse(result.stdout).metrics;
   assert.equal(metrics.captureFrames, 60);
   assert.equal(metrics.encoderInputFrames, 60);
@@ -91,6 +92,14 @@ test('native self-test captures and hardware-encodes sixty desktop frames', asyn
   assert.ok(metrics.encodedBytes > 0);
   assert.ok(metrics.maxFrameBytes > 0);
   assert.ok(metrics.elapsedMs > 0);
+});
+test('vbr self-test hardware-encodes desktop frames with the vbr encoder settings', async () => {
+  const result = await run('--self-test-vbr', 'h264');
+  assert.equal(result.code, 0, result.stderr);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.bitrateMode, 'vbr');
+  assert.equal(value.quality, 'balanced');
+  assert.ok(value.metrics.encodedFrames > 0, JSON.stringify(value));
 });
 test('h265 self-test hardware-encodes sixty desktop frames', async (t) => {
   const probe = JSON.parse((await run('--probe')).stdout);

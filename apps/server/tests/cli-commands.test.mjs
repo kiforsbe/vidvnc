@@ -4,8 +4,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { executeLine } from '../src/cli/commands.mjs';
+import { formatProfiles } from '../src/cli/format.mjs';
 import { createOfflineContext, runOffline } from '../src/cli/offline.mjs';
 import { UsageError } from '../src/cli/usage-error.mjs';
+import { defaultStreamPolicy } from '../src/stream-policy.mjs';
 import { MAIN, SIDE, rawDisplays } from './fixtures/cli-displays.mjs';
 
 async function offline(t, options = {}) {
@@ -337,6 +339,8 @@ test('profiles list in client order; profile add uses host defaults and slug IDs
     height: 1080,
     fps: 60,
     bitrateKbps: 4000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     frameDelivery: 'fixed',
   });
   assert.equal(
@@ -352,6 +356,35 @@ test('profiles list in client order; profile add uses host defaults and slug IDs
     run('profile add Fast --fps 61'),
     /Frame rate must be an integer from 1 to 60/,
   );
+});
+
+test('profile add and edit set bitrate mode and quality; bad values name the choices', async (t) => {
+  const { run, context } = await offline(t);
+  const rateControl = (id) => {
+    const profile = context.policy().profiles.find((row) => row.id === id);
+    return [profile.bitrateMode, profile.quality];
+  };
+  await run('profile add "Sharp" --bitrate-mode vbr --quality high');
+  assert.deepEqual(rateControl('sharp'), ['vbr', 'high']);
+  assert.equal(
+    (await run('profile edit sharp --bitrate-mode=cbr')).text,
+    'Updated profile "Sharp".',
+  );
+  assert.deepEqual(rateControl('sharp'), ['cbr', 'high']);
+  await assert.rejects(
+    run('profile add Wide --bitrate-mode abr'),
+    usage(/^Bitrate mode must be cbr or vbr\. Type config help profile add\.$/),
+  );
+  await assert.rejects(
+    run('profile edit sharp --quality ultra'),
+    usage(/^Quality must be efficient, balanced or high\. Type config help profile edit\.$/),
+  );
+});
+
+test('the profiles table shows a VBR bitrate as a cap with its mode and quality', () => {
+  const policy = defaultStreamPolicy();
+  const vbr = { ...policy.profiles[0], bitrateKbps: 6000, bitrateMode: 'vbr', quality: 'balanced' };
+  assert.match(formatProfiles([vbr], policy), /\s+up to 6 Mbit\/s \(VBR, balanced\)\s+/);
 });
 
 test('control characters in a profile name never reach profile add or profiles output', async (t) => {
@@ -387,6 +420,8 @@ test('profile edit, duplicate, enable, disable and remove follow host validation
       height: 900,
       fps: 25,
       bitrateKbps: 3500,
+      bitrateMode: 'cbr',
+      quality: 'balanced',
       frameDelivery: 'fixed',
     },
   );

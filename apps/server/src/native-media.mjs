@@ -5,6 +5,7 @@ import { executable, workerEnvironment } from '@vidvnc/media-worker/runtime';
 import { Recovery } from './recovery.mjs';
 import { Diagnostics } from './diagnostics.mjs';
 import { peerSample } from './media-sample.mjs';
+import { DEFAULT_BITRATE_MODE, DEFAULT_QUALITY } from './rate-control.mjs';
 
 export function probe() {
   return JSON.parse(
@@ -148,6 +149,8 @@ export class NativeMedia {
                 fps: profile.fps,
                 bitrateKbps: profile.bitrateKbps,
                 mtu: 1200,
+                bitrateMode: profile.bitrateMode ?? DEFAULT_BITRATE_MODE,
+                quality: profile.quality ?? DEFAULT_QUALITY,
               },
         display: (video && display) || undefined,
         audioFormat,

@@ -1,5 +1,6 @@
 import { UsageError } from '../usage-error.mjs';
-import { expectArguments, outcome, parseSize, parseWhole } from '../arguments.mjs';
+import { expectArguments, outcome, parseChoice, parseSize, parseWhole } from '../arguments.mjs';
+import { BITRATE_MODES, QUALITY_LEVELS } from '../../rate-control.mjs';
 import {
   clean,
   formatAccess,
@@ -13,7 +14,14 @@ import {
 import { resolveProfile } from '../resolve.mjs';
 import * as edits from '../policy-edits.mjs';
 
-const VALUE_FLAGS = { description: 'value', size: 'value', fps: 'value', bitrate: 'value' };
+const VALUE_FLAGS = {
+  description: 'value',
+  size: 'value',
+  fps: 'value',
+  bitrate: 'value',
+  'bitrate-mode': 'value',
+  quality: 'value',
+};
 const confirmation = (flags) => ({ yes: flags.yes === true });
 
 function profileValues(flags) {
@@ -23,6 +31,10 @@ function profileValues(flags) {
   if (flags.size !== undefined) Object.assign(values, parseSize(flags.size));
   if (flags.fps !== undefined) values.fps = parseWhole(flags.fps, 'Frame rate');
   if (flags.bitrate !== undefined) values.bitrateKbps = parseWhole(flags.bitrate, 'Bitrate');
+  if (flags['bitrate-mode'] !== undefined)
+    values.bitrateMode = parseChoice(flags['bitrate-mode'], BITRATE_MODES, 'Bitrate mode');
+  if (flags.quality !== undefined)
+    values.quality = parseChoice(flags.quality, QUALITY_LEVELS, 'Quality');
   if (flags.enabled && flags.disabled) throw new UsageError('Use either --enabled or --disabled.');
   if (flags.enabled) values.enabled = true;
   if (flags.disabled) values.enabled = false;
@@ -99,8 +111,9 @@ export const profileCommands = [
   {
     name: 'profile add',
     usage:
-      'profile add <name> [--size WxH] [--fps N] [--bitrate KBPS] [--description TEXT] [--disabled]',
-    summary: 'Create a profile. Defaults: 1920x1080, 30 fps, 4000 kbit/s, available.',
+      'profile add <name> [--size WxH] [--fps N] [--bitrate KBPS] [--bitrate-mode cbr|vbr] [--quality efficient|balanced|high] [--description TEXT] [--disabled]',
+    summary:
+      'Create a profile. Defaults: 1920x1080, 30 fps, 4000 kbit/s, cbr, balanced quality, available. A VBR profile treats the bitrate as a sustained cap.',
     where: 'both',
     mayDisconnect: true,
     flags: { ...VALUE_FLAGS, disabled: 'boolean' },
@@ -126,7 +139,7 @@ export const profileCommands = [
   {
     name: 'profile edit',
     usage:
-      'profile edit <profile> [--name TEXT] [--description TEXT] [--size WxH] [--fps N] [--bitrate KBPS] [--enabled|--disabled]',
+      'profile edit <profile> [--name TEXT] [--description TEXT] [--size WxH] [--fps N] [--bitrate KBPS] [--bitrate-mode cbr|vbr] [--quality efficient|balanced|high] [--enabled|--disabled]',
     summary: 'Change a profile.',
     where: 'both',
     mayDisconnect: true,

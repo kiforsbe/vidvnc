@@ -67,6 +67,8 @@ test('profiles are added, edited, duplicated, enabled and removed with host vali
     height: 1080,
     fps: 30,
     bitrateKbps: 4000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     frameDelivery: 'fixed',
   });
   assert.deepEqual(policy.profiles.at(-1), profile);
@@ -101,6 +103,31 @@ test('profiles are added, edited, duplicated, enabled and removed with host vali
     edits.setProfileEnabled(policy, 'mobile', false).profiles.find((row) => row.id === 'mobile')
       .enabled,
     false,
+  );
+});
+
+test('bitrate mode and quality are set on add and edited independently', () => {
+  const { policy, profile } = edits.addProfile(defaultStreamPolicy(), {
+    name: 'Sharp',
+    bitrateMode: 'vbr',
+    quality: 'high',
+  });
+  assert.deepEqual([profile.bitrateMode, profile.quality], ['vbr', 'high']);
+  const rateControl = (source) => {
+    const row = source.profiles.find((candidate) => candidate.id === 'sharp');
+    return [row.bitrateMode, row.quality];
+  };
+  const efficient = edits.editProfile(policy, 'sharp', { quality: 'efficient' });
+  assert.deepEqual(rateControl(efficient), ['vbr', 'efficient']);
+  const constant = edits.editProfile(efficient, 'sharp', { bitrateMode: 'cbr' });
+  assert.deepEqual(rateControl(constant), ['cbr', 'efficient']);
+  assert.throws(
+    () => edits.editProfile(policy, 'sharp', { bitrateMode: 'abr' }),
+    /Bitrate mode is invalid/,
+  );
+  assert.throws(
+    () => edits.editProfile(policy, 'sharp', { quality: 'ultra' }),
+    /Quality is invalid/,
   );
 });
 

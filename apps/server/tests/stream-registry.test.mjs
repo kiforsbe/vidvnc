@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { StreamRegistry, audioFormat } from '../src/stream-registry.mjs';
+import { StreamRegistry, audioFormat, sourceKey } from '../src/stream-registry.mjs';
 
 const display = (id = 'display-a', extra = {}) => ({
   id,
@@ -68,6 +68,39 @@ test('each differing key field creates a new source', () => {
   ];
   const ids = variants.map((p) => registry.subscribe('alice', p).source.id);
   assert.equal(new Set(ids).size, variants.length);
+});
+
+test('the shared-encode key follows bitrate mode, and quality only under vbr', () => {
+  const withRate = (rate) => plan({ profile: { ...plan().profile, ...rate } });
+  const key = (rate) => sourceKey(withRate(rate));
+  assert.notEqual(
+    key({ bitrateMode: 'cbr', quality: 'balanced' }),
+    key({ bitrateMode: 'vbr', quality: 'balanced' }),
+  );
+  assert.notEqual(
+    key({ bitrateMode: 'vbr', quality: 'efficient' }),
+    key({ bitrateMode: 'vbr', quality: 'high' }),
+  );
+  assert.equal(
+    key({ bitrateMode: 'cbr', quality: 'efficient' }),
+    key({ bitrateMode: 'cbr', quality: 'high' }),
+  );
+  assert.equal(key({}), key({ bitrateMode: 'cbr', quality: 'balanced' }));
+});
+
+test('subscribe rejects a bitrate mode or quality that is present but not allowed', () => {
+  const registry = new StreamRegistry();
+  for (const rate of [
+    { bitrateMode: 'abr' },
+    { bitrateMode: 1 },
+    { quality: 'ultra' },
+    { quality: null },
+  ])
+    assert.throws(
+      () => registry.subscribe('alice', plan({ profile: { ...plan().profile, ...rate } })),
+      /Invalid stream plan/,
+    );
+  assert.equal(registry.sources().length, 0);
 });
 
 test('host budgets count sources while the per-session limit counts subscriptions', () => {

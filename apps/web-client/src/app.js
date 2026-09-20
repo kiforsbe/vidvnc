@@ -8,6 +8,7 @@ import {
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
+import { bitrateText } from './profile-labels.js';
 const $ = (id) => document.getElementById(id);
 const toolbarIcons = {
   control:
@@ -273,7 +274,7 @@ function renderQuality(result) {
       p.id,
       p.name,
       '',
-      `${p.width} × ${p.height} · ${p.fps} fps · ${p.bitrateKbps / 1000} Mbit/s`,
+      `${p.width} × ${p.height} · ${p.fps} fps · ${bitrateText(p)}`,
     );
   $('qualityHeading').textContent = 'Allowed by ' + catalog.serverName;
   $('displayName').textContent = catalog.display?.name || 'Primary display';

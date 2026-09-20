@@ -155,6 +155,7 @@ export function createHttpApp({
           '/receiver-stats.js',
           '/stream-subscriptions.js',
           '/codec-preferences.js',
+          '/profile-labels.js',
           '/diagnostics.js',
           '/diagnostics.css',
           '/style.css',

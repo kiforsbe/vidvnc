@@ -1,13 +1,31 @@
+import { DEFAULT_BITRATE_MODE, DEFAULT_QUALITY } from '../rate-control.mjs';
 import { validateStreamPolicy } from '../stream-policy.mjs';
 
-export const NEW_PROFILE = Object.freeze({ width: 1920, height: 1080, fps: 30, bitrateKbps: 4000 });
+export const NEW_PROFILE = Object.freeze({
+  width: 1920,
+  height: 1080,
+  fps: 30,
+  bitrateKbps: 4000,
+  bitrateMode: DEFAULT_BITRATE_MODE,
+  quality: DEFAULT_QUALITY,
+});
 export const OPTION_KINDS = Object.freeze({
   size: 'resolutions',
   framerate: 'frameRates',
   bitrate: 'bitratesKbps',
 });
 const RESERVED_IDS = new Set(['auto', 'custom']);
-const EDITABLE = ['name', 'description', 'enabled', 'width', 'height', 'fps', 'bitrateKbps'];
+const EDITABLE = [
+  'name',
+  'description',
+  'enabled',
+  'width',
+  'height',
+  'fps',
+  'bitrateKbps',
+  'bitrateMode',
+  'quality',
+];
 
 // Every edit returns a validated copy with the same revision; stores own revisions.
 function edit(policy, change) {
@@ -101,6 +119,8 @@ export function addProfile(
     height = NEW_PROFILE.height,
     fps = NEW_PROFILE.fps,
     bitrateKbps = NEW_PROFILE.bitrateKbps,
+    bitrateMode = NEW_PROFILE.bitrateMode,
+    quality = NEW_PROFILE.quality,
     enabled = true,
   },
 ) {
@@ -113,6 +133,8 @@ export function addProfile(
     height,
     fps,
     bitrateKbps,
+    bitrateMode,
+    quality,
     frameDelivery: 'fixed',
   };
   return { policy: edit(policy, (next) => next.profiles.push(profile)), profile };

@@ -139,6 +139,15 @@ skips the question. Bitrates are in kbit/s. These commands are local-only, not H
 administration endpoints. When commands are piped into the server instead of typed,
 there is no prompt or completion.
 
+A profile can use constant or variable bitrate. Set it with `profile add` or
+`profile edit` using `--bitrate-mode cbr|vbr` and `--quality efficient|balanced|high`
+(the Windows host's profile editor has the same Bitrate mode and Quality choices).
+For a variable bitrate profile the bitrate is the sustained cap, and the quality level
+applies only to variable profiles. Variable profiles use a 10 second keyframe interval
+instead of one second, so after packet loss a client recovers through its keyframe
+request. Profiles are constant bitrate unless you change them, and clients cannot choose
+the mode.
+
 The same settings commands work without a running server, for example
 `npm run config -- share 2 on` or `node apps/server/src/main.mjs config share 2 on`.
 Read commands accept `--json`, and `config show --json` prints all saved settings. For

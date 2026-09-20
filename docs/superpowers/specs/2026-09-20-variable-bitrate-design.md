@@ -76,9 +76,12 @@ profile to the encoder's rate-control properties and GOP length.
 - **VBR:** `rc-mode=vbr bitrate=<B> max-bitrate=<2B> qp-min-i=<i> qp-min-p=<p>
   gop-size=<fps x 10>`, with `i` and `p` taken from the table below.
 
-Starting QP floors (`qp-min-i` / `qp-min-p`). H.264 `balanced` and `efficient` are
-measured in the investigation. The other values are starting points that implementation
-replaces with values chosen by the procedure in [Testing](#testing-and-validation):
+QP floors (`qp-min-i` / `qp-min-p`). These are the tuned values. They were measured on
+every codec and quality with the procedure in [Testing](#testing-and-validation) and held
+without adjustment: the bitrate is strictly ordered `efficient` below `balanced` below
+`high` on scrolling and video content, static content stays under 20% of CBR, and no
+result reaches the cap. The measurements are in the
+[investigation](../../investigations/VARIABLE-RATE-INVESTIGATION.md):
 
 | Quality | H.264 and H.265 (0 to 51) | AV1 (0 to 255) |
 | --- | --- | --- |

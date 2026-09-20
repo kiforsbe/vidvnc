@@ -148,7 +148,9 @@ public sealed partial class HostWindow
             var name = Label(profile["name"]!.GetValue<string>(), 16); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
             identity.Children.Add(name); identity.Children.Add(Secondary(profile["description"]!.GetValue<string>()));
             Grid.SetColumn(identity, 1); row.Children.Add(identity);
-            var labels = new[] { $"{profile["width"]} × {profile["height"]}", $"{profile["fps"]} fps", $"{profile["bitrateKbps"]!.GetValue<int>() / 1000.0:0.###} Mbit/s" };
+            var megabits = profile["bitrateKbps"]!.GetValue<int>() / 1000.0;
+            var bitrateLabel = ProfileBitrateMode(profile) == "vbr" ? $"up to {megabits:0.###} Mbit/s · Variable" : $"{megabits:0.###} Mbit/s";
+            var labels = new[] { $"{profile["width"]} × {profile["height"]}", $"{profile["fps"]} fps", bitrateLabel };
             for (int i = 0; i < labels.Length; i++) {
                 var label = Label(labels[i]); label.TextWrapping = TextWrapping.NoWrap; label.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(label, i + 2); row.Children.Add(label);
@@ -186,11 +188,18 @@ public sealed partial class HostWindow
         RenderVideoCodecs();
     }
 
+    // Read defensively: a profile saved before these fields existed is Constant / Balanced.
+    static string ProfileBitrateMode(JsonObject profile) =>
+        profile["bitrateMode"] is JsonValue value && value.TryGetValue<string>(out var mode) && mode == "vbr" ? "vbr" : "cbr";
+
+    static string ProfileQuality(JsonObject profile) =>
+        profile["quality"] is JsonValue value && value.TryGetValue<string>(out var quality) && quality is "efficient" or "high" ? quality! : "balanced";
+
     static Grid ProfileTableRow()
     {
-        var row = new Grid { MinWidth = 620, ColumnSpacing = HostSpacing.Row,
+        var row = new Grid { MinWidth = 726, ColumnSpacing = HostSpacing.Row,
             Padding = new Thickness(HostSpacing.Card, HostSpacing.Row, HostSpacing.Card, HostSpacing.Row) };
-        foreach (var width in new[] { new GridLength(44), new GridLength(1, GridUnitType.Star), new GridLength(100), new GridLength(72), new GridLength(84), new GridLength(40) })
+        foreach (var width in new[] { new GridLength(44), new GridLength(1, GridUnitType.Star), new GridLength(100), new GridLength(72), new GridLength(190), new GridLength(40) })
             row.ColumnDefinitions.Add(new() { Width = width });
         return row;
     }
@@ -207,22 +216,41 @@ public sealed partial class HostWindow
     {
         var candidate = streamPolicy!.DeepClone().AsObject();
         var profile = source?.DeepClone().AsObject() ?? new JsonObject { ["id"] = Guid.NewGuid().ToString(), ["name"] = "", ["description"] = "",
-            ["enabled"] = true, ["width"] = 1920, ["height"] = 1080, ["fps"] = 30, ["bitrateKbps"] = 4000, ["frameDelivery"] = "fixed" };
+            ["enabled"] = true, ["width"] = 1920, ["height"] = 1080, ["fps"] = 30, ["bitrateKbps"] = 4000, ["frameDelivery"] = "fixed",
+            ["bitrateMode"] = "cbr", ["quality"] = "balanced" };
         if (duplicate) { profile["id"] = Guid.NewGuid().ToString(); profile["name"] = "Copy of " + profile["name"]!.GetValue<string>(); }
         var form = new StackPanel { Spacing = HostSpacing.Row, MinWidth = 320, MaxWidth = 520 };
         var name = new TextBox { Header = "Name", Text = profile["name"]!.GetValue<string>(), MaxLength = 64 };
         var description = new TextBox { Header = "Description", Text = profile["description"]!.GetValue<string>(), MaxLength = 240, TextWrapping = TextWrapping.Wrap };
         form.Children.Add(name); form.Children.Add(description);
         var numbers = new Dictionary<string, NumberBox>();
+        TextBlock? bitrateHeading = null;
         foreach (var (key, title, min, max) in new[] { ("width", "Output width", 64, 4096), ("height", "Output height", 64, 4096), ("fps", "Frame rate (fps)", 1, 60), ("bitrateKbps", "Video bitrate (kbit/s)", 100, 50000) }) {
             var row = new Grid { ColumnSpacing = HostSpacing.Card };
             row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-            row.Children.Add(new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center });
+            var heading = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
+            if (key == "bitrateKbps") bitrateHeading = heading;
+            row.Children.Add(heading);
             var input = new NumberBox { Value = profile[key]!.GetValue<int>(), Minimum = min, Maximum = max, Width = 160,
                 SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, SmallChange = key is "width" or "height" ? 2 : key == "bitrateKbps" ? 100 : 1 };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(input, title);
             numbers[key] = input; Grid.SetColumn(input, 1); row.Children.Add(input); form.Children.Add(row);
         }
+        var modeKeys = new[] { "cbr", "vbr" }; var qualityKeys = new[] { "efficient", "balanced", "high" };
+        var bitrateMode = new ComboBox { Header = "Bitrate mode", ItemsSource = new[] { "Constant", "Variable" }, HorizontalAlignment = HorizontalAlignment.Stretch,
+            SelectedIndex = Array.IndexOf(modeKeys, ProfileBitrateMode(profile)) };
+        var quality = new ComboBox { Header = "Quality", ItemsSource = new[] { "Efficient", "Balanced", "High" }, HorizontalAlignment = HorizontalAlignment.Stretch,
+            SelectedIndex = Array.IndexOf(qualityKeys, ProfileQuality(profile)) };
+        void ApplyBitrateMode()
+        {
+            var variable = bitrateMode.SelectedIndex == 1;
+            quality.IsEnabled = variable;
+            var title = variable ? "Maximum sustained bitrate (kbit/s)" : "Video bitrate (kbit/s)";
+            bitrateHeading!.Text = title; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(numbers["bitrateKbps"], title);
+        }
+        bitrateMode.SelectionChanged += (_, _) => ApplyBitrateMode();
+        ApplyBitrateMode();
+        form.Children.Add(bitrateMode); form.Children.Add(quality);
         var fixedMode = new RadioButton { Content = "Fixed", IsChecked = true };
         form.Children.Add(fixedMode); form.Children.Add(Pending(new RadioButton { Content = "Variable" }, "Variable frame delivery"));
         var available = new ToggleSwitch { Header = "Available to clients", IsOn = profile["enabled"]!.GetValue<bool>() }; form.Children.Add(available);
@@ -240,6 +268,7 @@ public sealed partial class HostWindow
                     profile[key] = (int)number.Value;
                 }
                 if (numbers["width"].Value % 2 != 0 || numbers["height"].Value % 2 != 0) throw new InvalidOperationException("Output width and height must be even.");
+                profile["bitrateMode"] = modeKeys[bitrateMode.SelectedIndex]; profile["quality"] = qualityKeys[quality.SelectedIndex];
                 profile["name"] = name.Text.Trim(); profile["description"] = description.Text.Trim(); profile["enabled"] = available.IsOn;
                 var profiles = candidate["profiles"]!.AsArray();
                 var previous = profiles.FirstOrDefault(p => p!["id"]!.GetValue<string>() == profile["id"]!.GetValue<string>());

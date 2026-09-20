@@ -76,6 +76,19 @@ export const formatConnectionMode = (access) =>
 export const formatMaxSessions = (access) =>
   `Connected devices at the same time: up to ${access.maxSessions}`;
 
+const bitrateLabel = (profile) =>
+  profile.bitrateMode === 'vbr'
+    ? `up to ${mbps(profile.bitrateKbps)} (VBR, ${profile.quality})`
+    : mbps(profile.bitrateKbps);
+
+// The target frame rate, then the rate control mode and, for VBR, its quality.
+const targetLabel = (stream) => {
+  if (!stream.targetFps) return 'unknown';
+  const fps = `${stream.targetFps} fps`;
+  if (stream.bitrateMode === 'vbr') return `${fps}, VBR, ${stream.quality}`;
+  return stream.bitrateMode === 'cbr' ? `${fps}, CBR` : fps;
+};
+
 export function formatProfiles(profiles, policy) {
   const rows = profiles.map((profile, index) => [
     index + 1,
@@ -83,7 +96,7 @@ export function formatProfiles(profiles, policy) {
     profile.name,
     size(profile),
     profile.fps,
-    mbps(profile.bitrateKbps),
+    bitrateLabel(profile),
     profile.enabled ? 'yes' : 'no',
     profile.description,
   ]);
@@ -165,7 +178,7 @@ export function formatSessions(status, numbers) {
           stream.id,
           stream.name,
           stream.width && stream.height ? size(stream) : 'pending',
-          stream.targetFps ? `${stream.targetFps} fps` : 'unknown',
+          targetLabel(stream),
           stream.profile,
           CODEC_LABELS[stream.codec] ?? '',
           stream.viewers > 1 ? `×${stream.viewers}` : '',

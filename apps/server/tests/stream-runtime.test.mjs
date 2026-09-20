@@ -513,6 +513,45 @@ test('an offer without any known video codec is rejected and admits nothing', as
   assert.equal(starts.length, 0);
 });
 
+test('the worker start message carries exactly the seven stream plan keys, VBR and CBR', async (t) => {
+  const written = [];
+  const media = new NativeMedia({
+    maxWorkers: 2,
+    launch: () => {
+      const child = spawn(
+        process.execPath,
+        [fileURLToPath(new URL('./fixtures/media-process.mjs', import.meta.url))],
+        { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      const write = child.stdin.write.bind(child.stdin);
+      child.stdin.write = (chunk, ...rest) => {
+        written.push(JSON.parse(String(chunk)));
+        return write(chunk, ...rest);
+      };
+      return child;
+    },
+  });
+  t.after(() => media.shutdown());
+  const size = { width: 1920, height: 1080, fps: 30, bitrateKbps: 8000 };
+  await media.start('vbr', {
+    profile: { name: 'vbr', ...size, bitrateMode: 'vbr', quality: 'high' },
+  });
+  await media.start('cbr', {
+    profile: { name: 'cbr', ...size, bitrateMode: 'cbr', quality: 'balanced' },
+  });
+  const keys = ['bitrateKbps', 'bitrateMode', 'fps', 'height', 'mtu', 'quality', 'width'];
+  assert.deepEqual(Object.keys(written[0].streamPlan).sort(), keys);
+  assert.deepEqual(written[0].streamPlan, {
+    ...size,
+    mtu: 1200,
+    bitrateMode: 'vbr',
+    quality: 'high',
+  });
+  assert.deepEqual(Object.keys(written[1].streamPlan).sort(), keys);
+  assert.equal(written[1].streamPlan.bitrateMode, 'cbr');
+  assert.equal(written[1].streamPlan.quality, 'balanced');
+});
+
 test('a runtime restricted to H.264 ignores AV1 support in the offer', async (t) => {
   const { a, offer, starts } = await setup(t, 'approval', undefined, { videoCodecs: ['h264'] });
   const first = await offer(a, 0, 'mobile', av1H264Sdp());

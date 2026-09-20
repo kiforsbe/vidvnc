@@ -6,6 +6,8 @@ const profiles = Object.freeze({
     height: 720,
     fps: 15,
     bitrateKbps: 1000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   }),
   desktop: Object.freeze({
@@ -14,6 +16,8 @@ const profiles = Object.freeze({
     height: 1440,
     fps: 30,
     bitrateKbps: 6000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   }),
   balanced: Object.freeze({
@@ -22,6 +26,8 @@ const profiles = Object.freeze({
     height: 1080,
     fps: 30,
     bitrateKbps: 4000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   }),
   mobile: Object.freeze({
@@ -30,6 +36,8 @@ const profiles = Object.freeze({
     height: 720,
     fps: 15,
     bitrateKbps: 2000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   }),
   'low-bandwidth': Object.freeze({
@@ -38,6 +46,8 @@ const profiles = Object.freeze({
     height: 540,
     fps: 15,
     bitrateKbps: 1000,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
     mtu: 1200,
   }),
 });

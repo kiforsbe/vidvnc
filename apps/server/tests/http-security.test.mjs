@@ -33,6 +33,7 @@ test('serves every browser entry asset through workspace resolution', () =>
       '/theme.js',
       '/diagnostics',
       '/diagnostics.js',
+      '/profile-labels.js',
       '/diagnostics.css',
     ]) {
       const response = await fetch(url + asset);
@@ -66,6 +67,8 @@ test('returns the selected stream profile without exposing the password', () =>
       height: 720,
       fps: 15,
       bitrateKbps: 2000,
+      bitrateMode: 'cbr',
+      quality: 'balanced',
       mtu: 1200,
     });
     assert.equal(body.audio.codec, 'Opus');

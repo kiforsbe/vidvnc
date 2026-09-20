@@ -243,6 +243,14 @@ fixed.
 - Show effective settings and adaptation reasons without presenting targets as
   measurements.
 
+Related work: the [variable frame rate and bitrate
+investigation](investigations/VARIABLE-RATE-INVESTIGATION.md) found that the encoder
+properties for bitrate, peak, quality floor and GOP length are changeable while streaming.
+Changing them mid-stream has not been exercised yet. The [variable bitrate
+design](superpowers/specs/2026-09-20-variable-bitrate-design.md) adds opt-in variable
+bitrate profiles. All shipped profiles stay constant bitrate until loss recovery and
+long-GOP decoding are checked on a real iPhone.
+
 Acceptance: repeatable tests on changing networks and real iPhone testing; no
 uncontrolled quality oscillation or packet and keyframe bursts; no policy escapes;
 fixed profiles unchanged.

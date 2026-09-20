@@ -159,10 +159,17 @@ public sealed partial class HostWindow
                 graph.Margin = new Thickness(0, narrow ? 12 : 0, 0, 0);
             };
         }
+        // Rows without bitrateMode (or with null) render exactly as before.
+        static string VariableSuffix(JsonElement row)
+        {
+            if (!row.TryGetProperty("bitrateMode", out var mode) || mode.ValueKind != JsonValueKind.String || mode.GetString() != "vbr") return "";
+            var quality = row.TryGetProperty("quality", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            return string.IsNullOrEmpty(quality) ? " · Variable" : $" · Variable ({char.ToUpperInvariant(quality[0])}{quality[1..]})";
+        }
         public void Update(JsonElement row) {
             name.Text = row.GetProperty("name").GetString();
             resolution.Text = $"{row.GetProperty("width")} × {row.GetProperty("height")}";
-            fps.Text = $"{row.GetProperty("targetFps")} fps"; profile.Text = row.GetProperty("profile").GetString();
+            fps.Text = $"{row.GetProperty("targetFps")} fps"; profile.Text = row.GetProperty("profile").GetString() + VariableSuffix(row);
             codec.Text = CodecLabel(row.TryGetProperty("codec", out var codecValue) ? codecValue.GetString()! : "h264");
             // One capture/encode serves every device on the same display and profile.
             var viewers = row.TryGetProperty("viewers", out var count) && count.ValueKind == JsonValueKind.Number ? count.GetInt32() : 1;

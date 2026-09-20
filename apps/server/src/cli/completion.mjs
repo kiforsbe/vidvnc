@@ -1,8 +1,11 @@
 import { commands, findCommand } from './commands.mjs';
 import { MAX_SESSIONS_LIMIT } from '../access-settings.mjs';
+import { BITRATE_MODES, QUALITY_LEVELS } from '../rate-control.mjs';
 import { VIDEO_CODECS } from '../video-codecs.mjs';
 
 const ON_OFF = ['on', 'off'];
+// Fixed choices for value flags; other value flags take free text and complete nothing.
+const FLAG_VALUES = { 'bitrate-mode': BITRATE_MODES, quality: QUALITY_LEVELS };
 const OPTION_KINDS = ['size', 'framerate', 'bitrate'];
 
 const available = (mode) =>
@@ -81,7 +84,7 @@ async function candidates(context, words, fragment) {
     const name = given[index].startsWith('--') ? given[index].slice(2) : null;
     if (name === null) positionals.push(given[index]);
     else if (flags[name] === 'value' && index === given.length - 1)
-      return []; // its value is next
+      return FLAG_VALUES[name] ?? []; // its value is next
     else if (flags[name] === 'value') index++;
   }
   if (fragment.startsWith('-'))

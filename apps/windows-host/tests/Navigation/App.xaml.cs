@@ -53,7 +53,7 @@ public partial class App : Application
                     var updatePolicy = typeof(HostWindow).GetMethod("UpdatePolicy", flags);
                     if (updatePolicy is null) throw new Exception("Streaming profiles administration view is missing");
                     using var policyFixture = JsonDocument.Parse("""
-                    {"schemaVersion":1,"revision":0,"profiles":[{"id":"balanced","name":"Balanced","description":"Everyday desktop use","enabled":true,"width":1920,"height":1080,"fps":30,"bitrateKbps":4000,"frameDelivery":"fixed"}],"clientMode":"profiles","defaultProfileId":"auto","displayDefaults":{},"allowAudio":true,"videoCodecs":["av1","h264"],"allowedOptions":{"resolutions":[{"width":960,"height":540},{"width":1280,"height":720},{"width":1920,"height":1080},{"width":2560,"height":1440}],"frameRates":[15,30],"bitratesKbps":[1000,2000,4000,6000]}}
+                    {"schemaVersion":1,"revision":0,"profiles":[{"id":"balanced","name":"Balanced","description":"Everyday desktop use","enabled":true,"width":1920,"height":1080,"fps":30,"bitrateKbps":4000,"frameDelivery":"fixed","bitrateMode":"cbr","quality":"balanced"},{"id":"detail","name":"Detail","description":"Sharper text and fine detail","enabled":true,"width":1920,"height":1080,"fps":30,"bitrateKbps":6000,"frameDelivery":"fixed","bitrateMode":"vbr","quality":"high"}],"clientMode":"profiles","defaultProfileId":"auto","displayDefaults":{},"allowAudio":true,"videoCodecs":["av1","h264"],"allowedOptions":{"resolutions":[{"width":960,"height":540},{"width":1280,"height":720},{"width":1920,"height":1080},{"width":2560,"height":1440}],"frameRates":[15,30],"bitratesKbps":[1000,2000,4000,6000]}}
                     """);
                     updatePolicy.Invoke(window, new object[] { policyFixture.RootElement });
                     var updateDisplays = typeof(HostWindow).GetMethod("UpdateDisplays", flags);
@@ -255,7 +255,7 @@ public partial class App : Application
                                 var menu = navigation.MenuItems.OfType<NavigationViewItem>().ToArray();
                                 if (menu[2].Tag as string != "Streaming profiles") throw new Exception("Profiles tab must follow Displays");
                                 var profileRows = Descendants(window.Content).OfType<Grid>().Where(g => g.Tag as string == "profile-row").ToArray();
-                                if (profileRows.Length != 1 || !Descendants(profileRows[0]).OfType<ToggleSwitch>().Any())
+                                if (profileRows.Length != 2 || !Descendants(profileRows[0]).OfType<ToggleSwitch>().Any())
                                     throw new Exception("Profiles require left-hand availability toggles");
                                 if (!Descendants(profileRows[0]).OfType<TextBlock>().Any(t => t.Text == "Everyday desktop use"))
                                     throw new Exception("Profile description missing");
@@ -276,6 +276,7 @@ public partial class App : Application
                                 {
                                     var snapshotField = typeof(HostWindow).GetField("streamPolicy", flags)!;
                                     var reorderPolicy = System.Text.Json.Nodes.JsonNode.Parse(policyFixture.RootElement.GetRawText())!.AsObject();
+                                    reorderPolicy["profiles"]!.AsArray().RemoveAt(1);
                                     var secondProfile = reorderPolicy["profiles"]![0]!.DeepClone();
                                     secondProfile["id"] = "mobile"; secondProfile["name"] = "Mobile";
                                     reorderPolicy["profiles"]!.AsArray().Add(secondProfile);
@@ -314,6 +315,19 @@ public partial class App : Application
                                     editor.Hide(); await showing;
                                     if (((System.Text.Json.Nodes.JsonObject)snapshotField.GetValue(window)!).ToJsonString() != before)
                                         throw new Exception("Canceling profile editor mutated the policy snapshot");
+                                    var variableRow = Descendants(shell).OfType<Grid>().Single(g => g.Tag as string == "profile-row" &&
+                                        Descendants(g).OfType<TextBlock>().Any(t => t.Text == "Detail"));
+                                    var variableText = Descendants(variableRow).OfType<TextBlock>().Select(t => t.Text).ToArray();
+                                    if (!variableText.Any(t => t.Contains("up to")) || !variableText.Any(t => t.Contains("Variable")))
+                                        throw new Exception("Variable profile row must show its cap as 'up to' and the Variable mode");
+                                    var variableSource = System.Text.Json.Nodes.JsonNode.Parse(policyFixture.RootElement.GetProperty("profiles")[1].GetRawText())!.AsObject();
+                                    var variableEditor = (ContentDialog)typeof(HostWindow).GetMethod("CreateProfileEditor", flags)!.Invoke(window, new object?[] { variableSource, false })!;
+                                    var variableShowing = variableEditor.ShowAsync();
+                                    await Task.Delay(120);
+                                    var variableChoices = Descendants(variableEditor).OfType<ComboBox>().Select(c => c.Header as string).ToArray();
+                                    variableEditor.Hide(); await variableShowing;
+                                    if (!variableChoices.Contains("Bitrate mode") || !variableChoices.Contains("Quality"))
+                                        throw new Exception("Profile modal must expose Bitrate mode and Quality choices");
                                     var serverField = typeof(HostWindow).GetField("server", flags)!;
                                     serverField.SetValue(window, System.Diagnostics.Process.GetCurrentProcess());
                                     typeof(HostWindow).GetMethod("RenderPage", flags)!.Invoke(window, null);

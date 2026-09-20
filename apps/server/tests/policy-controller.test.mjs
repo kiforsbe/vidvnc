@@ -110,7 +110,13 @@ test('HTTP custom stream requests obey persisted mode and approved option lists'
   const response = await connect(approved);
   assert.equal(response.status, 201);
   const result = await response.json();
-  assert.deepEqual(result.profile, { name: 'custom', ...approved, mtu: 1200 });
+  assert.deepEqual(result.profile, {
+    name: 'custom',
+    ...approved,
+    bitrateMode: 'cbr',
+    quality: 'balanced',
+    mtu: 1200,
+  });
   await controller.replace({ ...controller.snapshot(), clientMode: 'profiles' }, 1, true);
   assert.equal((await connect(approved)).status, 403);
 });

@@ -77,7 +77,7 @@ CBR already sends keyframes of about 288 KB, so VBR does not create a new keyfra
 
 ### Not verified
 
-- Only H.264 was measured. H.265 and AV1 expose the same properties, but their QP scales differ, so the floor values need their own tuning.
+- Only H.264 was measured. H.265 and AV1 expose the same properties, but their QP scales differ, so the floor values need their own tuning. Superseded for the quality floors by the 2026-09-20 results section below.
 - Each cell is one run on one GPU with synthetic content. The video-like mode was not run with a long GOP.
 - Nothing was tested in a browser or on an iPhone: jitter buffer behaviour, freeze detection, decode of a long GOP, or audio sync.
 - Loss recovery with a long GOP has not been tested. With `gop-size=fps` a lost packet heals within about a second without any request. With a long GOP it heals only through a keyframe request, and `KeyframeLimiter::recovery` limits those to one every 2 s.
@@ -99,3 +99,29 @@ CBR already sends keyframes of about 288 KB, so VBR does not create a new keyfra
 3. Repeat the measurements for H.265 and AV1 and tune the QP floor per codec.
 4. Measure GPU and decode power on an idle stream before deciding whether VFR on WGC, with a keepalive, is worth building.
 5. Test changing bitrate and QP limits while a stream is running, as input to adaptive Automatic quality.
+
+## 2026-09-20: VBR quality floors per codec
+
+The shipped VBR configuration (`rc-mode=vbr bitrate=6000 max-bitrate=12000 qp-min-i=<i> qp-min-p=<p> gop-size=300`, from `rate_control`) was measured for every codec and quality with the method above: the same Edge kiosk page, 2560x1440 at 30 fps, 450 source buffers per run, and the per-codec caps, parser and encoder properties that `pipeline_description` builds. H.264, H.265 and AV1 were each run at `efficient`, `balanced` and `high` on `static`, `scroll` and `video` content (27 runs). `burst` was skipped because it sits between `static` and `scroll`.
+
+Bitrate in kbit/s. All runs delivered 29.9 to 30.2 fps and the largest mean reached 79% of the 6000 kbit/s cap.
+
+| Codec | Quality | Floors (I / P) | Static | Scroll | Video |
+| --- | --- | --- | ---: | ---: | ---: |
+| H.264 | `efficient` | 30 / 34 | 237 | 625 | 2282 |
+| H.264 | `balanced` | 24 / 28 | 327 | 1194 | 3335 |
+| H.264 | `high` | 20 / 24 | 385 | 2619 | 4736 |
+| H.265 | `efficient` | 30 / 34 | 282 | 432 | 1209 |
+| H.265 | `balanced` | 24 / 28 | 391 | 735 | 1966 |
+| H.265 | `high` | 20 / 24 | 463 | 1748 | 2874 |
+| AV1 | `efficient` | 150 / 170 | 185 | 283 | 759 |
+| AV1 | `balanced` | 120 / 140 | 272 | 425 | 1081 |
+| AV1 | `high` | 100 / 120 | 316 | 611 | 1354 |
+
+Findings:
+
+- The starting floors met every pass criterion, so none was changed. On `scroll` and `video` content each codec is strictly ordered `efficient` < `balanced` < `high`, the largest mean is 4736 kbit/s (H.264 `high` on `video`), and the largest `static` result is 463 kbit/s, under 10% of the CBR figure of 4772 kbit/s (the limit was 20%).
+- H.264 `balanced` on `static` (327) matches the earlier investigation run with the same floors (328). `scroll` differs more (1194 against 1327), which is within what one run on live browser rendering gives.
+- With the same 0 to 51 floors H.265 spends less than H.264 on moving content, and AV1 with its 0 to 255 floors spends the least. The codecs are therefore matched in ordering, not in bitrate, which is what the floors are for.
+- Visual check: a late frame from a 60 frame encode of the dense-text `static` page was decoded and saved for `efficient` and `balanced` on all three codecs; at 100% the smallest text (20 px monospace) is sharp and fully readable in all six, and `efficient` is only marginally softer, with faint speckle around glyph edges that shows only when magnified (PSNR against a lossless capture: `balanced` 34.3 to 36.5 dB, `efficient` 30.8 to 33.4 dB) (PSNR computed ad hoc; the script was not kept).
+- Limits: one run per cell, one GPU and synthetic content. The picture check used static content, which converges over the 60 frames, so it is a best case for the floors; text in motion was measured for bitrate only. 20 px monospace text is not a worst case for small UI text (typically 12 to 14 px), so that case was not checked.

@@ -1,4 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import {
+  BITRATE_MODES,
+  DEFAULT_BITRATE_MODE,
+  DEFAULT_QUALITY,
+  QUALITY_LEVELS,
+} from './rate-control.mjs';
 
 const AUDIO_FORMATS = ['mono-32k', 'stereo-96k'];
 const SUBSCRIPTION_STATES = { starting: ['live', 'closing'], live: ['closing'], closing: [] };
@@ -10,10 +16,12 @@ export function audioFormat(profile) {
 
 // Everything that changes captured or encoded bytes, and nothing else: profile names and ids
 // never participate, so differently named but identical profiles share one encode. The codec
-// changes the encoded bytes too, so it joins bitrate as a key field.
+// changes the encoded bytes too, so it joins bitrate as a key field. So does the bitrate mode;
+// quality only shapes the bytes under VBR, so CBR plans differing in quality still share.
 export function sourceKey(plan) {
   if (plan.kind === 'audio') return `audio|${plan.format}`;
   const { profile, display = {}, revision } = plan;
+  const bitrateMode = profile.bitrateMode ?? DEFAULT_BITRATE_MODE;
   return [
     'video',
     revision,
@@ -21,6 +29,7 @@ export function sourceKey(plan) {
     [display.x, display.y, display.width, display.height, display.rotation].join(','),
     `${profile.width}x${profile.height}@${profile.fps}`,
     profile.bitrateKbps,
+    bitrateMode === 'vbr' ? `vbr:${profile.quality ?? DEFAULT_QUALITY}` : bitrateMode,
     plan.codec ?? 'h264',
   ].join('|');
 }
@@ -52,7 +61,9 @@ export class StreamRegistry {
         !profile ||
         ['width', 'height', 'fps', 'bitrateKbps'].some(
           (key) => !Number.isSafeInteger(profile[key]) || profile[key] < 1,
-        )
+        ) ||
+        (profile.bitrateMode !== undefined && !BITRATE_MODES.includes(profile.bitrateMode)) ||
+        (profile.quality !== undefined && !QUALITY_LEVELS.includes(profile.quality))
       )
         throw new Error('Invalid stream plan');
       pixels = profile.width * profile.height * profile.fps;
