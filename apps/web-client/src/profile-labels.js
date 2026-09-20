@@ -13,3 +13,19 @@ export function targetBitrateText(profile) {
   const text = `${kbps} kbit/s`;
   return isVbr(profile) ? `VBR up to ${text}` : text;
 }
+
+// Tooltip for a profile choice or the current profile: its description, then one details line
+// (size, frame rate, bitrate, rate mode). Missing fields are skipped; '' when nothing is known.
+export function profileTooltip(profile) {
+  const details = [];
+  if (profile?.width && profile?.height) details.push(`${profile.width} × ${profile.height}`);
+  if (profile?.fps) details.push(`${profile.fps} fps`);
+  if (Number.isFinite(profile?.bitrateKbps)) details.push(bitrateText(profile));
+  if (profile?.bitrateMode === 'vbr') {
+    const quality = profile.quality;
+    details.push(
+      quality ? `Variable (${quality[0].toUpperCase()}${quality.slice(1)})` : 'Variable',
+    );
+  } else if (profile?.bitrateMode === 'cbr') details.push('Constant');
+  return [profile?.description, details.join(' · ')].filter(Boolean).join('\n');
+}

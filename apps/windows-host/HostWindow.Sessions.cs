@@ -166,10 +166,30 @@ public sealed partial class HostWindow
             var quality = row.TryGetProperty("quality", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
             return string.IsNullOrEmpty(quality) ? " · Variable" : $" · Variable ({char.ToUpperInvariant(quality[0])}{quality[1..]})";
         }
+        // Tooltip for the Profile value: the description, then W × H · N fps · bitrate · rate mode.
+        // Members that are missing or null are skipped; null when nothing is known.
+        static string? ProfileTooltip(JsonElement row)
+        {
+            static double? Number(JsonElement row, string key) =>
+                row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : null;
+            var lines = new List<string>();
+            if (row.TryGetProperty("profileDescription", out var description) && description.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(description.GetString())) lines.Add(description.GetString()!);
+            var details = new List<string>();
+            if (Number(row, "width") is { } width && Number(row, "height") is { } height) details.Add($"{width} × {height}");
+            if (Number(row, "targetFps") is { } targetFps) details.Add($"{targetFps} fps");
+            var variable = VariableSuffix(row);
+            if (Number(row, "targetBitrateKbps") is { } kbps) details.Add($"{(variable.Length > 0 ? "up to " : "")}{kbps / 1000.0:0.###} Mbit/s");
+            if (variable.Length > 0) details.Add(variable[3..]);
+            else if (row.TryGetProperty("bitrateMode", out var mode) && mode.ValueKind == JsonValueKind.String && mode.GetString() == "cbr") details.Add("Constant");
+            if (details.Count > 0) lines.Add(string.Join(" · ", details));
+            return lines.Count > 0 ? string.Join("\n", lines) : null;
+        }
         public void Update(JsonElement row) {
             name.Text = row.GetProperty("name").GetString();
             resolution.Text = $"{row.GetProperty("width")} × {row.GetProperty("height")}";
             fps.Text = $"{row.GetProperty("targetFps")} fps"; profile.Text = row.GetProperty("profile").GetString() + VariableSuffix(row);
+            ToolTipService.SetToolTip(profile, ProfileTooltip(row));
             codec.Text = CodecLabel(row.TryGetProperty("codec", out var codecValue) ? codecValue.GetString()! : "h264");
             // One capture/encode serves every device on the same display and profile.
             var viewers = row.TryGetProperty("viewers", out var count) && count.ValueKind == JsonValueKind.Number ? count.GetInt32() : 1;

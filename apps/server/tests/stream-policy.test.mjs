@@ -12,6 +12,8 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
   assert.equal(policy.profiles.length, 5);
   assert.deepEqual(resolveStreamPolicy(policy, { userAgent: 'iPhone' }).profile, {
     name: 'iphone-720p-test',
+    label: 'iPhone 720p',
+    description: 'Conservative starting point for iPhone',
     width: 1280,
     height: 720,
     fps: 15,
@@ -22,6 +24,8 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
   });
   assert.deepEqual(resolveStreamPolicy(policy, {}).profile, {
     name: 'desktop',
+    label: 'Desktop',
+    description: 'More detail for larger screens',
     width: 2560,
     height: 1440,
     fps: 30,
@@ -30,6 +34,17 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
     quality: 'balanced',
     mtu: 1200,
   });
+});
+
+test('a resolved profile carries the display label and description while name stays the id', () => {
+  const policy = defaultStreamPolicy();
+  const source = policy.profiles.find((p) => p.id === 'desktop');
+  source.name = 'Desk view';
+  source.description = 'Sharp text on a wide monitor';
+  const { profile } = resolveStreamPolicy(policy, { profileId: 'desktop' });
+  assert.equal(profile.name, 'desktop');
+  assert.equal(profile.label, 'Desk view');
+  assert.equal(profile.description, 'Sharp text on a wide monitor');
 });
 
 test('explicit requests win over display defaults, then global defaults', () => {
@@ -65,6 +80,8 @@ test('custom plans require approved mode and all approved dimensions, fps and bi
   policy.clientMode = 'options';
   assert.deepEqual(resolveStreamPolicy(policy, { custom }).profile, {
     name: 'custom',
+    label: undefined,
+    description: undefined,
     ...custom,
     bitrateMode: 'cbr',
     quality: 'balanced',

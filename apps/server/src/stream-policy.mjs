@@ -298,8 +298,21 @@ export function resolveStreamPolicy(
     requireValue(!!source, 'Requested profile is not allowed');
   }
   const { width, height, fps, bitrateKbps, bitrateMode, quality } = source;
+  // `name` stays the id (the native worker matches its legacy profiles on it); `label` and
+  // `description` are display-only and never reach the worker plan or the shared-encode key.
   return {
-    profile: { name: source.id, width, height, fps, bitrateKbps, bitrateMode, quality, mtu: 1200 },
+    profile: {
+      name: source.id,
+      label: source.name,
+      description: source.description,
+      width,
+      height,
+      fps,
+      bitrateKbps,
+      bitrateMode,
+      quality,
+      mtu: 1200,
+    },
     audio: { mode: policy.allowAudio && audio ? 'on' : 'off' },
     revision: policy.revision,
     selectedBy,

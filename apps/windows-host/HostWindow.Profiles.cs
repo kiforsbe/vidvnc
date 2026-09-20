@@ -149,12 +149,18 @@ public sealed partial class HostWindow
             identity.Children.Add(name); identity.Children.Add(Secondary(profile["description"]!.GetValue<string>()));
             Grid.SetColumn(identity, 1); row.Children.Add(identity);
             var megabits = profile["bitrateKbps"]!.GetValue<int>() / 1000.0;
-            var bitrateLabel = ProfileBitrateMode(profile) == "vbr" ? $"up to {megabits:0.###} Mbit/s · Variable" : $"{megabits:0.###} Mbit/s";
-            var labels = new[] { $"{profile["width"]} × {profile["height"]}", $"{profile["fps"]} fps", bitrateLabel };
+            var variableRate = ProfileBitrateMode(profile) == "vbr";
+            var labels = new[] { $"{profile["width"]} × {profile["height"]}", $"{profile["fps"]} fps" };
             for (int i = 0; i < labels.Length; i++) {
                 var label = Label(labels[i]); label.TextWrapping = TextWrapping.NoWrap; label.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(label, i + 2); row.Children.Add(label);
             }
+            // Two short lines instead of one long one: the rate, then the mode under it.
+            var bitrateCell = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var rateLine = Label(variableRate ? $"up to {megabits:0.###} Mbit/s" : $"{megabits:0.###} Mbit/s"); rateLine.TextWrapping = TextWrapping.NoWrap;
+            var modeLine = Secondary(variableRate ? "Variable" : "Constant"); modeLine.TextWrapping = TextWrapping.NoWrap;
+            bitrateCell.Children.Add(rateLine); bitrateCell.Children.Add(modeLine);
+            Grid.SetColumn(bitrateCell, 4); row.Children.Add(bitrateCell);
             var menu = new MenuFlyout();
             foreach (var (text, glyph) in new[] { ("Edit", "\uE70F"), ("Duplicate", "\uE8C8"), ("Remove", "\uE74D") }) {
                 if (text == "Remove") menu.Items.Add(new MenuFlyoutSeparator());
@@ -197,11 +203,33 @@ public sealed partial class HostWindow
 
     static Grid ProfileTableRow()
     {
-        var row = new Grid { MinWidth = 726, ColumnSpacing = HostSpacing.Row,
+        var row = new Grid { MinWidth = 656, ColumnSpacing = HostSpacing.Row,
             Padding = new Thickness(HostSpacing.Card, HostSpacing.Row, HostSpacing.Card, HostSpacing.Row) };
-        foreach (var width in new[] { new GridLength(44), new GridLength(1, GridUnitType.Star), new GridLength(100), new GridLength(72), new GridLength(190), new GridLength(40) })
+        foreach (var width in new[] { new GridLength(44), new GridLength(1, GridUnitType.Star), new GridLength(100), new GridLength(72), new GridLength(120), new GridLength(40) })
             row.ColumnDefinitions.Add(new() { Width = width });
         return row;
+    }
+
+    // Dropdown row: "W × H" with the dim aspect ratio at the right. The edit box text comes from SizeChoice.ToString, not this template.
+    static DataTemplate SizeChoiceTemplate() => (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>
+          <Grid ColumnSpacing='16'>
+            <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+            <TextBlock Text='{Binding Label}'/>
+            <TextBlock Grid.Column='1' Text='{Binding Ratio}' Opacity='.6'/>
+          </Grid>
+        </DataTemplate>
+        """);
+
+    static TextBox? FindEditableText(DependencyObject root)
+    {
+        for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is TextBox box) return box;
+            if (FindEditableText(child) is { } found) return found;
+        }
+        return null;
     }
 
     async Task EditProfile(JsonObject? source, bool duplicate)
@@ -223,19 +251,39 @@ public sealed partial class HostWindow
         var name = new TextBox { Header = "Name", Text = profile["name"]!.GetValue<string>(), MaxLength = 64 };
         var description = new TextBox { Header = "Description", Text = profile["description"]!.GetValue<string>(), MaxLength = 240, TextWrapping = TextWrapping.Wrap };
         form.Children.Add(name); form.Children.Add(description);
-        var numbers = new Dictionary<string, NumberBox>();
-        TextBlock? bitrateHeading = null;
-        foreach (var (key, title, min, max) in new[] { ("width", "Output width", 64, 4096), ("height", "Output height", 64, 4096), ("fps", "Frame rate (fps)", 1, 60), ("bitrateKbps", "Video bitrate (kbit/s)", 100, 50000) }) {
+        static Grid FieldRow(UIElement heading, Control input)
+        {
             var row = new Grid { ColumnSpacing = HostSpacing.Card };
             row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-            var heading = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
-            if (key == "bitrateKbps") bitrateHeading = heading;
-            row.Children.Add(heading);
-            var input = new NumberBox { Value = profile[key]!.GetValue<int>(), Minimum = min, Maximum = max, Width = 160,
-                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, SmallChange = key is "width" or "height" ? 2 : key == "bitrateKbps" ? 100 : 1 };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(input, title);
-            numbers[key] = input; Grid.SetColumn(input, 1); row.Children.Add(input); form.Children.Add(row);
+            Grid.SetColumn(input, 1); row.Children.Add(heading); row.Children.Add(input);
+            return row;
         }
+        // Output size: one editable dropdown of "W × H" presets, with the aspect ratio shown under its heading.
+        var sizeChoices = ProfileInputs.SizePresets.Select(p => new SizeChoice(p.Width, p.Height)).ToList();
+        var currentSize = new SizeChoice(profile["width"]!.GetValue<int>(), profile["height"]!.GetValue<int>());
+        if (!sizeChoices.Contains(currentSize)) sizeChoices.Insert(0, currentSize);
+        var size = new ComboBox { IsEditable = true, Width = 160, ItemsSource = sizeChoices, ItemTemplate = SizeChoiceTemplate(),
+            SelectedIndex = sizeChoices.IndexOf(currentSize) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(size, "Output size");
+        var aspect = Secondary("");
+        void ShowAspect(string? text) => aspect.Text = ProfileInputs.TryParseSize(text, out var w, out var h) && ProfileInputs.AspectRatio(w, h) is { Length: > 0 } ratio
+            ? "Aspect ratio " + ratio : "Aspect ratio unknown";
+        ShowAspect(currentSize.Label);
+        size.SelectionChanged += (_, _) => { if (size.SelectedItem is SizeChoice choice) ShowAspect(choice.Label); };
+        size.TextSubmitted += (_, args) => { args.Handled = true; ShowAspect(args.Text); };
+        size.Loaded += (_, _) => { if (FindEditableText(size) is { } box) box.TextChanged += (_, _) => ShowAspect(box.Text); };   // live while typing
+        form.Children.Add(FieldRow(new StackPanel { Spacing = HostSpacing.Small, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = "Output size" }, aspect } }, size));
+        // Frame rate: editable dropdown of common rates plus the profile's own value.
+        var currentRate = profile["fps"]!.GetValue<int>();
+        var rateChoices = ProfileInputs.FrameRatePresets.Append(currentRate).Distinct().Order().Select(r => r.ToString()).ToList();
+        var fps = new ComboBox { IsEditable = true, Width = 160, ItemsSource = rateChoices, SelectedIndex = rateChoices.IndexOf(currentRate.ToString()) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(fps, "Frame rate (fps)");
+        fps.TextSubmitted += (_, args) => args.Handled = true;
+        form.Children.Add(FieldRow(new TextBlock { Text = "Frame rate (fps)", VerticalAlignment = VerticalAlignment.Center }, fps));
+        var bitrateHeading = new TextBlock { Text = "Video bitrate (kbit/s)", VerticalAlignment = VerticalAlignment.Center };
+        var bitrate = new NumberBox { Value = profile["bitrateKbps"]!.GetValue<int>(), Minimum = 100, Maximum = 50000, Width = 160,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, SmallChange = 100 };
+        form.Children.Add(FieldRow(bitrateHeading, bitrate));
         var modeKeys = new[] { "cbr", "vbr" }; var qualityKeys = new[] { "efficient", "balanced", "high" };
         var bitrateMode = new ComboBox { Header = "Bitrate mode", ItemsSource = new[] { "Constant", "Variable" }, HorizontalAlignment = HorizontalAlignment.Stretch,
             SelectedIndex = Array.IndexOf(modeKeys, ProfileBitrateMode(profile)) };
@@ -246,28 +294,30 @@ public sealed partial class HostWindow
             var variable = bitrateMode.SelectedIndex == 1;
             quality.IsEnabled = variable;
             var title = variable ? "Maximum sustained bitrate (kbit/s)" : "Video bitrate (kbit/s)";
-            bitrateHeading!.Text = title; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(numbers["bitrateKbps"], title);
+            bitrateHeading.Text = title; Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(bitrate, title);
         }
         bitrateMode.SelectionChanged += (_, _) => ApplyBitrateMode();
         ApplyBitrateMode();
-        form.Children.Add(bitrateMode); form.Children.Add(quality);
-        var fixedMode = new RadioButton { Content = "Fixed", IsChecked = true };
-        form.Children.Add(fixedMode); form.Children.Add(Pending(new RadioButton { Content = "Variable" }, "Variable frame delivery"));
+        var modeRow = new Grid { ColumnSpacing = HostSpacing.Card };
+        modeRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); modeRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(quality, 1); modeRow.Children.Add(bitrateMode); modeRow.Children.Add(quality); form.Children.Add(modeRow);
         var available = new ToggleSwitch { Header = "Available to clients", IsOn = profile["enabled"]!.GetValue<bool>() }; form.Children.Add(available);
         var permission = new CheckBox { Content = "Disconnect connected clients when saving", Visibility = sessionCards.Count > 0 ? Visibility.Visible : Visibility.Collapsed };
         form.Children.Add(permission);
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = ResourceBrush("SystemFillColorCriticalBrush") }; form.Children.Add(error);
-        var dialog = new ContentDialog { Title = source is null || duplicate ? "New profile" : "Edit profile", Content = new ScrollViewer { Content = form, MaxHeight = 520 },
+        var dialog = new ContentDialog { Title = source is null || duplicate ? "New profile" : "Edit profile", Content = new ScrollViewer { Content = form, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = navigation.XamlRoot };
         dialog.PrimaryButtonClick += async (_, args) => {
             args.Cancel = true; var deferral = args.GetDeferral();
             try {
                 if (string.IsNullOrWhiteSpace(name.Text)) throw new InvalidOperationException("Enter a profile name.");
-                foreach (var (key, number) in numbers) {
-                    if (!double.IsFinite(number.Value) || number.Value != Math.Truncate(number.Value)) throw new InvalidOperationException("Enter whole numbers for stream settings.");
-                    profile[key] = (int)number.Value;
-                }
-                if (numbers["width"].Value % 2 != 0 || numbers["height"].Value % 2 != 0) throw new InvalidOperationException("Output width and height must be even.");
+                // Read the edit box itself: ComboBox.Text is only committed on Enter or focus loss.
+                if (!ProfileInputs.TryParseSize(FindEditableText(size)?.Text ?? size.Text, out var width, out var height)) throw new InvalidOperationException("Enter the output size as width × height, for example 1920 × 1080.");
+                if (width is < 64 or > 4096 || height is < 64 or > 4096) throw new InvalidOperationException("Output width and height must each be from 64 to 4096.");
+                if (width % 2 != 0 || height % 2 != 0) throw new InvalidOperationException("Output width and height must be even.");
+                if (!ProfileInputs.TryParseFrameRate(FindEditableText(fps)?.Text ?? fps.Text, out var rate) || rate is < 1 or > 60) throw new InvalidOperationException("Enter a frame rate from 1 to 60.");
+                if (!double.IsFinite(bitrate.Value) || bitrate.Value != Math.Truncate(bitrate.Value)) throw new InvalidOperationException("Enter whole numbers for stream settings.");
+                profile["width"] = width; profile["height"] = height; profile["fps"] = rate; profile["bitrateKbps"] = (int)bitrate.Value;
                 profile["bitrateMode"] = modeKeys[bitrateMode.SelectedIndex]; profile["quality"] = qualityKeys[quality.SelectedIndex];
                 profile["name"] = name.Text.Trim(); profile["description"] = description.Text.Trim(); profile["enabled"] = available.IsOn;
                 var profiles = candidate["profiles"]!.AsArray();

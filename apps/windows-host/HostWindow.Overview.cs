@@ -10,14 +10,6 @@ public sealed partial class HostWindow
     VariableSizedWrapGrid? overviewDisplayCards;
     TextBlock? overviewSessionSummary;
 
-    static T Pending<T>(T control, string feature) where T : Control
-    {
-        control.IsEnabled = false;
-        control.Tag = "backend-pending";
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, feature);
-        return control;
-    }
-
     static TextBlock Secondary(string text, double size = 13)
     {
         var label = Label(text, size);

@@ -309,8 +309,14 @@ public partial class App : Application
                                     await Task.Delay(120);
                                     var fields = Descendants(editor).OfType<TextBox>().ToArray();
                                     var description = fields.Single(t => t.Header as string == "Description");
-                                    if (description.Text != "Everyday desktop use" || Descendants(editor).OfType<NumberBox>().Count() != 4)
-                                        throw new Exception("Profile modal must include description and numeric stream settings");
+                                    if (description.Text != "Everyday desktop use" || Descendants(editor).OfType<NumberBox>().Count() != 1)
+                                        throw new Exception("Profile modal must include description and the video bitrate number box");
+                                    var editableCombos = Descendants(editor).OfType<ComboBox>().Where(c => c.IsEditable).ToArray();
+                                    var sizeCombo = editableCombos.SingleOrDefault(c => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(c) == "Output size");
+                                    var rateCombo = editableCombos.SingleOrDefault(c => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(c) == "Frame rate (fps)");
+                                    var visibleRatio = Descendants(editor).OfType<TextBlock>().Any(t => t.Visibility == Visibility.Visible && t.Text.Contains("16:9"));
+                                    if (sizeCombo?.Text != "1920 × 1080" || rateCombo?.Text != "30" || !visibleRatio || Descendants(editor).OfType<RadioButton>().Any())
+                                        throw new Exception($"Profile modal must expose editable Output size ('{sizeCombo?.Text}') and Frame rate ('{rateCombo?.Text}') combos, a visible 16:9 aspect ratio ({visibleRatio}) and no RadioButtons");
                                     description.Text = "Uncommitted edit";
                                     editor.Hide(); await showing;
                                     if (((System.Text.Json.Nodes.JsonObject)snapshotField.GetValue(window)!).ToJsonString() != before)

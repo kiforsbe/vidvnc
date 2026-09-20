@@ -16,6 +16,7 @@
     <Compile Include="../../RuntimeManifest.cs" Link="Host/RuntimeManifest.cs" />
     <Compile Include="../../ServerJob.cs" Link="Host/ServerJob.cs" />
     <Compile Include="../../ProfileOrderStore.cs" Link="Host/ProfileOrderStore.cs" />
+    <Compile Include="../../ProfileInputs.cs" Link="Host/ProfileInputs.cs" />
     <!-- Only the components the host uses; the metapackage adds unused AI/ML runtimes (~40 MB). -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.2.1" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.2.0" />

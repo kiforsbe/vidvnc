@@ -1,5 +1,5 @@
 import { CODEC_LABELS } from './codec-preferences.js';
-import { targetBitrateText } from './profile-labels.js';
+import { profileTooltip, targetBitrateText } from './profile-labels.js';
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 1) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
@@ -118,8 +118,9 @@ async function refresh() {
       ? `${serverFresh ? 'Source display' : 'Last selected source'}: ${display.number ? display.number + ' · ' : ''}${display.name} · ${fmt(display.width, 0)} × ${fmt(display.height, 0)}${display.primary ? ' · Primary' : ''}`
       : 'Source display: unavailable';
     $('profile').textContent = profile
-      ? `${serverFresh ? 'Current' : 'Last selected'} profile: ${profile.name}`
+      ? `${serverFresh ? 'Current' : 'Last selected'} profile: ${profile.label ?? profile.name}`
       : 'Profile: waiting for a session…';
+    $('profile').title = profile ? profileTooltip(profile) : '';
     const codecLabel = CODEC_LABELS[data.configuration?.codec] ?? 'H.264';
     $('profile-settings').textContent = profile
       ? `Targets: ${fmt(profile.width, 0)} × ${fmt(profile.height, 0)} · ${fmt(profile.fps, 0)} fps · ${codecLabel} ${targetBitrateText(profile)} · ${audio?.enabled ? `${audio.codec} ${fmt(audio.bitrateKbps, 0)} kbit/s ${audio.channels === 1 ? 'mono' : 'stereo'}` : 'Audio off'}`

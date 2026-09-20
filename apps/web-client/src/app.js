@@ -8,7 +8,7 @@ import {
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
-import { bitrateText } from './profile-labels.js';
+import { bitrateText, profileTooltip } from './profile-labels.js';
 const $ = (id) => document.getElementById(id);
 const toolbarIcons = {
   control:
@@ -246,9 +246,10 @@ function renderQuality(result) {
   const list = $('streamProfile');
   list.replaceChildren();
   const selected = currentRequest.profile;
-  const addProfile = (parent, id, name, description, detail = '') => {
+  const addProfile = (parent, id, name, description, detail = '', tooltip = '') => {
     const row = document.createElement('label');
     row.className = 'profile-choice';
+    if (tooltip) row.title = tooltip;
     const radio = document.createElement('input');
     radio.type = 'radio';
     radio.name = 'streamProfile';
@@ -275,6 +276,7 @@ function renderQuality(result) {
       p.name,
       '',
       `${p.width} × ${p.height} · ${p.fps} fps · ${bitrateText(p)}`,
+      profileTooltip(p),
     );
   $('qualityHeading').textContent = 'Allowed by ' + catalog.serverName;
   $('displayName').textContent = catalog.display?.name || 'Primary display';
@@ -316,7 +318,9 @@ function renderQuality(result) {
     'Quality: ' +
     (currentRequest.profile === 'auto'
       ? 'Automatic'
-      : catalog.profiles.find((p) => p.id === currentRequest.profile)?.name || result.profile.name);
+      : catalog.profiles.find((p) => p.id === currentRequest.profile)?.name ||
+        result.profile.label ||
+        result.profile.name);
   $('qualityError').textContent = '';
 }
 $('qualityForm').addEventListener('change', (event) => {

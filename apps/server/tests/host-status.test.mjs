@@ -89,6 +89,22 @@ test('stream rows report the profile bitrate mode and quality, or null without a
   assert.equal(row(undefined).quality, null);
 });
 
+test('stream rows show the profile label rather than its id, with description and target bitrate', () => {
+  const profile = {
+    name: 'ab12-guid',
+    label: 'Sharp',
+    description: 'For text',
+    bitrateKbps: 8000,
+  };
+  const row = (value) =>
+    hostStatus([{ sessionId: 'a', createdAt: 1000, profile: value }], 'a').sessions[0].streams[0];
+  assert.equal(row(profile).profile, 'Sharp');
+  assert.equal(row(profile).profileDescription, 'For text');
+  assert.equal(row(profile).targetBitrateKbps, 8000);
+  assert.equal(row(undefined).profileDescription, null);
+  assert.equal(row(undefined).targetBitrateKbps, null);
+});
+
 test('device labels identify browser platforms without trusting a claimed user identity', () => {
   const store = new SessionStore();
   store.connect(store.password, '127.0.0.1', 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0)');
