@@ -76,6 +76,25 @@ test('port must be an in-range integer that does not collide with the plaintext 
   assert.doesNotThrow(() => validateTlsSettings({ mode: 'auto', port: 65535 }));
 });
 
+test('the collision check uses the live plaintext port, not just the hardcoded default', () => {
+  // This is the case that silently passed before `plaintextPort` existed: an operator who
+  // moves the plaintext listener via VIDVNC_PORT can still pick a TLS port that collides
+  // with wherever it actually landed, not just with 4382.
+  assert.throws(
+    () => validateTlsSettings({ mode: 'auto', port: 5000 }, { plaintextPort: 5000 }),
+    /plaintext/i,
+  );
+  // The default path is unchanged: with no plaintext port injected, 4382 is still rejected.
+  assert.throws(() => validateTlsSettings({ mode: 'auto', port: 4382 }), /plaintext/i);
+  // 4382 is the plaintext *default*, not a permanently reserved TLS value. Once the
+  // plaintext listener has actually moved elsewhere (here, to 5000), 4382 is free for TLS
+  // to use — the check is "don't collide with the real plaintext port", not "never use
+  // 4382".
+  assert.doesNotThrow(() =>
+    validateTlsSettings({ mode: 'auto', port: 4382 }, { plaintextPort: 5000 }),
+  );
+});
+
 test('provided mode rejects neither a pair nor a PFX', () => {
   assert.throws(
     () => validateTlsSettings({ mode: 'provided', port: 4400 }),
