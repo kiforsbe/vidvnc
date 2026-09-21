@@ -52,6 +52,12 @@ export function checkCoverage(certificate, { hostnames = [], ips = [] } = {}) {
 // `needsRenewal` is true only while the certificate is still valid but within the window
 // — an already-expired certificate is `expired: true, needsRenewal: false`, since at that
 // point it needs replacing outright, not "renewing soon".
+//
+// IMPORTANT for callers deciding whether to reissue/replace a credential: check
+// `expired || needsRenewal`, never `needsRenewal` alone. `needsRenewal` is deliberately
+// false once `expired` is true (the two are mutually exclusive by design, see above), so
+// a reissue predicate that only tests `needsRenewal` will silently skip reissuing a
+// credential that has already expired.
 export function renewalStatus(
   certificate,
   { now = () => new Date(), renewalWindowDays = DEFAULT_RENEWAL_WINDOW_DAYS } = {},
