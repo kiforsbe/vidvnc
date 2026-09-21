@@ -192,3 +192,12 @@ test('allowed options add and remove values without duplicates or empty lists', 
     /Frame rate must be an integer from 1 to 60/,
   );
 });
+
+test('the encoder backend is set by id and rejected by name', () => {
+  const policy = defaultStreamPolicy();
+  assert.equal(edits.setEncoderBackend(policy, 'qsv').encoderBackend, 'qsv');
+  assert.equal(edits.setEncoderBackend(policy, 'auto').encoderBackend, 'auto');
+  assert.throws(() => edits.setEncoderBackend(policy, 'nvidia'), /Encoder backend is invalid/);
+  // Edits validate and never mutate their input; the store owns the revision.
+  assert.equal(policy.encoderBackend, 'auto');
+});

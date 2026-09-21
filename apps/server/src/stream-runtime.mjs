@@ -249,6 +249,8 @@ export class StreamRuntime {
       ]);
       if (ready.status === 'rejected') throw ready.reason;
       if (peer.status === 'rejected') throw peer.reason;
+      // Known only once the worker is ready: which GPU won, and why.
+      diagnostics.setEncoder(this.media.encoder?.(source.id) ?? null);
       if (
         !this.sessions.get(sessionId) ||
         this.stopping ||

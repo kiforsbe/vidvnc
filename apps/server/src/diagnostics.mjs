@@ -88,7 +88,13 @@ export class Diagnostics {
           )
         : null,
       codec,
+      // Filled in once the worker reports which encoder it actually selected, which is after
+      // the stream is configured but before any frame is delivered.
+      encoder: null,
     });
+  }
+  setEncoder(encoder) {
+    if (this.configuration) this.configuration.encoder = encoder ? { ...encoder } : null;
   }
   snapshot() {
     const now = this.clock();

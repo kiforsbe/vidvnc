@@ -2,6 +2,7 @@ import { commands, findCommand } from './commands.mjs';
 import { MAX_SESSIONS_LIMIT } from '../access-settings.mjs';
 import { BITRATE_MODES, QUALITY_LEVELS } from '../rate-control.mjs';
 import { VIDEO_CODECS } from '../video-codecs.mjs';
+import { ENCODER_BACKEND_CHOICES } from '../encoder-backends.mjs';
 
 const ON_OFF = ['on', 'off'];
 // Fixed choices for value flags; other value flags take free text and complete nothing.
@@ -51,6 +52,7 @@ const ARGUMENTS = {
   'default-profile': [(context) => ['auto', ...profiles(context)]],
   audio: [() => ON_OFF],
   codecs: [() => ['set'], () => VIDEO_CODECS],
+  'encoder-backend': [() => [...ENCODER_BACKEND_CHOICES]],
   access: [() => ['approval', 'available']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
   'max-devices': [

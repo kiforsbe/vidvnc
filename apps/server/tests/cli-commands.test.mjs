@@ -247,6 +247,12 @@ test('codecs shows support and order, and set changes the saved order', async (t
     'Video codec order is now H.264, AV1.',
   );
   assert.deepEqual(context.policy().videoCodecs, ['h264', 'av1']);
+  // The backend is shown by label, never by its raw id, and `auto` reads as Automatic.
+  assert.equal((await run('encoder-backend')).text, 'Encoder: Automatic');
+  assert.match((await run('encoder-backend amf --yes')).text, /^Encoder is now AMD AMF\./);
+  assert.equal(context.policy().encoderBackend, 'amf');
+  assert.equal((await run('encoder-backend')).text, 'Encoder: AMD AMF');
+  await assert.rejects(() => run('encoder-backend nvidia --yes'), /Unknown encoder/);
   assert.equal(
     (await run('codecs set av1,h265,h264 --yes')).text,
     'Video codec order is now AV1, H.265, H.264.\nH.265 is not supported by this GPU and will be skipped.',
