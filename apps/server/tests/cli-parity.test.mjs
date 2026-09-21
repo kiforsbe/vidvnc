@@ -15,6 +15,7 @@ const script = [
   'default-profile desktop',
   'audio off',
   'codecs set h264,av1',
+  'encoder-backend amf',
   'client-mode options',
   'options add size 3840x2160',
   'options add framerate 60',

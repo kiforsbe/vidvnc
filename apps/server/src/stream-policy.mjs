@@ -1,5 +1,6 @@
 import { getProfile } from './profiles.mjs';
 import { VIDEO_CODECS } from './video-codecs.mjs';
+import { ENCODER_BACKEND_CHOICES, DEFAULT_ENCODER_BACKEND } from './encoder-backends.mjs';
 import {
   BITRATE_MODES,
   QUALITY_LEVELS,
@@ -90,6 +91,7 @@ export function defaultStreamPolicy() {
     displaySharing: null,
     allowAudio: true,
     videoCodecs: [...VIDEO_CODECS],
+    encoderBackend: DEFAULT_ENCODER_BACKEND,
     clientMode: 'profiles',
     allowedOptions: {
       resolutions: [
@@ -109,6 +111,8 @@ export function validateStreamPolicy(value) {
     value = { ...value, displaySharing: null };
   if (value && typeof value === 'object' && !Object.hasOwn(value, 'videoCodecs'))
     value = { ...value, videoCodecs: [...VIDEO_CODECS] };
+  if (value && typeof value === 'object' && !Object.hasOwn(value, 'encoderBackend'))
+    value = { ...value, encoderBackend: DEFAULT_ENCODER_BACKEND };
   if (value && typeof value === 'object' && Array.isArray(value.profiles))
     value = {
       ...value,
@@ -135,6 +139,7 @@ export function validateStreamPolicy(value) {
       'displaySharing',
       'allowAudio',
       'videoCodecs',
+      'encoderBackend',
       'clientMode',
       'allowedOptions',
     ],
@@ -214,6 +219,10 @@ export function validateStreamPolicy(value) {
     'Video codecs contain duplicates',
   );
   requireValue(value.videoCodecs.includes('h264'), 'H.264 must stay enabled');
+  requireValue(
+    ENCODER_BACKEND_CHOICES.includes(value.encoderBackend),
+    'Encoder backend is invalid',
+  );
   requireValue(
     value.displaySharing === null ||
       (typeof value.displaySharing === 'object' &&
@@ -314,6 +323,8 @@ export function resolveStreamPolicy(
       mtu: 1200,
     },
     audio: { mode: policy.allowAudio && audio ? 'on' : 'off' },
+    // A host property, not a client one: it does not vary by profile or custom settings.
+    encoderBackend: policy.encoderBackend,
     revision: policy.revision,
     selectedBy,
   };

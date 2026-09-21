@@ -12,6 +12,7 @@ import {
 } from '../format.mjs';
 import { MAX_SESSIONS_LIMIT } from '../../access-settings.mjs';
 import { CODEC_LABELS, VIDEO_CODECS } from '../../video-codecs.mjs';
+import { BACKEND_LABELS, ENCODER_BACKEND_CHOICES } from '../../encoder-backends.mjs';
 import { resolveDisplay, resolveProfile } from '../resolve.mjs';
 import * as edits from '../policy-edits.mjs';
 
@@ -161,6 +162,40 @@ export const settingsCommands = [
       const message = [`Video codec order is now ${labels.join(', ')}.`, ...unsupported].join('\n');
       const policy = result.applied ? result.policy : context.policy();
       return { ...outcome(result, message), data: codecRows(policy, hostCodecs) };
+    },
+  },
+  {
+    name: 'encoder-backend',
+    usage: 'encoder-backend [auto|nvenc|qsv|amf|mediafoundation]',
+    summary: 'Show or set which GPU encoder the host uses.',
+    where: 'both',
+    json: true,
+    mayDisconnect: true,
+    run: async (context, { positionals, flags }) => {
+      const describe = (id) => (id === 'auto' ? 'Automatic' : BACKEND_LABELS[id]);
+      if (!positionals.length) {
+        const current = context.policy().encoderBackend;
+        return { text: `Encoder: ${describe(current)}`, data: { encoderBackend: current } };
+      }
+      expectArguments(positionals, 1);
+      const backend = positionals[0].trim().toLowerCase();
+      if (!ENCODER_BACKEND_CHOICES.includes(backend))
+        throw new UsageError(
+          `Unknown encoder "${positionals[0]}". Use ${ENCODER_BACKEND_CHOICES.join(', ')}.`,
+        );
+      const result = await context.updatePolicy(
+        `Use the ${describe(backend)} encoder`,
+        (policy) => edits.setEncoderBackend(policy, backend),
+        { yes: flags.yes === true },
+      );
+      // A named backend this machine lacks is not an error: the worker falls back to automatic
+      // selection, and a policy file may have arrived from a different machine.
+      const message =
+        backend === 'auto'
+          ? 'The encoder is now chosen automatically.'
+          : `Encoder is now ${describe(backend)}. If this machine has no such encoder, one is chosen automatically.`;
+      const policy = result.applied ? result.policy : context.policy();
+      return { ...outcome(result, message), data: { encoderBackend: policy.encoderBackend } };
     },
   },
   {

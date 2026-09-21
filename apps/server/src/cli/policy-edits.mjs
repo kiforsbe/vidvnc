@@ -91,6 +91,12 @@ export function setVideoCodecs(policy, ids) {
   });
 }
 
+export function setEncoderBackend(policy, backend) {
+  return edit(policy, (next) => {
+    next.encoderBackend = backend;
+  });
+}
+
 export function setClientMode(policy, mode) {
   return edit(policy, (next) => {
     next.clientMode = mode;

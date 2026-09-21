@@ -6,6 +6,7 @@ import {
   resolveStreamPolicy,
 } from '../src/stream-policy.mjs';
 import { VIDEO_CODECS } from '../src/video-codecs.mjs';
+import { ENCODER_BACKEND_CHOICES } from '../src/encoder-backends.mjs';
 
 test('seeds preserve working iPhone and desktop numeric plans', () => {
   const policy = defaultStreamPolicy();
@@ -132,6 +133,40 @@ test('video codec lists are rejected without H.264, with duplicates, unknown ids
     policy.videoCodecs = videoCodecs;
     assert.throws(() => validateStreamPolicy(policy));
   }
+});
+
+test('default policy selects an encoder backend automatically', () => {
+  assert.equal(defaultStreamPolicy().encoderBackend, 'auto');
+});
+
+test('a policy without encoderBackend validates as automatic and is not mutated', () => {
+  const policy = defaultStreamPolicy();
+  delete policy.encoderBackend;
+  assert.equal(validateStreamPolicy(policy).encoderBackend, 'auto');
+  assert.ok(!Object.hasOwn(policy, 'encoderBackend'));
+});
+
+test('every backend id is accepted and anything else is rejected by name', () => {
+  for (const encoderBackend of ENCODER_BACKEND_CHOICES) {
+    const policy = defaultStreamPolicy();
+    policy.encoderBackend = encoderBackend;
+    assert.equal(validateStreamPolicy(policy).encoderBackend, encoderBackend);
+  }
+  for (const encoderBackend of ['nvidia', '', 'NVENC', null, 1]) {
+    const policy = defaultStreamPolicy();
+    policy.encoderBackend = encoderBackend;
+    assert.throws(() => validateStreamPolicy(policy), { message: 'Encoder backend is invalid' });
+  }
+});
+
+// The backend is a property of the host's hardware, so it does not vary by client or profile.
+test('resolution carries the policy backend, including for custom client settings', () => {
+  const policy = defaultStreamPolicy();
+  policy.encoderBackend = 'amf';
+  assert.equal(resolveStreamPolicy(policy).encoderBackend, 'amf');
+  policy.clientMode = 'options';
+  const custom = { width: 1280, height: 720, fps: 30, bitrateKbps: 4000 };
+  assert.equal(resolveStreamPolicy(policy, { custom }).encoderBackend, 'amf');
 });
 
 test('a policy allowing only H.264 is valid', () => {
