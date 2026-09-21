@@ -130,6 +130,57 @@ test('a wrong passphrase is reported as a configuration error naming the file', 
   assert.equal(result.ok, false);
   assert.equal(typeof result.reason, 'string');
   assert.ok(result.reason.includes(validPfxPath));
+  // Names the actual problem too, not just the file — a regression that kept the path
+  // but dropped the "check the passphrase" wording would otherwise still pass this test.
+  assert.match(result.reason, /passphrase/i);
+});
+
+test('a broken internal getCertificate binding fails cleanly rather than throwing or producing a broken anchor', () => {
+  // Pins this module's top named risk: extracting the PFX's leaf certificate goes
+  // through an internal, undocumented Node handle (`context.context.getCertificate()`),
+  // not a public API. Both ways that handle could misbehave — the method being absent,
+  // or returning something `X509Certificate` rejects — must come back as a clean
+  // `{ ok: false, reason }`, never a thrown error and never a truthy `result.anchor` that
+  // downstream code (renewalStatus/checkCoverage) could be handed anyway.
+  const settings = providedSettings({ pfxPath: validPfxPath, pfxPassphrase: VALID_PFX_PASSPHRASE });
+
+  // Sub-mode 1: the native method is simply not there (e.g. a future Node that renamed
+  // or removed it) — `context.context.getCertificate` is not a function.
+  const missingMethod = provision(settings, {
+    localAddresses: addressesCoveredByValidPfx,
+    createSecureContext: () => ({ context: {} }),
+  });
+  assert.equal(missingMethod.ok, false);
+  assert.equal(typeof missingMethod.reason, 'string');
+  assert.ok(missingMethod.reason.length > 0);
+  assert.equal(missingMethod.credential, undefined);
+  assert.equal(missingMethod.anchor, undefined);
+
+  // Sub-mode 2: the native method exists but returns something `X509Certificate` rejects
+  // (`null`) — this is what makes `new X509Certificate(null)` throw a TypeError.
+  const nullCertificate = provision(settings, {
+    localAddresses: addressesCoveredByValidPfx,
+    createSecureContext: () => ({ context: { getCertificate: () => null } }),
+  });
+  assert.equal(nullCertificate.ok, false);
+  assert.equal(typeof nullCertificate.reason, 'string');
+  assert.ok(nullCertificate.reason.length > 0);
+  assert.equal(nullCertificate.credential, undefined);
+  assert.equal(nullCertificate.anchor, undefined);
+
+  // Neither sub-mode throws out of provision() itself.
+  assert.doesNotThrow(() =>
+    provision(settings, {
+      localAddresses: addressesCoveredByValidPfx,
+      createSecureContext: () => ({ context: {} }),
+    }),
+  );
+  assert.doesNotThrow(() =>
+    provision(settings, {
+      localAddresses: addressesCoveredByValidPfx,
+      createSecureContext: () => ({ context: { getCertificate: () => null } }),
+    }),
+  );
 });
 
 test('a missing certificate file is reported with its path', () => {

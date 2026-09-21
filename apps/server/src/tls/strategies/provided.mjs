@@ -82,12 +82,24 @@ function loadPemCredential(certificatePath, keyPath, { readFile }) {
 // out — this builds a real `tls` secure context from the PFX (the same call `node:tls`
 // itself would make to actually serve it) and reads the leaf back off the context's
 // native handle via `.context.getCertificate()`, which returns the leaf's DER bytes.
-// That handle isn't part of the documented `tls.SecureContext` surface, but it is the
-// same handle Node's own `_tls_wrap` internals read from, and creating the context this
-// way is also what proves the credential is genuinely usable: a wrong or missing
-// passphrase fails right here (synchronously, as a decrypt/MAC error naming no field of
-// its own), which is exactly the "wrong passphrase reported as a configuration error"
-// case this strategy needs to catch.
+// Creating the context this way also proves the credential is genuinely usable: a wrong
+// or missing passphrase fails right here, synchronously, as a decrypt/MAC error — exactly
+// the "wrong passphrase reported as a configuration error" case this strategy must catch.
+//
+// Provenance of `.context.getCertificate()`, since it is not part of the documented
+// `tls.SecureContext` surface: it is Node's native `SecureContext::GetCertificate`,
+// registered in `src/crypto/crypto_context.cc` via
+// `SetProtoMethodNoSideEffect(isolate, tmpl, "getCertificate", GetCertificate<true>)`.
+// Confirmed present and registered identically at both `v20.6.0` (this repo's floor) and
+// `v22.0.0` in Node's own source — an old, stable binding behind Node's multi-cert/SNI
+// support, not something that appeared later in the 20-26 range. It is unrelated to
+// nodejs/node#26724, an attempt at a *documented* JS-level wrapper of the same name that
+// was never merged (closed 2020) — this code calls the already-shipped native method
+// directly, not that abandoned wrapper. Both ways this can go wrong — the method being
+// absent, or it returning something `X509Certificate` rejects (e.g. `null`) — are inside
+// the `try` below and come back as `{ ok: false, reason }` before a broken anchor could
+// ever reach `renewalStatus`/`checkCoverage` (see provided.test.mjs's "internal API"
+// tests, which pin exactly this with a fake `createSecureContext`).
 function loadPfxCredential(pfxPath, passphrase, { readFile, createSecureContext }) {
   let pfxBytes;
   try {
