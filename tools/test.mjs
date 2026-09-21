@@ -18,10 +18,22 @@ const directories =
           'packaging/tests',
           'tools/tests',
         ];
+// Test files may live in subdirectories (e.g. apps/server/tests/tls/), so discovery
+// walks each configured directory recursively rather than listing it flat.
+async function testFiles(directoryUrl) {
+  const found = [];
+  for (const entry of await readdir(directoryUrl, { withFileTypes: true })) {
+    const entryUrl = new URL(entry.isDirectory() ? `${entry.name}/` : entry.name, directoryUrl);
+    if (entry.isDirectory()) found.push(...(await testFiles(entryUrl)));
+    else if (entry.isFile() && entry.name.endsWith('.test.mjs'))
+      found.push({ name: entry.name, url: entryUrl });
+  }
+  return found;
+}
+
 const files = [];
 for (const directory of directories) {
-  for (const name of await readdir(new URL(`../${directory}/`, import.meta.url))) {
-    if (!name.endsWith('.test.mjs')) continue;
+  for (const { name, url } of await testFiles(new URL(`../${directory}/`, import.meta.url))) {
     if (mode !== 'hardware' && name === 'native-media.test.mjs') continue;
     if (mode !== 'hardware' && name === 'native-worker.test.mjs') continue;
     if (mode === 'hardware' && name === 'runtime-manifest.test.mjs') continue;
@@ -31,7 +43,7 @@ for (const directory of directories) {
       name !== 'native-media.test.mjs'
     )
       continue;
-    files.push(fileURLToPath(new URL(`../${directory}/${name}`, import.meta.url)));
+    files.push(fileURLToPath(url));
   }
 }
 const child = spawn(process.execPath, ['--test', ...files.sort()], {
