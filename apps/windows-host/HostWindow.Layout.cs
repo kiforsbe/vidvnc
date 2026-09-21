@@ -164,7 +164,7 @@ public sealed partial class HostWindow
                 page.Children.Add(Card(Label("When the window closes\nSharing stops and the application exits. Automatic startup is off.")));
                 page.Children.Add(Card(Label("Connection\nDesigned for trusted local networks. Remote connection setup is not available. Firewall permissions remain under your control.")));
                 page.Children.Add(Command("Open logs folder", () => { var folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VidVNC", "logs"); System.IO.Directory.CreateDirectory(folder); Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true }); }));
-                page.Children.Add(Label("VidVNC · Windows host\nWindows 11 25H2 or later · NVIDIA media runtime"));
+                page.Children.Add(Label("VidVNC · Windows host\nWindows 11 25H2 or later · hardware video encoding"));
                 break;
         }
     }
