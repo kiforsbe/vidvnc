@@ -237,8 +237,24 @@ function connectTls(port, { keepOpen = false } = {}) {
 
 // --- the allow-list --------------------------------------------------------------------
 
-test('the plaintext allow-list is exactly the three ruled enrolment paths', () => {
-  assert.deepEqual(PLAINTEXT_ALLOWED_PATHS, ['/trust', '/api/trust/anchor', '/api/trust/status']);
+// The enrolment page plus exactly what it loads, spelled out here so widening the list is a
+// visible change to this file; trust-page.test.mjs separately proves the list matches the page.
+test('the plaintext allow-list is exactly the enrolment page, its assets and the two endpoints', () => {
+  assert.deepEqual(
+    [...PLAINTEXT_ALLOWED_PATHS].sort(),
+    [
+      '/api/trust/anchor',
+      '/api/trust/status',
+      '/shell.css',
+      '/style.css',
+      '/theme.js',
+      '/trust',
+      '/trust-instructions.js',
+      '/trust-model.js',
+      '/trust.css',
+      '/trust.js',
+    ].sort(),
+  );
 });
 
 // --- serving and redirecting -----------------------------------------------------------
@@ -298,8 +314,7 @@ test('a plaintext POST also redirects, 307 preserving the method for a mid-sessi
 });
 
 // What each enrolment path answers is anchor-endpoint.test.mjs's business (Task 11) and
-// /trust's is Task 12's; this test only pins that none of them is redirected. `/trust` is
-// the one still unhandled, so it is the one that is still a 404.
+// /trust's is trust-page.test.mjs's; this test only pins that none of them is redirected.
 test('a plaintext request to an enrolment path is served without redirect', async (t) => {
   const plaintext = await startPlaintext(t, { status: () => ({ active: true, port: 8443 }) });
   for (const path of PLAINTEXT_ALLOWED_PATHS) {
@@ -307,7 +322,7 @@ test('a plaintext request to an enrolment path is served without redirect', asyn
     assert.notEqual(response.status, 307, path);
     assert.equal(response.headers.get('location'), null, path);
   }
-  assert.equal((await fetch(plaintext.url + '/trust', { redirect: 'manual' })).status, 404);
+  assert.equal((await fetch(plaintext.url + '/trust', { redirect: 'manual' })).status, 200);
 });
 
 test('a request that arrived over TLS is never redirected, even to an enrolment path', async (t) => {

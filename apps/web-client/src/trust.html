@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>VidVNC · Trust this host</title>
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/shell.css" />
+    <link rel="stylesheet" href="/trust.css" />
+    <script type="module" src="/trust.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+        <span>VidVNC</span>
+      </div>
+      <div class="header-actions">
+        <label for="appearance" class="sr-only">Appearance</label
+        ><select id="appearance" aria-label="Appearance">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+    </header>
+    <main class="trust">
+      <noscript>
+        <section class="trust-card">
+          <h1>JavaScript is needed</h1>
+          <p class="lede">
+            This page needs JavaScript to show the certificate fingerprint and the install steps.
+            Turn JavaScript on for this page, or ask whoever runs the host for the certificate and
+            its fingerprint.
+          </p>
+        </section>
+      </noscript>
+      <div id="trust-root" aria-live="polite">
+        <p class="trust-loading" role="status">Checking this host's certificate…</p>
+      </div>
+    </main>
+  </body>
+</html>

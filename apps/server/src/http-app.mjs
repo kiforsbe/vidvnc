@@ -27,11 +27,25 @@ function send(response, status, body) {
 // plaintext listener, unredirected, because a device that does not yet trust the host has
 // no un-warned way to fetch the trust anchor over the very connection that anchor exists
 // to authenticate. Every other plaintext request redirects to the HTTPS equivalent once
-// TLS is active. `/api/trust/anchor` and `/api/trust/status` are handled below (Task 11);
-// `/trust`, the human page, is Task 12's and until then falls through to the existing 404
-// catch-all, same as any other unknown route.
+// TLS is active. `/api/trust/anchor` and `/api/trust/status` are handled below, and `/trust`,
+// the human page, is served from the static table further down.
+//
+// The page is more than one request. Its script, its stylesheets and every module its script
+// imports are separate requests, and one the list missed would be redirected, cross-origin,
+// to a certificate the device does not trust yet, breaking the page exactly when it is
+// needed. So the list holds exactly what `trust.html` loads: whole paths, no prefixes and no
+// patterns, all public files with nothing secret in them. tests/tls/trust-page.test.mjs
+// derives that set from the real page and fails if the list and the page ever differ, in
+// either direction. Adding an asset to the page means adding it here and to the static table.
 export const PLAINTEXT_ALLOWED_PATHS = Object.freeze([
   '/trust',
+  '/trust.js',
+  '/trust.css',
+  '/trust-model.js',
+  '/trust-instructions.js',
+  '/theme.js',
+  '/style.css',
+  '/shell.css',
   '/api/trust/anchor',
   '/api/trust/status',
 ]);
@@ -270,9 +284,16 @@ export function createHttpApp({
           '/style.css',
           '/theme.js',
           '/shell.css',
+          // The enrolment page and what it loads (see PLAINTEXT_ALLOWED_PATHS).
+          '/trust',
+          '/trust.js',
+          '/trust.css',
+          '/trust-model.js',
+          '/trust-instructions.js',
         ].includes(route)
       ) {
-        const file = route === '/' ? 'index.html' : route.slice(1);
+        const file =
+          route === '/' ? 'index.html' : route === '/trust' ? 'trust.html' : route.slice(1);
         const body = await readFile(new URL(import.meta.resolve(`@vidvnc/web-client/${file}`)));
         response.writeHead(200, {
           'content-type': file.endsWith('.js')
@@ -308,6 +329,9 @@ export function createHttpApp({
       // and, like every other route, reachable on either listener; the plaintext one leaves
       // these paths unredirected (PLAINTEXT_ALLOWED_PATHS). No `tls`, or a `tls` without
       // `report()`, is TLS inactive.
+      // The enrolment page itself is a GET in the static table above; any other method on it
+      // lands here, so it answers like the two endpoints do instead of as an unknown route.
+      if (route === '/trust') return send(response, 405, { error: 'GET required' });
       if (route === TRUST_ANCHOR_PATH || route === '/api/trust/status') {
         if (request.method !== 'GET') return send(response, 405, { error: 'GET required' });
         const report = tls?.report?.() ?? { ...anchorReport(null), failureReason: null };

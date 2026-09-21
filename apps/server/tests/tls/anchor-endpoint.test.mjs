@@ -375,10 +375,14 @@ test('with TLS active the plaintext listener serves both endpoints without redir
   assert.equal(other.status, 307);
 });
 
-test('the human enrolment page is not part of this task: /trust is still a 404', async (t) => {
+// The human page itself (and the exact set of assets it loads) is pinned in trust-page.test.mjs.
+test('the human enrolment page is served next to the two endpoints, all allow-listed', async (t) => {
   const { port } = await startApp(t, { tls: stubTls(requiredReport()) });
-  assert.equal((await httpCall(port, '/trust')).status, 404);
-  assert.deepEqual(PLAINTEXT_ALLOWED_PATHS, ['/trust', ANCHOR_PATH, STATUS_PATH]);
+  const page = await httpCall(port, '/trust');
+  assert.equal(page.status, 200);
+  assert.equal(page.headers['content-type'], 'text/html');
+  for (const path of ['/trust', ANCHOR_PATH, STATUS_PATH])
+    assert.ok(PLAINTEXT_ALLOWED_PATHS.includes(path), path);
 });
 
 // --- the report the listener retains ---------------------------------------------------

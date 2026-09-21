@@ -13,6 +13,8 @@
   apply(choice);
   document.addEventListener('DOMContentLoaded', () => {
     const select = document.getElementById('appearance');
+    // A page that reuses the theme without the appearance control must not throw here.
+    if (!select) return;
     select.value = choice;
     select.addEventListener('change', () => {
       apply(select.value);
