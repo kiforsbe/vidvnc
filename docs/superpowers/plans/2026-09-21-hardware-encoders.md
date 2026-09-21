@@ -60,7 +60,37 @@ Principles:
 | 12 | None (documentation only) | |
 | 13 | `npm run format:check`, then once `node tools/test.mjs server`, then `npm run package` | The final gate. The package build is required exactly once, here, because Task 11 changed what ships and nothing before this proves the new plugins stage and sign. |
 
-Never run for this work: `npm test`, `npm run test:hardware` as a whole, anything under `tests/system`, the web client browser checks (`stream-browser-check.mjs`, `web-browser-check.mjs`, `toolbar-browser-check.mjs`), or the multi-stream and shared-stream checks. The web client is unchanged by this plan, so no web test runs at all. If a required run fails for a reason unrelated to this work, stop and report it instead of widening the run.
+Never run for this work: `npm run test:hardware` as a whole, anything under `tests/system`, the web client browser checks (`stream-browser-check.mjs`, `web-browser-check.mjs`, `toolbar-browser-check.mjs`), or the multi-stream and shared-stream checks. If a required run fails for a reason unrelated to this work, stop and report it instead of widening the run.
+
+## Cluster gates (2026-09-21, user instruction)
+
+The per-task runs above stay as the inner loop. On top of them, tasks land in clusters,
+and **each cluster ends with `npm test` and a commit**. A cluster that does not pass is
+not committed.
+
+`npm test` is the portable suite: every Node `.test.mjs` except `native-media.test.mjs`
+and `native-worker.test.mjs`. It does not build or run the C++ unit tests and it does not
+touch the GPU, so native clusters must run `.\build-native.cmd` as well — `npm test`
+alone would prove nothing about Tasks 1 to 4.
+
+| Cluster | Tasks | Gate, in order |
+| --- | --- | --- |
+| A | 1, 2, 3 | `.\build-native.cmd`, then `npm test` |
+| B | 4, 5 | `.\build-native.cmd`, then `node --test native/media-worker/tests/native-worker.test.mjs` (GPU), then `npm test` |
+| C | 6, 7, 8 | `node --test apps/server/tests/native-media.test.mjs` (GPU), then `npm test` |
+| D | 9, 10 | `dotnet build apps/windows-host/VidVnc.Host.csproj`, the Navigation regression once, then `npm test` |
+| E | 11, 12 | `npm test` |
+| F | 13 | `npm run format:check`, `npm test`, `npm run package`, then `node --test native/media-worker/tests/native-worker.test.mjs` |
+
+Cluster A is indivisible: Task 1 removes `encoder` from `VideoCodec` while
+`media-worker.cpp` still uses it, and Task 3 restores the build. Do not stop inside it.
+
+Clusters B and C are the probe-shape lockstep pair and should land back to back. Between
+them the server still starts, because Task 5 only adds `backends` to the probe and Task 7
+treats a missing `backends` as an empty array.
+
+Commits are authorised for this execution session: one commit per task as each task's
+step 5 describes, and the cluster gate must pass before the cluster's last commit.
 
 Useful single-purpose commands: `node --test <file>` for one Node test file, and `.\build-native.cmd` for the native build, which formats, configures, builds and runs every C++ test.
 
