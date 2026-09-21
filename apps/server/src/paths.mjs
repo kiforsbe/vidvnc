@@ -18,6 +18,7 @@ export function settingsFiles(directory) {
     access: join(directory, 'access-settings.json'),
     approvedClients: join(directory, 'approved-clients.json'),
     profileOrder: join(directory, 'profile-order.json'),
+    tls: join(directory, 'tls-settings.json'),
     instances: join(directory, 'instances'),
   };
 }

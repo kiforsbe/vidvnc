@@ -28,6 +28,7 @@ test('settings live in the per-user VidVNC data folder', () => {
     access: join('D', 'access-settings.json'),
     approvedClients: join('D', 'approved-clients.json'),
     profileOrder: join('D', 'profile-order.json'),
+    tls: join('D', 'tls-settings.json'),
     instances: join('D', 'instances'),
   });
 });
