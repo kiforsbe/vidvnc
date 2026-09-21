@@ -20,8 +20,7 @@ export function createLiveContext({
   profileOrderFile,
   directory,
   logDirectory,
-  urls,
-  port,
+  addresses,
   confirm,
   hostCodecs = [],
 }) {
@@ -85,10 +84,12 @@ export function createLiveContext({
     displays: async () => inventory.rows,
     hostCodecs: async () => hostCodecs,
     async info() {
+      // Read now, not when the console was created: HTTPS can come up after startup.
+      const { urls, diagnostics } = addresses();
       return [
-        ['Connect', urls().join(', ')],
+        ['Connect', urls.join(', ')],
         ['Password', sessionStore.password],
-        ['Diagnostics', `http://127.0.0.1:${port}/diagnostics (this PC only)`],
+        ['Diagnostics', `${diagnostics} (this PC only)`],
         ['Data folder', directory],
         ['Log folder', logDirectory],
         ['Default control', accessLabel(access.snapshot().defaultControl)],

@@ -22,6 +22,7 @@ import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
 import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
+import { attemptAndAnnounce, connectionAddresses, secureAddressLines } from './tls/addresses.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -124,13 +125,17 @@ async function serve() {
       );
     }
     process.on('exit', () => releaseInstance());
-    const connectionUrls = () => [
-      ...Object.values(networkInterfaces())
-        .flat()
-        .filter((n) => n.family === 'IPv4' && !n.internal)
-        .map((n) => `http://${n.address}:${port}`),
-      `http://127.0.0.1:${port}`,
-    ];
+    // The ready line and the banner are written before TLS can be up (it is provisioned
+    // after them, on purpose), so they show the plaintext addresses, which are true then.
+    // Everything read later, and the HTTPS follow-up, follows the live listener instead.
+    const plaintextAddresses = () =>
+      connectionAddresses({ interfaces: networkInterfaces, plaintextPort: port });
+    const currentAddresses = () =>
+      connectionAddresses({
+        interfaces: networkInterfaces,
+        plaintextPort: port,
+        tls: tlsListener.status(),
+      });
     let owner;
     let consoleSession;
     let statusTimer;
@@ -166,10 +171,19 @@ async function serve() {
     // ones (see tls/listener.mjs). The listener's own `attempt()` never rejects, but the
     // call sites still log a rejection rather than trust that: this is fire-and-forget, and
     // an unhandled rejection would take the whole server down over an optional feature.
+    //
+    // The CLI gets one follow-up block when HTTPS first comes up. It is printed with
+    // console.log like the rest of the console's output: the terminal prompt hooks stdout,
+    // so it appears above a prompt that is showing rather than corrupting it. The desktop
+    // host's stdout is a JSON protocol and is left alone.
     const attemptTls = () =>
-      tlsListener
-        .attempt()
-        .catch((error) => console.error(`TLS attempt failed (${error?.message ?? error}).`));
+      attemptAndAnnounce({
+        listener: tlsListener,
+        announce: () => {
+          if (!desktop && !stopping) console.log(secureAddressLines(currentAddresses()).join('\n'));
+        },
+        log: (message) => console.error(message),
+      });
     inventoryTimer = setInterval(async () => {
       if (stopping || refreshing) return;
       refreshing = true;
@@ -452,7 +466,7 @@ async function serve() {
         console.log(
           JSON.stringify({
             type: 'ready',
-            urls: connectionUrls(),
+            urls: plaintextAddresses().urls,
             password: store.password,
             width: info.width,
             height: info.height,
@@ -467,12 +481,10 @@ async function serve() {
         return;
       }
       console.log('\nVidVNC · Ready to connect\n');
-      for (const nic of Object.values(networkInterfaces()).flat()) {
-        if (nic.family === 'IPv4' && !nic.internal)
-          console.log(`Open http://${nic.address}:${port}`);
-      }
-      console.log(`Local preview: http://127.0.0.1:${port}\nPassword: ${store.password}\n`);
-      console.log(`Live diagnostics (this PC only): http://127.0.0.1:${port}/diagnostics`);
+      const shown = plaintextAddresses();
+      for (const url of shown.lan) console.log(`Open ${url}`);
+      console.log(`Local preview: ${shown.local}\nPassword: ${store.password}\n`);
+      console.log(`Live diagnostics (this PC only): ${shown.diagnostics}`);
       const codecLabels = VIDEO_CODECS.filter((codec) => hostCodecs.includes(codec))
         .map((codec) => CODEC_LABELS[codec])
         .join(' / ');
@@ -499,8 +511,7 @@ async function serve() {
             profileOrderFile: files.profileOrder,
             directory,
             logDirectory,
-            urls: connectionUrls,
-            port,
+            addresses: currentAddresses,
             confirm,
             hostCodecs,
           }),

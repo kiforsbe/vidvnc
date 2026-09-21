@@ -8,6 +8,7 @@ import { PolicyController } from '../../src/policy-controller.mjs';
 import { SessionStore } from '../../src/session-store.mjs';
 import { StreamPolicyStore } from '../../src/stream-policy-store.mjs';
 import { createLiveContext, startConsole } from '../../src/cli/console.mjs';
+import { connectionAddresses } from '../../src/tls/addresses.mjs';
 import { displayInventory } from './cli-displays.mjs';
 import { VirtualTerminal } from './virtual-terminal.mjs';
 
@@ -15,7 +16,11 @@ const pause = (milliseconds = 5) => new Promise((resolve) => setTimeout(resolve,
 
 // Real stores and session admission; only the media runtime is faked. With terminal, input
 // is typed into a virtual terminal instead of piped.
-export async function liveConsole(t, { terminal = false } = {}) {
+// tls is the live TLS state the addresses follow; a test flips it after the console starts.
+export async function liveConsole(
+  t,
+  { terminal = false, tls = { active: false, port: null } } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), 'vidvnc-console-'));
   const sessionStore = new SessionStore({ maxSessions: 2 });
   const calls = [];
@@ -92,8 +97,15 @@ export async function liveConsole(t, { terminal = false } = {}) {
         profileOrderFile: join(directory, 'profile-order.json'),
         directory,
         logDirectory: join(directory, 'logs'),
-        urls: () => ['http://192.168.1.2:4382', 'http://127.0.0.1:4382'],
-        port: 4382,
+        addresses: () =>
+          connectionAddresses({
+            interfaces: () => ({
+              Ethernet: [{ address: '192.168.1.2', family: 'IPv4', internal: false }],
+              Loopback: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
+            }),
+            plaintextPort: 4382,
+            tls,
+          }),
         confirm,
       }),
   });
