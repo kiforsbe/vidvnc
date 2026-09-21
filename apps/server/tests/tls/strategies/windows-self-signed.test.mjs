@@ -11,6 +11,8 @@ import {
   provision,
   windowsSelfSignedStrategy,
   name,
+  POWERSHELL_PROBE_TIMEOUT_MS,
+  POWERSHELL_STEP_TIMEOUT_MS,
 } from '../../../src/tls/strategies/windows-self-signed.mjs';
 import { defaultTlsSettings } from '../../../src/tls/tls-settings.mjs';
 
@@ -581,4 +583,57 @@ test('when creating the TLS state directory fails, the store entry is still clea
   assert.ok(removeScript, 'expected Remove-Item to be invoked even after mkdir failed');
   assert.ok(removeScript.includes('MKDIRFAIL0001'));
   assert.ok(removeScript.includes('-DeleteKey'));
+});
+
+// --- timeouts: PowerShell runs under a synchronous spawn, which freezes the event loop ---
+
+const timedOutResult = () => {
+  const error = new Error('spawnSync powershell.exe ETIMEDOUT');
+  error.code = 'ETIMEDOUT';
+  return { status: null, signal: 'SIGTERM', stdout: '', stderr: '', error };
+};
+
+test('every PowerShell invocation is given a timeout so a hung PowerShell cannot freeze the server forever', (t) => {
+  const scratch = makeScratch(t);
+  const timeouts = [];
+  const spawnSync = (command, args, options) => {
+    timeouts.push({ script: args[args.indexOf('-Command') + 1], timeout: options?.timeout });
+    return failed('stop here');
+  };
+
+  isAvailable(selfSignedSettings(), { platform: 'win32', spawnSync });
+  provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: () => ({ hostnames: ['localhost'], ips: ['127.0.0.1'], errors: [] }),
+    certificateDirectory: () => join(scratch, 'state'),
+  });
+
+  assert.equal(timeouts.length, 2);
+  assert.equal(timeouts[0].script, 'exit 0');
+  assert.equal(timeouts[0].timeout, POWERSHELL_PROBE_TIMEOUT_MS);
+  assert.equal(timeouts[1].timeout, POWERSHELL_STEP_TIMEOUT_MS);
+  assert.ok(POWERSHELL_PROBE_TIMEOUT_MS <= 10_000 && POWERSHELL_STEP_TIMEOUT_MS <= 30_000);
+});
+
+test('a timed-out PowerShell probe makes the strategy unavailable rather than hanging', () => {
+  const spawnSync = () => timedOutResult();
+  assert.equal(isAvailable(selfSignedSettings(), { platform: 'win32', spawnSync }), false);
+});
+
+test('a timed-out certificate creation is reported as a readable reason naming the tool and the limit', (t) => {
+  const scratch = makeScratch(t);
+  const spawnSync = fakeSpawnSync({ onCreate: () => timedOutResult() });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: () => ({ hostnames: ['localhost'], ips: ['127.0.0.1'], errors: [] }),
+    certificateDirectory: () => join(scratch, 'state'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /PowerShell did not finish within 30 seconds and was stopped/);
+  assert.doesNotMatch(result.reason, /status null/);
+  assert.equal(result.credential, undefined);
 });

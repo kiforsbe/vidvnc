@@ -16,6 +16,7 @@
 // degradation is the one outcome the design refuses.
 import { createServer as nodeCreateServer } from 'node:https';
 import { ensureCertificate as realEnsureCertificate } from './ensure-certificate.mjs';
+import { applyServerLimits } from '../server-limits.mjs';
 
 // `settings` is an already-validated TLS settings object (tls-settings.mjs).
 // `requestListener` is the plaintext app's own request handler, so both listeners share
@@ -53,7 +54,21 @@ export function createTlsListener({
 
   function bind(result) {
     return new Promise((resolve) => {
-      const secure = createServer({ ...result.credential }, requestListener);
+      let secure;
+      try {
+        // Node validates the credential here, synchronously: a certificate/key pair that do
+        // not belong together, or that cannot be parsed, throws from createServer. That
+        // must degrade to plaintext like every other TLS failure — a throw inside this
+        // executor would reject the attempt and, through a fire-and-forget caller, take the
+        // process down.
+        secure = createServer({ ...result.credential }, requestListener);
+        applyServerLimits(secure);
+      } catch (error) {
+        log(
+          `TLS configuration error (${error.message}). Serving plaintext only; the credential could not be used.`,
+        );
+        return resolve();
+      }
       // Attached BEFORE listen(): a bind failure (most commonly EADDRINUSE) is reported
       // as an asynchronous 'error' event, not a thrown exception. With no listener that
       // event is unhandled and takes the whole process down, which is exactly what the
@@ -72,21 +87,29 @@ export function createTlsListener({
         );
         resolve();
       });
-      secure.listen(settings.port, host, () => {
-        if (closed) {
-          secure.close();
-          return resolve();
-        }
-        server = secure;
-        boundPort = secure.address().port;
-        const warnings = result.warnings ?? [];
+      try {
+        secure.listen(settings.port, host, () => {
+          if (closed) {
+            secure.close();
+            return resolve();
+          }
+          server = secure;
+          boundPort = secure.address().port;
+          const warnings = result.warnings ?? [];
+          log(
+            `TLS ready on port ${boundPort} (strategy: ${result.strategy})` +
+              (warnings.length ? ` — ${warnings.join('; ')}` : '') +
+              '.',
+          );
+          resolve();
+        });
+      } catch (error) {
+        // listen() throws synchronously for an out-of-range port or an invalid host.
         log(
-          `TLS ready on port ${boundPort} (strategy: ${result.strategy})` +
-            (warnings.length ? ` — ${warnings.join('; ')}` : '') +
-            '.',
+          `TLS listener error on port ${settings.port} (${error.message}). Serving plaintext only.`,
         );
         resolve();
-      });
+      }
     });
   }
 
@@ -123,13 +146,22 @@ export function createTlsListener({
   return {
     // Ensures TLS is served by `settings`, or logs why not. Idempotent, and safe to call
     // repeatedly: at startup, then on every periodic re-check. Resolves when the attempt
-    // has finished; never rejects. A call made while an earlier one is still binding
-    // joins it rather than racing it.
+    // has finished. It never rejects because of a `.catch` here that turns any failure
+    // `run()` did not itself handle into a log line — not because `run()` cannot throw
+    // (an earlier version of this module leaned on that assumption and a credential that
+    // `createServer` rejected crashed the process through a fire-and-forget caller).
+    // A call made while an earlier one is still binding joins it rather than racing it.
     attempt() {
       if (closed || settings.mode === 'off') return Promise.resolve();
-      inflight ??= run().finally(() => {
-        inflight = null;
-      });
+      inflight ??= run()
+        .catch((error) => {
+          log(
+            `TLS attempt failed unexpectedly (${error?.message ?? error}). Serving plaintext only.`,
+          );
+        })
+        .finally(() => {
+          inflight = null;
+        });
       return inflight;
     },
     // The live state the plaintext listener reads per request. `active` is true only

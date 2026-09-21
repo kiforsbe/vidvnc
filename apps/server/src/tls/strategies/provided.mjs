@@ -54,7 +54,7 @@ export function isAvailable(settings) {
 // only hands back a parsed `X509Certificate`, not the original bytes `node:tls` needs
 // verbatim for `cert`, so the file is read twice on the happy path. Both reads go through
 // the same injectable `readFile`, so tests can still control every byte with one fake.
-function loadPemCredential(certificatePath, keyPath, { readFile }) {
+function loadPemCredential(certificatePath, keyPath, { readFile, createSecureContext }) {
   const certResult = loadCertificate(certificatePath, { readFile });
   if (!certResult.ok) return { ok: false, reason: certResult.reason };
 
@@ -75,10 +75,24 @@ function loadPemCredential(certificatePath, keyPath, { readFile }) {
     return { ok: false, reason: `could not read key file "${keyPath}": ${error.message}` };
   }
 
+  // Prove the pair is actually usable together, exactly as the PFX path does. Reading two
+  // files that each exist says nothing about whether the key belongs to the certificate;
+  // without this a mismatched pair is only discovered when the TLS listener is built, which
+  // is later and reports a bare OpenSSL "key values mismatch".
+  const credential = { cert: certBytes, key: keyBytes };
+  try {
+    createSecureContext(credential);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `certificate "${certificatePath}" and key "${keyPath}" cannot be used together (${error.message})`,
+    };
+  }
+
   return {
     ok: true,
     certificate: certResult.certificate,
-    credential: { cert: certBytes, key: keyBytes },
+    credential,
     path: certificatePath,
   };
 }
@@ -127,7 +141,10 @@ export function provision(
           readFile,
           createSecureContext,
         })
-      : loadPemCredential(settings.certificatePath, settings.keyPath, { readFile });
+      : loadPemCredential(settings.certificatePath, settings.keyPath, {
+          readFile,
+          createSecureContext,
+        });
 
   if (!loaded.ok) return loaded;
   const { certificate, credential, path } = loaded;

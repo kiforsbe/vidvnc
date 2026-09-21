@@ -264,3 +264,15 @@ test('default dependencies (no explicit localAddresses) do not throw against thi
   assert.equal(result.ok, true);
   assert.ok(Array.isArray(result.warnings));
 });
+
+test('a certificate and key that do not belong together fail with a readable reason', () => {
+  // The two files both exist and both parse; only OpenSSL can tell they are not a pair.
+  const settings = providedSettings({ certificatePath: validCertPath, keyPath: expiredKeyPath });
+  const result = provision(settings, { localAddresses: addressesCoveredByValidPem });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /cannot be used together/);
+  assert.ok(result.reason.includes(validCertPath));
+  assert.ok(result.reason.includes(expiredKeyPath));
+  assert.match(result.reason, /key values mismatch/i);
+});

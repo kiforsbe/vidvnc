@@ -10,6 +10,8 @@ import {
   provision,
   mkcertStrategy,
   name,
+  MKCERT_PROBE_TIMEOUT_MS,
+  MKCERT_ISSUE_TIMEOUT_MS,
 } from '../../../src/tls/strategies/mkcert.mjs';
 import { defaultTlsSettings } from '../../../src/tls/tls-settings.mjs';
 
@@ -414,4 +416,89 @@ test('the strategy never attempts to install anything (no -install argument is e
   for (const args of seenArgs) {
     assert.ok(!args.includes('-install'), `mkcert must never be invoked with -install (${args})`);
   }
+});
+
+// --- timeouts: mkcert runs under a synchronous spawn, which freezes the event loop ---
+
+const timedOutResult = () => {
+  const error = new Error('spawnSync mkcert ETIMEDOUT');
+  error.code = 'ETIMEDOUT';
+  return { status: null, signal: 'SIGTERM', stdout: '', stderr: '', error };
+};
+
+test('every mkcert invocation is given a timeout so a hung mkcert cannot freeze the server forever', (t) => {
+  const scratch = makeScratch(t);
+  const rootDir = join(scratch, 'caroot');
+  mkdirSync(rootDir, { recursive: true });
+  copyFileSync(rootCertPath, join(rootDir, 'rootCA.pem'));
+
+  const seen = [];
+  const spawnSync = (command, args, options) => {
+    seen.push({ args, timeout: options?.timeout });
+    if (args[0] === '-CAROOT') return { status: 0, stdout: rootDir, stderr: '', error: undefined };
+    writeFileSync(args[args.indexOf('-cert-file') + 1], readFileSync(validLeafCertPath));
+    writeFileSync(args[args.indexOf('-key-file') + 1], readFileSync(validLeafKeyPath));
+    return { status: 0, stdout: '', stderr: '', error: undefined };
+  };
+
+  isAvailable(mkcertSettings(), { spawnSync });
+  provision(mkcertSettings(), {
+    spawnSync,
+    localAddresses: () => addressesCoveredByValidLeaf(),
+    certificateDirectory: () => join(scratch, 'state'),
+  });
+
+  assert.ok(seen.length >= 3, 'expected probes and an issuance');
+  for (const call of seen) {
+    assert.equal(
+      call.timeout,
+      call.args[0] === '-CAROOT' ? MKCERT_PROBE_TIMEOUT_MS : MKCERT_ISSUE_TIMEOUT_MS,
+      `mkcert ${call.args[0]} must carry the right timeout`,
+    );
+  }
+  assert.ok(MKCERT_PROBE_TIMEOUT_MS <= 10_000 && MKCERT_ISSUE_TIMEOUT_MS <= 30_000);
+});
+
+test('a timed-out mkcert probe makes the strategy unavailable', () => {
+  assert.equal(isAvailable(mkcertSettings(), { spawnSync: () => timedOutResult() }), false);
+});
+
+test('a -CAROOT lookup that times out during provisioning is reported as a readable reason, and no credential is returned', (t) => {
+  const scratch = makeScratch(t);
+  // Issuance succeeds; it is the follow-up "where is the CA root" lookup that hangs.
+  const spawnSync = (command, args) => {
+    if (args[0] === '-CAROOT') return timedOutResult();
+    writeFileSync(args[args.indexOf('-cert-file') + 1], readFileSync(validLeafCertPath));
+    writeFileSync(args[args.indexOf('-key-file') + 1], readFileSync(validLeafKeyPath));
+    return { status: 0, stdout: '', stderr: '', error: undefined };
+  };
+
+  const result = provision(mkcertSettings(), {
+    spawnSync,
+    localAddresses: () => addressesCoveredByValidLeaf(),
+    certificateDirectory: () => join(scratch, 'state'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /mkcert -CAROOT did not finish within 10 seconds and was stopped/);
+  assert.equal(result.credential, undefined);
+});
+
+test('a timed-out mkcert issuance is reported as a readable reason, not "exited with status null"', (t) => {
+  const scratch = makeScratch(t);
+  const rootDir = join(scratch, 'caroot');
+  mkdirSync(rootDir, { recursive: true });
+  copyFileSync(rootCertPath, join(rootDir, 'rootCA.pem'));
+
+  const spawnSync = fakeSpawnSync({ caRootDir: rootDir, onIssue: () => timedOutResult() });
+  const result = provision(mkcertSettings(), {
+    spawnSync,
+    localAddresses: () => addressesCoveredByValidLeaf(),
+    certificateDirectory: () => join(scratch, 'state'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /mkcert certificate issuance did not finish within 30 seconds/);
+  assert.doesNotMatch(result.reason, /status null/);
+  assert.equal(result.credential, undefined);
 });

@@ -98,19 +98,36 @@ function powerShellDoubleQuoted(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
 
+// Bounds on how long a PowerShell child may block the server. Every call here is a
+// `spawnSync`, which freezes the whole event loop (all sessions, the plaintext listener)
+// for as long as the child runs; without a timeout a hung PowerShell would freeze the
+// server indefinitely. The `exit 0` probe only has to start the shell; certificate
+// creation, PFX export and store cleanup touch the certificate store and take longer.
+export const POWERSHELL_PROBE_TIMEOUT_MS = 10_000;
+export const POWERSHELL_STEP_TIMEOUT_MS = 30_000;
+
 // Runs one PowerShell script through the injected `spawnSync` and normalizes every way
 // it can fail into `{ ok: false, reason }`, preserving PowerShell's own message text.
 // Never throws, even if `spawnSync` itself throws (a fake runner in tests might, and a
 // real `spawnSync` can reject invalid options synchronously) — mirrors
 // `mkcert.mjs`'s `runCaRoot`/`issueLeaf`.
-function runPowerShell(spawnSync, script) {
+function runPowerShell(spawnSync, script, timeoutMs = POWERSHELL_STEP_TIMEOUT_MS) {
   let result;
   try {
     result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
       encoding: 'utf8',
+      timeout: timeoutMs,
     });
   } catch (error) {
     return { ok: false, reason: `PowerShell failed to run: ${error.message}` };
+  }
+  // A child killed for exceeding `timeout` comes back as an ETIMEDOUT error with a null
+  // status; say which tool and what limit, rather than a bare "exited with status null".
+  if (result?.error?.code === 'ETIMEDOUT') {
+    return {
+      ok: false,
+      reason: `PowerShell did not finish within ${timeoutMs / 1000} seconds and was stopped`,
+    };
   }
   if (!result || result.error) {
     return {
@@ -130,7 +147,7 @@ function runPowerShell(spawnSync, script) {
 // The lightest possible probe that PowerShell itself actually resolves and runs,
 // without touching the certificate store. Used by `isAvailable` only.
 function probePowerShell(spawnSync) {
-  return runPowerShell(spawnSync, 'exit 0');
+  return runPowerShell(spawnSync, 'exit 0', POWERSHELL_PROBE_TIMEOUT_MS);
 }
 
 // True only on Windows, and only when PowerShell itself resolves and runs. `settings` is

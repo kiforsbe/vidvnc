@@ -1,5 +1,4 @@
 import { networkInterfaces, hostname } from 'node:os';
-import { readFile } from 'node:fs/promises';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
 import { createHttpApp } from './http-app.mjs';
@@ -21,7 +20,7 @@ import { seedDisplaySharing } from './cli/policy-edits.mjs';
 import { ApprovedClientStore } from './approved-clients.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
-import { defaultTlsSettings, validateTlsSettings } from './tls/tls-settings.mjs';
+import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
@@ -31,29 +30,6 @@ import { createTlsListener } from './tls/listener.mjs';
 // hours catches a laptop that moved networks, or a certificate entering its renewal
 // window, well inside a single day.
 const TLS_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
-// Reads and validates the TLS settings file, never throwing: a missing file (nothing has
-// configured TLS yet) and a malformed one (hand-edited, or written by a future version)
-// both fall back to `auto`-mode defaults rather than preventing startup, matching the
-// global constraint that TLS is an improvement, never a precondition. A malformed file is
-// still reported, since a failure that leaves the product plaintext must be visible in the
-// log even when it is not fatal.
-async function loadTlsSettings(path, plaintextPort) {
-  let raw;
-  try {
-    raw = await readFile(path, 'utf8');
-  } catch (error) {
-    if (error.code === 'ENOENT') return defaultTlsSettings();
-    console.error(`Could not read TLS settings (${error.message}). Using defaults.`);
-    return defaultTlsSettings();
-  }
-  try {
-    return validateTlsSettings(JSON.parse(raw), { plaintextPort });
-  } catch (error) {
-    console.error(`TLS settings in "${path}" are invalid (${error.message}). Using defaults.`);
-    return defaultTlsSettings();
-  }
-}
 
 if (process.argv[2] === 'config') {
   process.exitCode = await runOffline(process.argv.slice(3), {
@@ -113,7 +89,7 @@ async function serve() {
     });
     const port = Number(process.env.VIDVNC_PORT || 4382);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
-    const tlsSettings = await loadTlsSettings(files.tls, port);
+    const tlsSettings = await loadTlsSettings(files.tls, { plaintextPort: port });
     // The TLS listener shares the plaintext app's request handling, but the app is created
     // below and needs this listener's `status()` as its `tls` option, so the handler is
     // forwarded lazily. It is only ever invoked for a request, after `server` exists.
@@ -187,13 +163,13 @@ async function serve() {
     };
     // Startup provisioning and the periodic re-check are the same idempotent call: the
     // listener binds on the first success and rotates its secure context in place on later
-    // ones (see tls/listener.mjs). It never rejects and never throws, so fire-and-forget
-    // cannot leave an unhandled rejection or stop the plaintext listener from serving.
-    tlsListener.attempt();
-    if (tlsSettings.mode !== 'off')
-      tlsRecheckTimer = setInterval(() => {
-        if (!stopping) tlsListener.attempt();
-      }, TLS_RECHECK_INTERVAL_MS).unref();
+    // ones (see tls/listener.mjs). The listener's own `attempt()` never rejects, but the
+    // call sites still log a rejection rather than trust that: this is fire-and-forget, and
+    // an unhandled rejection would take the whole server down over an optional feature.
+    const attemptTls = () =>
+      tlsListener
+        .attempt()
+        .catch((error) => console.error(`TLS attempt failed (${error?.message ?? error}).`));
     inventoryTimer = setInterval(async () => {
       if (stopping || refreshing) return;
       refreshing = true;
@@ -459,6 +435,19 @@ async function serve() {
     }
     server.listen(port, process.env.VIDVNC_HOST || '0.0.0.0', () => {
       if (stopping) return;
+      // TLS provisioning starts only now, with plaintext already bound, and one turn of
+      // the event loop later so the ready line / banner below has been written first.
+      // Provisioning shells out synchronously (mkcert, PowerShell) and can block the
+      // event loop for as long as those tools take, so it must never sit in front of
+      // plaintext becoming reachable; TLS is an improvement, not a precondition.
+      setImmediate(() => {
+        if (stopping) return;
+        attemptTls();
+        if (tlsSettings.mode !== 'off')
+          tlsRecheckTimer = setInterval(() => {
+            if (!stopping) attemptTls();
+          }, TLS_RECHECK_INTERVAL_MS).unref();
+      });
       if (desktop) {
         console.log(
           JSON.stringify({

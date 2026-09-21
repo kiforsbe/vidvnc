@@ -7,6 +7,7 @@ import { audioModes, chooseAudioMode } from './audio.mjs';
 import { defaultStreamPolicy, resolveStreamPolicy } from './stream-policy.mjs';
 import { applyProfileOrder } from './profile-order.mjs';
 import { isAllowedOrigin } from './tls/origin.mjs';
+import { applyServerLimits } from './server-limits.mjs';
 
 function send(response, status, body) {
   response.writeHead(status, {
@@ -145,18 +146,24 @@ export function createHttpApp({
       const route = new URL(request.url, 'http://localhost').pathname;
       // Plaintext redirect: once TLS is active, every plaintext request except the
       // enrolment allow-list is sent to its HTTPS equivalent, preserving path and query
-      // (`request.url` already carries both). 308 (not 301/302) so a non-GET request
-      // keeps its method, matching the design doc's requirement that a client mid-session
-      // on the plaintext port is redirected without losing that session. This check runs
-      // before host/origin allow-list concerns below because a redirect response needs
-      // neither: it carries no body a cross-origin script could read. When `tls` is not
+      // (`request.url` already carries both). 307 (not 301/302) so a non-GET request keeps
+      // its method; it is deliberately not 308, which browsers cache permanently by
+      // default — a cached redirect to the TLS port would keep sending a client there
+      // after TLS is switched off or the port changes, so the response also says
+      // `no-store`. The check runs AFTER the host allow-list above: the Location is built
+      // from the already-allow-listed hostname and this listener's own TLS port, never
+      // from the raw Host header, so it cannot be steered to another site. Only
+      // origin-form targets ("/path?query") are redirected; anything else (an
+      // absolute-form or authority-form request target) is not something the Location
+      // could faithfully reproduce and falls through to normal handling. When `tls` is not
       // supplied, or reports `active: false` (no credential yet, or TLS off), this branch
       // never fires and every request is served exactly as it is today.
-      if (scheme === 'http') {
+      if (scheme === 'http' && request.url.startsWith('/')) {
         const tlsStatus = tls?.status() ?? { active: false, port: null };
         if (tlsStatus.active && !PLAINTEXT_ALLOWED_PATHS.includes(route)) {
-          response.writeHead(308, {
+          response.writeHead(307, {
             location: `https://${host}:${tlsStatus.port}${request.url}`,
+            'cache-control': 'no-store',
           });
           return response.end();
         }
@@ -579,9 +586,7 @@ export function createHttpApp({
     clearInterval(sweep);
     sessionStore.stop();
   });
-  server.requestTimeout = 15000;
-  server.headersTimeout = 10000;
-  server.maxConnections = 32;
+  applyServerLimits(server);
   server.sessionStore = sessionStore;
   // Exposed so a caller (main.mjs's TLS listener, or a test) can hand the identical
   // request-handling logic to `https.createServer`, so both the plaintext and TLS

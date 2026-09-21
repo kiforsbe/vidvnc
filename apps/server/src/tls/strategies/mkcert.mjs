@@ -45,6 +45,21 @@ function defaultCertificateDirectory() {
   return join(dataDirectory(), 'tls', 'mkcert');
 }
 
+// Bounds on how long a mkcert child process may block the server. Every call here is a
+// `spawnSync`, which freezes the whole event loop (all sessions, the plaintext listener)
+// for as long as the child runs; without a timeout a hung mkcert — a stuck prompt, a
+// blocked network path to its CA root — would freeze the server indefinitely. The probe
+// only prints a path; issuing a leaf generates a key pair, so it gets more time.
+export const MKCERT_PROBE_TIMEOUT_MS = 10_000;
+export const MKCERT_ISSUE_TIMEOUT_MS = 30_000;
+
+// A `spawnSync` that killed its child for exceeding `timeout` reports an `ETIMEDOUT`
+// error and a null status; name the tool and the limit so the log line is actionable.
+function timeoutReason(result, action, timeoutMs) {
+  if (result?.error?.code !== 'ETIMEDOUT') return null;
+  return `mkcert ${action} did not finish within ${timeoutMs / 1000} seconds and was stopped`;
+}
+
 // Runs `mkcert -CAROOT`, which prints mkcert's own CA root directory — the value is asked
 // for, never guessed per-platform, since mkcert's own install layout is exactly the kind of
 // detail this module must not hardcode. Returns `{ ok: true, rootDir }` or
@@ -53,10 +68,15 @@ function defaultCertificateDirectory() {
 function runCaRoot(spawnSync) {
   let result;
   try {
-    result = spawnSync('mkcert', ['-CAROOT'], { encoding: 'utf8' });
+    result = spawnSync('mkcert', ['-CAROOT'], {
+      encoding: 'utf8',
+      timeout: MKCERT_PROBE_TIMEOUT_MS,
+    });
   } catch (error) {
     return { ok: false, reason: `mkcert is not available: ${error.message}` };
   }
+  const probeTimeout = timeoutReason(result, '-CAROOT', MKCERT_PROBE_TIMEOUT_MS);
+  if (probeTimeout) return { ok: false, reason: probeTimeout };
   if (!result || result.error) {
     return {
       ok: false,
@@ -155,10 +175,13 @@ function issueLeaf({ spawnSync, certPath, keyPath, names }) {
   try {
     result = spawnSync('mkcert', ['-cert-file', certPath, '-key-file', keyPath, ...names], {
       encoding: 'utf8',
+      timeout: MKCERT_ISSUE_TIMEOUT_MS,
     });
   } catch (error) {
     return { ok: false, reason: `mkcert failed to run: ${error.message}` };
   }
+  const issueTimeout = timeoutReason(result, 'certificate issuance', MKCERT_ISSUE_TIMEOUT_MS);
+  if (issueTimeout) return { ok: false, reason: issueTimeout };
   if (!result || result.error) {
     return {
       ok: false,
