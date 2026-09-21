@@ -38,7 +38,7 @@ from the repository root:
 | `npm ci`                | Installs the pinned JavaScript dependencies                          |
 | `npm run format:check`  | Checks formatting                                                    |
 | `npm test`              | Runs the portable tests, with hardware stubbed                       |
-| `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, NVIDIA, interactive desktop) |
+| `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop) |
 
 Forks are welcome under the AGPL. If you distribute a modified VidVNC, or let people
 interact with it over a network, you must offer them its source code under the same

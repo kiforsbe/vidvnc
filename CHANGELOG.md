@@ -5,6 +5,47 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- VidVNC now encodes on Intel and AMD graphics as well as NVIDIA, including the
+  integrated graphics built into most processors. Four encoders are supported: NVIDIA
+  NVENC, Intel Quick Sync, AMD AMF and Windows Media Foundation. An NVIDIA card is no
+  longer required.
+- VidVNC picks the encoder for you, preferring the graphics card that is driving the
+  display it is capturing. On a laptop with both integrated and discrete graphics this
+  avoids copying every frame from one card to the other.
+- A new **Encoder** setting on the Codecs page, and the `encoder-backend` CLI command,
+  name a specific encoder instead. Only encoders your PC actually has are offered. A
+  saved setting naming hardware this PC does not have falls back to automatic rather
+  than refusing to stream, so a settings file can be copied between machines.
+- Sessions and diagnostics show which encoder is in use and why it was chosen.
+
+### Changed
+
+- H.265 and AV1 availability is now decided per encoder rather than per codec, because
+  the minimum picture size an encoder accepts differs by vendor. A small custom profile
+  that one graphics card refuses may be accepted by another in the same PC.
+- An encoder is offered only after it passes a short real encode at startup. Hardware
+  that reports a capability it cannot deliver is dropped instead of producing a stream
+  that fails later. On the development machine this correctly dropped AV1 from AMD AMF.
+
+### Fixed
+
+- The VidVNC app and the command line said "NVIDIA" regardless of the graphics card
+  present, so AMD and Intel PCs were told they had an NVIDIA encoder. They now name the
+  encoder actually in use, and troubleshooting messages say "graphics driver".
+
+### Known limitations
+
+- **Intel Quick Sync is untested.** No Intel graphics was available during development.
+  It ships behind the same startup self-test as every other encoder, so if it does not
+  work on your PC it is dropped and another is chosen rather than leaving you with a
+  dead stream. Reports from Intel hardware are welcome.
+- There is still no software encoder and no software capture fallback. A graphics card
+  with a working hardware encoder is required.
+
 ## [0.5.0] - 2026-09-20
 
 ### Added

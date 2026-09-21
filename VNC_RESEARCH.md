@@ -17,6 +17,14 @@ Develop a simple-to-install VNC-style solution for Windows 11 and macOS 27 with:
 
 Current hardware assumption: the server has either an NVIDIA GPU or an Apple M-class CPU/GPU. The client and server may use different architectures, languages, and frameworks.
 
+> **Superseded 2026-09-21.** The NVIDIA-only assumption below held for the
+> proof of concept and no longer describes the Windows server. It now selects
+> between NVENC, Intel Quick Sync, AMD AMF and Media Foundation at startup,
+> preferring whichever sits on the adapter that captured the frame. The rest
+> of this document is kept as the dated record of what was asked for and what
+> was proposed on 2026-09-09; the requirements it quotes are not rewritten.
+> See `docs/ARCHITECTURE.md` for the encoder selection that actually shipped.
+
 ## User requirements
 
 This section records the requirements and preferences supplied by the user. It is the source of truth for future design and implementation work; recommendations elsewhere in this document are proposals and may be revised.

@@ -46,7 +46,7 @@ investigate playback/rendering. Counters unsupported by Safari remain unknown.
 
 ## Verification
 
-Native mobile self-test captures 60 real NVIDIA-encoded frames, verifies SPS
+Native mobile self-test captures 60 real hardware-encoded frames, verifies SPS
 profile 66 and level 31, and requires an extra keyframe after a forced request.
 34 automated tests pass. The opt-in browser-media-check.mjs test passes for
 audio-off and audio-on, decoding approximately 15 fps locally and receiving
