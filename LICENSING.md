@@ -15,10 +15,12 @@ PURPOSE. See the GNU Affero General Public License for more details.
 
 If you modify this Program, or any covered work, by linking or combining it with the
 Microsoft Windows App SDK (including the Windows App Runtime and WinUI), the Microsoft
-Edge WebView2 Runtime, the Microsoft Visual C++ Redistributable, or NVIDIA graphics
-driver components (or a modified version of those libraries), containing parts covered
-by the terms of their respective licenses, the licensors of this Program grant you
-additional permission to convey the resulting work.
+Edge WebView2 Runtime, the Microsoft Visual C++ Redistributable, Microsoft Media
+Foundation, or graphics driver components from NVIDIA, Intel or AMD (including their
+hardware video encoding runtimes, such as NVENC, Intel Quick Sync and AMD AMF), or a
+modified version of any of those libraries, containing parts covered by the terms of
+their respective licenses, the licensors of this Program grant you additional
+permission to convey the resulting work.
 
 ## Third-party components
 

@@ -331,6 +331,6 @@ vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 
 Copyright (C) 2026 kiforsbe. VidVNC is licensed under the
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only), with an additional
-permission for linking with Microsoft and NVIDIA runtime components. Third-party
-components keep their own licenses. See [LICENSING.md](LICENSING.md) for the details,
-commercial licensing and the contributions policy.
+permission for linking with Microsoft, NVIDIA, Intel and AMD runtime components.
+Third-party components keep their own licenses. See [LICENSING.md](LICENSING.md) for
+the details, commercial licensing and the contributions policy.
