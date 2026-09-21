@@ -12,11 +12,14 @@
       "gstaudioconvert.dll",
       "gstaudioresample.dll",
       "gstcoreelements.dll",
+      "gstamfcodec.dll",
       "gstd3d11.dll",
       "gstdtls.dll",
+      "gstmediafoundation.dll",
       "gstnice.dll",
       "gstnvcodec.dll",
       "gstopus.dll",
+      "gstqsv.dll",
       "gstrtp.dll",
       "gstrtpmanager.dll",
       "gstrsrtp.dll",
@@ -34,6 +37,7 @@
       "gst-plugins-bad-1.0": {
         "license": "LGPL-2.0-or-later AND BSD-3-Clause",
         "files": [
+          "gstamfcodec.dll",
           "gstcodecparsers-1.0-0.dll",
           "gstcodecs-1.0-0.dll",
           "gstcuda-1.0-0.dll",
@@ -43,7 +47,9 @@
           "gstd3dshader-1.0-0.dll",
           "gstdtls.dll",
           "gstdxva-1.0-0.dll",
+          "gstmediafoundation.dll",
           "gstnvcodec.dll",
+          "gstqsv.dll",
           "gstsctp-1.0-0.dll",
           "gstsctp.dll",
           "gstsrtp.dll",
@@ -51,7 +57,8 @@
           "gstwasapi.dll",
           "gstwebrtc-1.0-0.dll",
           "gstwebrtc.dll",
-          "gstwebrtcnice-1.0-0.dll"
+          "gstwebrtcnice-1.0-0.dll",
+          "gstwinrt-1.0-0.dll"
         ]
       },
       "gst-plugins-base-1.0": {

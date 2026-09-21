@@ -125,3 +125,27 @@ test('restores the previous tree when the built tree cannot be swapped in', (t) 
   assert.deepEqual(readdirSync(destination), ['old.txt']);
   assert.deepEqual(readdirSync(root).sort(), [path.basename(built), 'Release'].sort());
 });
+
+test('every hardware encoder plugin is staged and every staged plugin declares a licence', () => {
+  const inputs = JSON.parse(
+    readFileSync(new URL('../windows/inputs.json', import.meta.url), 'utf8'),
+  );
+  const { plugins, components } = inputs.gstreamer;
+  // One plugin per encoder family. Without these the worker finds no element to encode with
+  // on Intel or AMD hardware, and the self-test drops the backend with no obvious cause.
+  for (const plugin of [
+    'gstnvcodec.dll',
+    'gstqsv.dll',
+    'gstamfcodec.dll',
+    'gstmediafoundation.dll',
+  ])
+    assert.ok(plugins.includes(plugin), `${plugin} is not staged`);
+  // The guard: a plugin cannot be added without saying what licence it ships under.
+  const licensed = new Map();
+  for (const [name, component] of Object.entries(components)) {
+    assert.ok(component.license, `${name} declares no licence`);
+    for (const file of component.files) licensed.set(file, name);
+  }
+  const undeclared = plugins.filter((plugin) => !licensed.has(plugin));
+  assert.deepEqual(undeclared, [], `staged plugins with no licence: ${undeclared.join(', ')}`);
+});
