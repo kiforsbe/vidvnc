@@ -38,3 +38,6 @@ Desktop.ini
 !.vscode/extensions.json
 .idea/
 *.swp
+
+# Browser automation artifacts (screenshots, page snapshots, console logs)
+.playwright-mcp/

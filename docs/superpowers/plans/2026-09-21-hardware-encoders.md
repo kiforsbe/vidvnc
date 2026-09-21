@@ -698,31 +698,31 @@ Commit message: `docs: describe the supported encoder backends`
 - Consumes: every earlier task.
 - Produces: a green tree and a package that builds with the new plugins staged.
 
-- [ ] **Step 1: Formatting**
+- [x] **Step 1: Formatting**
 
 Run: `npm run format:check`
 Expected: passes. If it fails, run `npm run format` and commit the result.
 
-- [ ] **Step 2: Server suite**
+- [x] **Step 2: Server suite**
 
 Run: `node tools/test.mjs server`
 Expected: passes. Report every failing test name from a full read of the output; do not truncate.
 
-- [ ] **Step 3: Package build**
+- [x] **Step 3: Package build**
 
 Run: `npm run package`
 Expected: both packages build and the three new plugin DLLs appear in the staged plugin directory. This is the only package build in the plan, and it is the only proof that Task 11's manifest changes actually stage and sign.
 
-- [ ] **Step 4: Confirm the NVENC regression one last time**
+- [x] **Step 4: Confirm the NVENC regression one last time**
 
 Run: `node --test native/media-worker/tests/native-worker.test.mjs`
 Expected: passes, including the pre-existing NVENC self-tests. NVENC behaviour must be identical to before this plan.
 
-- [ ] **Step 5: One interactive session on AMF**
+- [x] **Step 5: One interactive session on AMF**
 
   Force `encoder-backend` to `amf` in stream policy, start a session, connect a browser and use it briefly. Confirm the stream is watchable and responsive, not merely that it negotiated. Then set the policy back to `auto`. A passing self-test proves the encoder accepts caps; only this proves the stream is usable.
 
-- [ ] **Step 6: Report**
+- [x] **Step 6: Report**
 
   State plainly what was verified and what was not:
 

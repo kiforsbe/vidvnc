@@ -431,7 +431,7 @@ async function serve() {
         .map((codec) => CODEC_LABELS[codec])
         .join(' / ');
       console.log(
-        `${info.width} × ${info.height} · NVIDIA ${codecLabels} · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
+        `${info.width} × ${info.height} · ${info.backends[0]?.label ?? 'Hardware'} ${codecLabels} · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
       );
       console.log(
         `Type help for commands. Default control: ${accessLabel(access.snapshot().defaultControl)}.`,
@@ -471,8 +471,8 @@ async function serve() {
     console.error(
       `Unable to start VidVNC: ${error.message}\n${
         runtimeManifest?.mode === 'packaged'
-          ? 'Check the NVIDIA driver and the Microsoft Visual C++ Redistributable (x64).'
-          : 'Run build-native.cmd and check the NVIDIA driver / GStreamer SDK.'
+          ? 'Check the graphics driver and the Microsoft Visual C++ Redistributable (x64).'
+          : 'Run build-native.cmd and check the graphics driver / GStreamer SDK.'
       }`,
     );
     process.exitCode = 1;

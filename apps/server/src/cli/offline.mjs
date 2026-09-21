@@ -80,7 +80,7 @@ export async function createOfflineContext({
         displays ??= new DisplayInventory(await listDisplays()).rows;
       } catch (error) {
         throw new Error(
-          `Display information is unavailable: ${error.message}. Check that the media worker is installed and the NVIDIA driver is working.`,
+          `Display information is unavailable: ${error.message}. Check that the media worker is installed and the graphics driver is working.`,
         );
       }
       return displays;
@@ -90,7 +90,7 @@ export async function createOfflineContext({
         codecs ??= await probeCodecs();
       } catch (error) {
         throw new Error(
-          `Codec information is unavailable: ${error.message}. Check that the media worker is installed and the NVIDIA driver is working.`,
+          `Codec information is unavailable: ${error.message}. Check that the media worker is installed and the graphics driver is working.`,
         );
       }
       return codecs;
