@@ -1,4 +1,5 @@
 import { networkInterfaces, hostname } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
 import { createHttpApp } from './http-app.mjs';
@@ -20,6 +21,39 @@ import { seedDisplaySharing } from './cli/policy-edits.mjs';
 import { ApprovedClientStore } from './approved-clients.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
+import { defaultTlsSettings, validateTlsSettings } from './tls/tls-settings.mjs';
+import { createTlsListener } from './tls/listener.mjs';
+
+// TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
+// to notice an address change or an approaching expiry before that window closes, not
+// react within seconds — a short interval would mean windows-self-signed's `isAvailable`
+// re-probing PowerShell (Task 6's accepted precedent) far more often than useful. Six
+// hours catches a laptop that moved networks, or a certificate entering its renewal
+// window, well inside a single day.
+const TLS_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+// Reads and validates the TLS settings file, never throwing: a missing file (nothing has
+// configured TLS yet) and a malformed one (hand-edited, or written by a future version)
+// both fall back to `auto`-mode defaults rather than preventing startup, matching the
+// global constraint that TLS is an improvement, never a precondition. A malformed file is
+// still reported, since a failure that leaves the product plaintext must be visible in the
+// log even when it is not fatal.
+async function loadTlsSettings(path, plaintextPort) {
+  let raw;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return defaultTlsSettings();
+    console.error(`Could not read TLS settings (${error.message}). Using defaults.`);
+    return defaultTlsSettings();
+  }
+  try {
+    return validateTlsSettings(JSON.parse(raw), { plaintextPort });
+  } catch (error) {
+    console.error(`TLS settings in "${path}" are invalid (${error.message}). Using defaults.`);
+    return defaultTlsSettings();
+  }
+}
 
 if (process.argv[2] === 'config') {
   process.exitCode = await runOffline(process.argv.slice(3), {
@@ -77,6 +111,17 @@ async function serve() {
       videoCodecs: hostCodecs,
       videoBackends: info.backends,
     });
+    const port = Number(process.env.VIDVNC_PORT || 4382);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
+    const tlsSettings = await loadTlsSettings(files.tls, port);
+    // The TLS listener shares the plaintext app's request handling, but the app is created
+    // below and needs this listener's `status()` as its `tls` option, so the handler is
+    // forwarded lazily. It is only ever invoked for a request, after `server` exists.
+    const tlsListener = createTlsListener({
+      settings: tlsSettings,
+      requestListener: (request, response) => server.requestListener(request, response),
+      host: process.env.VIDVNC_HOST || '0.0.0.0',
+    });
     const server = createHttpApp({
       runtime,
       serverName: hostname(),
@@ -89,9 +134,8 @@ async function serve() {
       approvedClients,
       access,
       display: { name: 'Primary display', width: info.width, height: info.height, refreshHz: 30 },
+      tls: tlsListener,
     });
-    const port = Number(process.env.VIDVNC_PORT || 4382);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
     let releaseInstance = () => {};
     try {
       releaseInstance = registerInstance(files.instances, {
@@ -116,6 +160,7 @@ async function serve() {
     let statusTimer;
     let inventoryTimer;
     let controlTimer;
+    let tlsRecheckTimer;
     let refreshing = false;
     const inventoryAbort = new AbortController();
     let stopping = false;
@@ -125,6 +170,7 @@ async function serve() {
       clearInterval(statusTimer);
       clearInterval(inventoryTimer);
       clearInterval(controlTimer);
+      clearInterval(tlsRecheckTimer);
       inventoryAbort.abort();
       store.stop();
       owner?.close();
@@ -132,11 +178,22 @@ async function serve() {
       process.stdin.pause();
       const closed = new Promise((resolve) => server.close(resolve));
       server.closeAllConnections();
+      const tlsClosed = tlsListener.close();
       await runtime.shutdown();
       await closed;
+      await tlsClosed;
       await diagnostics.writes;
       releaseInstance();
     };
+    // Startup provisioning and the periodic re-check are the same idempotent call: the
+    // listener binds on the first success and rotates its secure context in place on later
+    // ones (see tls/listener.mjs). It never rejects and never throws, so fire-and-forget
+    // cannot leave an unhandled rejection or stop the plaintext listener from serving.
+    tlsListener.attempt();
+    if (tlsSettings.mode !== 'off')
+      tlsRecheckTimer = setInterval(() => {
+        if (!stopping) tlsListener.attempt();
+      }, TLS_RECHECK_INTERVAL_MS).unref();
     inventoryTimer = setInterval(async () => {
       if (stopping || refreshing) return;
       refreshing = true;

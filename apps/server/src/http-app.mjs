@@ -15,6 +15,19 @@ function send(response, status, body) {
   });
   response.end(body === undefined ? undefined : JSON.stringify(body));
 }
+// The three enrolment endpoints fixed by ruling before Task 11 exists to implement their
+// handlers (see the plan's progress ledger, ruling R2). They stay reachable on the
+// plaintext listener, unredirected, because a device that does not yet trust the host has
+// no un-warned way to fetch the trust anchor over the very connection that anchor exists
+// to authenticate. Every other plaintext request redirects to the HTTPS equivalent once
+// TLS is active. Task 11 fills in the handlers at these exact paths; until then they fall
+// through to the existing 404 catch-all below, same as any other unknown route.
+export const PLAINTEXT_ALLOWED_PATHS = Object.freeze([
+  '/trust',
+  '/api/trust/anchor',
+  '/api/trust/status',
+]);
+
 async function readJson(request) {
   let size = 0,
     text = '';
@@ -45,6 +58,14 @@ export function createHttpApp({
   sessionStore = new SessionStore(),
   approvedClients = null,
   access = null,
+  // Injectable TLS status: `{ status() }` returning `{ active, port }`, read on every
+  // request. Omitted, the app behaves as if TLS is inactive, which keeps every existing
+  // caller (this app is constructed in dozens of tests with no `tls` option) byte-identical
+  // to today: no redirect can ever fire unless a caller explicitly reports TLS as active.
+  // main.mjs passes the TLS listener itself (tls/listener.mjs), whose `status()` is true
+  // only while a listener is really bound. This function never provisions anything; it
+  // only reads whatever status it is handed.
+  tls = null,
 } = {}) {
   const reconnecting = new Set();
   const telemetryTimes = new Map();
@@ -107,7 +128,7 @@ export function createHttpApp({
       display: plan.selectedDisplay,
     });
   }
-  const server = createServer(async (request, response) => {
+  const requestListener = async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
     response.setHeader(
@@ -121,9 +142,27 @@ export function createHttpApp({
       // The scheme is read from the socket, not from a client-supplied header (e.g.
       // X-Forwarded-Proto): only the connection itself can say whether it is encrypted.
       const scheme = request.socket.encrypted ? 'https' : 'http';
+      const route = new URL(request.url, 'http://localhost').pathname;
+      // Plaintext redirect: once TLS is active, every plaintext request except the
+      // enrolment allow-list is sent to its HTTPS equivalent, preserving path and query
+      // (`request.url` already carries both). 308 (not 301/302) so a non-GET request
+      // keeps its method, matching the design doc's requirement that a client mid-session
+      // on the plaintext port is redirected without losing that session. This check runs
+      // before host/origin allow-list concerns below because a redirect response needs
+      // neither: it carries no body a cross-origin script could read. When `tls` is not
+      // supplied, or reports `active: false` (no credential yet, or TLS off), this branch
+      // never fires and every request is served exactly as it is today.
+      if (scheme === 'http') {
+        const tlsStatus = tls?.status() ?? { active: false, port: null };
+        if (tlsStatus.active && !PLAINTEXT_ALLOWED_PATHS.includes(route)) {
+          response.writeHead(308, {
+            location: `https://${host}:${tlsStatus.port}${request.url}`,
+          });
+          return response.end();
+        }
+      }
       if (!isAllowedOrigin(scheme, request.headers.host, request.headers.origin))
         return send(response, 403, { error: 'Cross-origin request denied' });
-      const route = new URL(request.url, 'http://localhost').pathname;
       if (route === '/diagnostics' || route === '/api/diagnostics') {
         const local =
           ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress) &&
@@ -527,7 +566,8 @@ export function createHttpApp({
           error: error.status ? error.message : 'Server error',
         });
     }
-  });
+  };
+  const server = createServer(requestListener);
   const revoke = sessionStore.onRevoke;
   sessionStore.onRevoke = (id) => {
     telemetryTimes.delete(id);
@@ -543,5 +583,9 @@ export function createHttpApp({
   server.headersTimeout = 10000;
   server.maxConnections = 32;
   server.sessionStore = sessionStore;
+  // Exposed so a caller (main.mjs's TLS listener, or a test) can hand the identical
+  // request-handling logic to `https.createServer`, so both the plaintext and TLS
+  // listeners share one codepath for routing, sessions, and headers rather than two.
+  server.requestListener = requestListener;
   return server;
 }
