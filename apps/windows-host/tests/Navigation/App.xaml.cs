@@ -274,7 +274,32 @@ public partial class App : Application
                                     throw new Exception("Profile values wrap below the availability control at normal window width");
                                 if (cycle == 0)
                                 {
-                                    var snapshotField = typeof(HostWindow).GetField("streamPolicy", flags)!;
+                                    // Encoder selector: exactly Automatic plus the backends this
+                                    // machine reported, and an honest notice when the saved
+                                    // setting names hardware that is not here.
+                                    var backendsField = typeof(HostWindow).GetField("hostBackends", flags)!;
+                                    backendsField.SetValue(window, new[] { ("nvenc", "NVIDIA NVENC"), ("amf", "AMD AMF") });
+                                    typeof(HostWindow).GetMethod("RenderPage", flags)!.Invoke(window, null); await Task.Delay(80);
+                                    var encoderBox = Descendants(shell).OfType<ComboBox>().Single(c => c.Tag as string == "encoder-backend");
+                                    var encoderLabels = encoderBox.Items.OfType<ComboBoxItem>().Select(i => i.Content as string).ToArray();
+                                    if (!encoderLabels.SequenceEqual(new[] { "Automatic", "NVIDIA NVENC", "AMD AMF" }))
+                                        throw new Exception("Encoder options must be Automatic plus exactly the reported backends, got: " + string.Join(", ", encoderLabels));
+                                    if (encoderBox.SelectedIndex != 0) throw new Exception("An unset encoder must show as Automatic");
+                                    var policyField = typeof(HostWindow).GetField("streamPolicy", flags)!;
+                                    var forcedPolicy = System.Text.Json.Nodes.JsonNode.Parse(policyFixture.RootElement.GetRawText())!.AsObject();
+                                    forcedPolicy["encoderBackend"] = "qsv";
+                                    using (var forcedDocument = JsonDocument.Parse(forcedPolicy.ToJsonString()))
+                                        updatePolicy.Invoke(window, new object[] { forcedDocument.RootElement });
+                                    await Task.Delay(80);
+                                    typeof(HostWindow).GetMethod("RenderPage", flags)!.Invoke(window, null); await Task.Delay(80);
+                                    if (!Descendants(shell).OfType<TextBlock>().Any(t => t.Text is string s && s.Contains("not available on this PC")))
+                                        throw new Exception("A forced backend this machine lacks must be reported as substituted, not shown as in effect");
+                                    var restorePolicy = System.Text.Json.Nodes.JsonNode.Parse(policyFixture.RootElement.GetRawText())!.AsObject();
+                                    using (var restoreDocument = JsonDocument.Parse(restorePolicy.ToJsonString()))
+                                        updatePolicy.Invoke(window, new object[] { restoreDocument.RootElement });
+                                    await Task.Delay(80);
+                                    typeof(HostWindow).GetMethod("RenderPage", flags)!.Invoke(window, null); await Task.Delay(80);
+                                    var snapshotField = policyField;
                                     var reorderPolicy = System.Text.Json.Nodes.JsonNode.Parse(policyFixture.RootElement.GetRawText())!.AsObject();
                                     reorderPolicy["profiles"]!.AsArray().RemoveAt(1);
                                     var secondProfile = reorderPolicy["profiles"]![0]!.DeepClone();

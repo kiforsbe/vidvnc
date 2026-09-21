@@ -543,7 +543,7 @@ Commit message: `feat: report the selected encoder backend`
 - Consumes: `ENCODER_BACKEND_CHOICES` and `BACKEND_LABELS` from `encoder-backends.mjs` (Task 6); the status fields from Task 8.
 - Produces: an `encoder-backend` policy field in the settings commands, accepting the five values, with the same conflict advice and revision handling as the other top-level policy fields. `diagnostics` output gains the available backends, the active backend and element, and the selection reason.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   Four cases, one per file:
 
@@ -552,22 +552,22 @@ Commit message: `feat: report the selected encoder backend`
   3. `cli-completion.test.mjs`: completing the value of `encoder-backend` offers exactly the five allowed values.
   4. `cli-parity.test.mjs`: this test walks every policy field, so it must be extended to include `encoder-backend`. Adding it here is the point of the task, not an incidental edit.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `node --test apps/server/tests/cli-policy-edits.test.mjs apps/server/tests/cli-commands.test.mjs apps/server/tests/cli-completion.test.mjs apps/server/tests/cli-parity.test.mjs`
 Expected: the four new cases fail.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Add the field to the policy edit map, the settings command output, the formatter and the completion values, following the existing `video-codecs` field in each file.
   - Add the backend fields to the `diagnostics` output.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `node --test apps/server/tests/cli-policy-edits.test.mjs apps/server/tests/cli-commands.test.mjs apps/server/tests/cli-completion.test.mjs apps/server/tests/cli-parity.test.mjs`
 Expected: all pass.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add apps/server/src/cli apps/server/tests/cli-policy-edits.test.mjs apps/server/tests/cli-commands.test.mjs apps/server/tests/cli-completion.test.mjs apps/server/tests/cli-parity.test.mjs`
 Commit message: `feat: expose the encoder backend in the CLI`
@@ -584,7 +584,7 @@ Commit message: `feat: expose the encoder backend in the CLI`
 - Consumes: the host status fields from Task 8 — available backends with labels, the active backend and element, and the selection reason.
 - Produces: a backend selector on the Codecs page whose options are `Automatic` plus the backends this machine actually reported. A backend the machine does not have is not offered.
 
-- [ ] **Step 1: Extend the Navigation regression**
+- [x] **Step 1: Extend the Navigation regression**
 
   Three cases:
 
@@ -592,23 +592,23 @@ Commit message: `feat: expose the encoder backend in the CLI`
   2. With a stream running, the page names the active backend and the reason it was chosen.
   3. When a forced backend was substituted because it is unavailable, the page says so rather than showing the forced value as if it were in effect.
 
-- [ ] **Step 2: Build and run the regression, and confirm the cases fail**
+- [x] **Step 2: Build and run the regression, and confirm the cases fail**
 
 Run: `dotnet build apps/windows-host/VidVnc.Host.csproj`, then the Navigation regression as documented
 Expected: the three new cases fail; the existing Codecs cases pass.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Add the selector, bound to the policy field, following how the existing codec checkboxes on this page read and write policy.
   - Show the active backend, element and reason, and the substitution notice.
   - Mark Quick Sync alone as untested against real hardware, and leave NVENC, AMF and Media Foundation unqualified, since all three are exercised on the development machine. The interface must not present four equal options, and it must not imply AMF and Media Foundation are unverified when they are not. One short line on the Quick Sync option is enough; match the README wording from Task 12.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `dotnet build apps/windows-host/VidVnc.Host.csproj`, then the Navigation regression once
 Expected: all pass.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add apps/windows-host`
 Commit message: `feat: choose an encoder backend from the host app`

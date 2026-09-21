@@ -20,6 +20,9 @@ public sealed partial class HostWindow : Window
     bool stopping;
     bool starting;
     string[] hostCodecs = ["h264"];
+    // Encoder families this machine can actually encode with, as the server reported them.
+    // Empty until the server is ready; the Codecs page then offers exactly these.
+    (string Id, string Label)[] hostBackends = [];
 
     public HostWindow()
     {
@@ -67,12 +70,19 @@ public sealed partial class HostWindow : Window
                 if (ready.GetProperty("type").GetString() != "ready") continue;
                 if (ready.TryGetProperty("codecs", out var readyCodecs) && readyCodecs.ValueKind == JsonValueKind.Array)
                     hostCodecs = readyCodecs.EnumerateArray().Select(codec => codec.GetString()!).ToArray();
+                if (ready.TryGetProperty("backends", out var readyBackends) && readyBackends.ValueKind == JsonValueKind.Array)
+                    hostBackends = readyBackends.EnumerateArray()
+                        .Select(backend => (backend.GetProperty("id").GetString()!, backend.GetProperty("label").GetString()!))
+                        .ToArray();
                 var codecLabel = string.Join(" / ", hostCodecs.Select(CodecLabel));
+                // Name the GPU family that will actually encode. This used to read "NVIDIA"
+                // unconditionally, which was wrong on every Intel and AMD machine.
+                var vendorLabel = hostBackends.Length > 0 ? hostBackends[0].Label : "Hardware";
                 heading.Text = "Your desktop is ready";
-                detail.Text = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · NVIDIA {codecLabel}\nConnect from your browser. Keyboard and mouse start off.";
+                detail.Text = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}\nConnect from your browser. Keyboard and mouse start off.";
                 address.Text = ready.GetProperty("urls")[0].GetString() ?? "";
                 password.Text = ready.GetProperty("password").GetString() ?? "";
-                displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · NVIDIA {codecLabel}";
+                displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}";
                 if (ready.TryGetProperty("displays", out var displays)) UpdateDisplays(displays);
                 if (ready.TryGetProperty("policy", out var policy)) UpdatePolicy(policy);
                 if (ready.TryGetProperty("access", out var access)) UpdateAccess(access);

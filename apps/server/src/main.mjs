@@ -415,6 +415,7 @@ async function serve() {
             access: access.snapshot(),
             clients: approvedClients.status(store.list()),
             codecs: hostCodecs,
+            backends: info.backends.map(({ id, label, codecs }) => ({ id, label, codecs })),
           }),
         );
         return;

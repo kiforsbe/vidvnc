@@ -92,10 +92,59 @@ public sealed partial class HostWindow
         return row;
     }
 
+    async Task ChangeEncoderBackend(string backend)
+    {
+        try
+        {
+            if (streamPolicy is null || policySaving) return;
+            if (streamPolicy["encoderBackend"]?.GetValue<string>() == backend) return;
+            if (sessionCards.Count > 0 && !await ConfirmProfileApply("Apply encoder change?")) return;
+            var candidate = streamPolicy.DeepClone().AsObject();
+            candidate["encoderBackend"] = backend;
+            await SavePolicy(candidate, true);
+        }
+        catch (Exception error) { policyError = error.Message; }
+        finally { if (currentPage == "Streaming profiles") RenderPage(); }
+    }
+
+    // Only the backends this machine reported, plus Automatic. Offering a family the machine
+    // does not have would let the host pick something that silently falls back to another.
+    void RenderEncoderBackend(StackPanel content)
+    {
+        var options = new List<(string Id, string Label)> { ("auto", "Automatic") };
+        options.AddRange(hostBackends);
+        var current = streamPolicy?["encoderBackend"]?.GetValue<string>() ?? "auto";
+        var selector = new ComboBox { Tag = "encoder-backend", MinWidth = 220,
+            IsEnabled = server is not null && !policySaving };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(selector, "Encoder");
+        foreach (var (id, label) in options)
+            selector.Items.Add(new ComboBoxItem { Content = label, Tag = id });
+        var index = options.FindIndex(option => option.Id == current);
+        selector.SelectedIndex = index >= 0 ? index : 0;
+        selector.SelectionChanged += async (_, _) =>
+        {
+            if (selector.SelectedItem is ComboBoxItem item && item.Tag is string id)
+                await ChangeEncoderBackend(id);
+        };
+        content.Children.Add(selector);
+        // A saved setting naming hardware this machine does not have is not an error: the
+        // worker picks automatically instead. Say so rather than showing it as in effect.
+        if (current != "auto" && index < 0)
+            content.Children.Add(Secondary($"The saved encoder \"{current}\" is not available on this PC. One is chosen automatically."));
+        else if (current == "auto")
+            content.Children.Add(Secondary("VidVNC picks the encoder on the graphics card driving the display."));
+        // Quick Sync is the one family never run against real hardware during development.
+        if (current == "qsv")
+            content.Children.Add(Secondary("Intel Quick Sync has not been tested against real hardware."));
+    }
+
     void RenderVideoCodecs()
     {
         if (streamPolicy is null) return;
         var content = new StackPanel { Spacing = HostSpacing.Related };
+        content.Children.Add(Label("Encoder", 20));
+        content.Children.Add(Secondary("Which graphics card encodes the picture."));
+        RenderEncoderBackend(content);
         content.Children.Add(Label("Video codecs", 20));
         content.Children.Add(Secondary("Each device uses the first enabled codec its browser can decode in hardware. H.264 is always available as the fallback."));
         var enabledCodecs = VideoCodecOrder(streamPolicy);
