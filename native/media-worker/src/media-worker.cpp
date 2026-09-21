@@ -15,6 +15,7 @@
 #include <cmath>
 #include <atomic>
 #include <fstream>
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -28,6 +29,8 @@
 #include "rate-control.hpp"
 #include "encoder-backend.hpp"
 #include "encoder-properties.hpp"
+#include "encoder-selection.hpp"
+#include <dxgi.h>
 #include "telemetry.hpp"
 #include "transport-telemetry.hpp"
 static MediaTelemetry telemetry;
@@ -118,9 +121,11 @@ static const char *quality_name(Quality quality) {
 static bool video_enabled = true;
 static int audio_channels = 0; // 0: no audio chain; 1: mono-32k; 2: stereo-96k
 static const VideoCodec *video_codec = &video_codecs()[0];
-// Task 5 replaces this with per-machine selection. Until then the worker behaves exactly as it
-// did when NVENC was the only encoder it knew about.
+// Set by `choose_encoder_backend` when a stream starts, and by --self-test-codec. Selection
+// happens once per stream and never changes mid-session.
 static const EncoderBackend *encoder_backend = find_encoder_backend("nvenc");
+static std::string forced_backend = "auto";
+static SelectionReason selection_reason = SelectionReason::FixedOrder;
 static bool host_control_required = false;
 static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
@@ -592,6 +597,222 @@ static std::string audio_source_description() {
            "tee name=audio-fanout allow-not-linked=true";
 }
 
+struct AdapterInfo {
+    UINT index;
+    std::int64_t luid;
+};
+
+// Packed the same way GStreamer packs its `adapter-luid` properties, so the two compare.
+static std::int64_t luid_to_int64(const LUID &luid) {
+    LARGE_INTEGER value;
+    value.LowPart = luid.LowPart;
+    value.HighPart = luid.HighPart;
+    return value.QuadPart;
+}
+
+static std::vector<AdapterInfo> enumerate_adapters() {
+    std::vector<AdapterInfo> adapters;
+    IDXGIFactory1 *factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory))))
+        return adapters;
+    IDXGIAdapter1 *adapter = nullptr;
+    for (UINT index = 0; factory->EnumAdapters1(index, &adapter) != DXGI_ERROR_NOT_FOUND; ++index) {
+        DXGI_ADAPTER_DESC1 desc{};
+        if (SUCCEEDED(adapter->GetDesc1(&desc)))
+            adapters.push_back({index, luid_to_int64(desc.AdapterLuid)});
+        adapter->Release();
+        adapter = nullptr;
+    }
+    factory->Release();
+    return adapters;
+}
+
+// Desktop duplication captures on the GPU that drives the monitor, and d3d11screencapturesrc
+// does not report which that is: it exposes only an `adapter` index meant for Windows Graphics
+// Capture. Match the monitor handle against DXGI's outputs instead. An unknown adapter is not a
+// failure; ranking simply falls back to the fixed backend order.
+static bool capture_adapter_luid(std::int64_t &out) {
+    HMONITOR monitor = capture_display ? reinterpret_cast<HMONITOR>(capture_display->handle)
+                                       : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    if (!monitor)
+        return false;
+    IDXGIFactory1 *factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory))))
+        return false;
+    bool found = false;
+    IDXGIAdapter1 *adapter = nullptr;
+    for (UINT i = 0; !found && factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+        IDXGIOutput *output = nullptr;
+        for (UINT j = 0; !found && adapter->EnumOutputs(j, &output) != DXGI_ERROR_NOT_FOUND; ++j) {
+            DXGI_OUTPUT_DESC desc{};
+            DXGI_ADAPTER_DESC1 adapter_desc{};
+            if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor &&
+                SUCCEEDED(adapter->GetDesc1(&adapter_desc))) {
+                out = luid_to_int64(adapter_desc.AdapterLuid);
+                found = true;
+            }
+            output->Release();
+            output = nullptr;
+        }
+        adapter->Release();
+        adapter = nullptr;
+    }
+    factory->Release();
+    return found;
+}
+
+static bool element_adapter_luid(const std::string &name, std::int64_t &out) {
+    auto *element = gst_element_factory_make(name.c_str(), nullptr);
+    if (!element)
+        return false;
+    bool found = false;
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(element), "adapter-luid")) {
+        gint64 value = 0;
+        g_object_get(element, "adapter-luid", &value, nullptr);
+        out = value;
+        found = true;
+    }
+    gst_object_unref(element);
+    return found;
+}
+
+// A registered element factory is not evidence that the hardware, driver and element agree.
+// Drive ten real frames of D3D11 memory through the encoder on its own adapter and see. This is
+// what "available" means everywhere else in the worker.
+static bool backend_encodes(const EncoderBackend &backend, const VideoCodec &codec,
+                            const std::vector<AdapterInfo> &adapters) {
+    const auto element = encoder_element(backend, codec.id);
+    if (element.empty())
+        return false;
+    StreamProfile trial{640, 480, 30, 2000, 1200};
+    trial.bitrate_mode = BitrateMode::Cbr;
+    const auto properties =
+        encoder_properties(backend, element, codec.id, rate_control(codec.id, trial));
+    std::string source = "d3d11testsrc num-buffers=10";
+    std::int64_t luid = 0;
+    if (element_adapter_luid(element, luid))
+        for (const auto &adapter : adapters)
+            if (adapter.luid == luid)
+                source += " adapter=" + std::to_string(adapter.index);
+    const auto description = source +
+                             " ! video/x-raw(memory:D3D11Memory),format=NV12,width=640,"
+                             "height=480,framerate=30/1 ! " +
+                             element + " " + properties.text + " ! " + codec.parser + " ! fakesink";
+    GError *error = nullptr;
+    auto *pipe = gst_parse_launch(description.c_str(), &error);
+    if (error || !pipe) {
+        if (error_log.is_open())
+            error_log << "BACKEND " << backend.id << " " << codec.id
+                      << " unavailable: " << (error ? error->message : "no pipeline") << std::endl;
+        if (error)
+            g_error_free(error);
+        if (pipe)
+            gst_object_unref(pipe);
+        return false;
+    }
+    gst_element_set_state(pipe, GST_STATE_PLAYING);
+    auto *bus = gst_element_get_bus(pipe);
+    auto *message = gst_bus_timed_pop_filtered(
+        bus, 10 * GST_SECOND, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
+    const bool ok = message && GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS;
+    if (message && !ok && error_log.is_open()) {
+        GError *failure = nullptr;
+        gchar *debug = nullptr;
+        gst_message_parse_error(message, &failure, &debug);
+        error_log << "BACKEND " << backend.id << " " << codec.id
+                  << " self-test failed: " << (failure ? failure->message : "unknown") << std::endl;
+        if (failure)
+            g_error_free(failure);
+        g_free(debug);
+    }
+    if (message)
+        gst_message_unref(message);
+    gst_element_set_state(pipe, GST_STATE_NULL);
+    gst_object_unref(bus);
+    gst_object_unref(pipe);
+    return ok;
+}
+
+// Memoised per backend and codec, because every self-test is a real encode. Starting a stream
+// then pays only for the codec it is about to use, and usually only until the first backend
+// passes, rather than for the whole matrix.
+static bool backend_supports(const EncoderBackend &backend, const VideoCodec &codec) {
+    static std::map<std::string, bool> cache;
+    const auto key = backend.id + "/" + codec.id;
+    const auto cached = cache.find(key);
+    if (cached != cache.end())
+        return cached->second;
+    static const auto adapters = enumerate_adapters();
+    const auto element = encoder_element(backend, codec.id);
+    bool supported = false;
+    if (!element.empty()) {
+        const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
+        auto *encoder_factory = gst_element_factory_find(element.c_str());
+        auto *parser_factory = gst_element_factory_find(parser_name.c_str());
+        auto *payloader_factory = gst_element_factory_find(codec.payloader.c_str());
+        const bool present = encoder_factory && parser_factory && payloader_factory;
+        if (encoder_factory)
+            gst_object_unref(encoder_factory);
+        if (parser_factory)
+            gst_object_unref(parser_factory);
+        if (payloader_factory)
+            gst_object_unref(payloader_factory);
+        supported = present && backend_encodes(backend, codec, adapters);
+    }
+    cache.emplace(key, supported);
+    return supported;
+}
+
+struct BackendAvailability {
+    const EncoderBackend *backend;
+    std::vector<std::string> codecs;
+    bool on_capture_adapter;
+};
+
+// The whole matrix. Only --probe needs this; a stream asks about one codec.
+static std::vector<BackendAvailability> available_backends() {
+    std::vector<BackendAvailability> result;
+    std::int64_t capture_luid = 0;
+    const bool capture_known = capture_adapter_luid(capture_luid);
+    for (const auto &backend : encoder_backends()) {
+        BackendAvailability entry{&backend, {}, false};
+        for (const auto &codec : video_codecs()) {
+            if (!backend_supports(backend, codec))
+                continue;
+            entry.codecs.push_back(codec.id);
+            std::int64_t luid = 0;
+            const auto element = encoder_element(backend, codec.id);
+            if (capture_known && element_adapter_luid(element, luid) && luid == capture_luid)
+                entry.on_capture_adapter = true;
+        }
+        if (!entry.codecs.empty())
+            result.push_back(entry);
+    }
+    return result;
+}
+
+static bool backend_offers(const BackendAvailability &entry, const std::string &codec_id) {
+    return std::find(entry.codecs.begin(), entry.codecs.end(), codec_id) != entry.codecs.end();
+}
+
+static Selection encoder_selection_for(const std::string &codec_id) {
+    const auto *codec = find_video_codec(codec_id);
+    if (!codec)
+        return {false, {}, SelectionReason::FixedOrder};
+    std::vector<EncoderCandidate> candidates;
+    std::int64_t capture_luid = 0;
+    const bool capture_known = capture_adapter_luid(capture_luid);
+    for (const auto &backend : encoder_backends()) {
+        if (!backend_supports(backend, *codec))
+            continue;
+        const auto element = encoder_element(backend, codec_id);
+        std::int64_t luid = 0;
+        const bool has_adapter = element_adapter_luid(element, luid);
+        candidates.push_back({backend.id, element, has_adapter, luid});
+    }
+    return select_encoder(candidates, capture_known, capture_luid, forced_backend);
+}
+
 static void preflight() {
     // RtlGetVersion is not affected by application compatibility manifests.
     struct Version {
@@ -607,7 +828,7 @@ static void preflight() {
     // here rather than mid-negotiation.
     for (const char *name : {"d3d11screencapturesrc",
                              "d3d11convert",
-                             "nvd3d11h264enc",
+                             "d3d11testsrc",
                              "h264parse",
                              "rtph264pay",
                              "webrtcbin",
@@ -638,6 +859,19 @@ static void preflight() {
                                      name);
         gst_object_unref(factory);
     }
+    // H.264 is the universal fallback throughout the protocol and the one codec a host cannot
+    // disable, so at least one encoder family must deliver it. Which family does not matter.
+    // This stops at the first family that works, so the common case costs one short encode.
+    const auto *h264 = find_video_codec("h264");
+    for (const auto &backend : encoder_backends())
+        if (h264 && backend_supports(backend, *h264))
+            return;
+    std::string tried;
+    for (const auto &backend : encoder_backends())
+        tried += (tried.empty() ? "" : ", ") + encoder_element(backend, "h264");
+    throw std::runtime_error("No supported hardware H.264 encoder. Tried " + tried +
+                             ". A GPU with a working NVIDIA, Intel or AMD hardware encoder and "
+                             "a current driver is required.");
 }
 
 static void count_frame(GstElement *sink, GstBuffer *, GstPad *, gpointer data) {
@@ -1130,6 +1364,21 @@ static void start_source(JsonObject *object) {
         video_codec = codec_id.empty() ? &video_codecs()[0] : find_video_codec(codec_id);
         if (!video_codec)
             return fatal("Invalid video codec");
+        // The display is already resolved above, so the capture adapter is known here and
+        // affinity can be applied. Selection happens once and holds for the whole session.
+        const std::string requested = string_member(object, "encoderBackend");
+        forced_backend = requested.empty() ? "auto" : requested;
+        const auto chosen = encoder_selection_for(video_codec->id);
+        if (!chosen.found) {
+            const std::string message = "No hardware encoder available for " + video_codec->id;
+            return fatal(message.c_str());
+        }
+        encoder_backend = find_encoder_backend(chosen.candidate.backend_id);
+        selection_reason = chosen.reason;
+        if (error_log.is_open())
+            error_log << "ENCODER " << chosen.candidate.element_name << " backend "
+                      << chosen.candidate.backend_id << " reason "
+                      << static_cast<int>(chosen.reason) << std::endl;
     }
     std::string description;
     if (video_enabled)
@@ -1315,26 +1564,45 @@ int main(int argc, char **argv) {
             auto object = json_object_new();
             json_object_set_int_member(object, "width", GetSystemMetrics(SM_CXSCREEN));
             json_object_set_int_member(object, "height", GetSystemMetrics(SM_CYSCREEN));
-            json_object_set_string_member(object, "encoder", "nvd3d11h264enc");
             json_object_set_string_member(object, "capture", "dxgi");
+            // `codecs` keeps its meaning and shape: what this machine can encode with any
+            // backend. `backends` is the detail the server needs to pick one.
             auto codecs = json_array_new();
+            auto backends = json_array_new();
             for (const auto &codec : video_codecs()) {
-                const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
-                const auto element = encoder_element(*encoder_backend, codec.id);
-                auto encoder_factory =
-                    element.empty() ? nullptr : gst_element_factory_find(element.c_str());
-                auto parser_factory = gst_element_factory_find(parser_name.c_str());
-                auto payloader_factory = gst_element_factory_find(codec.payloader.c_str());
-                if (encoder_factory && parser_factory && payloader_factory)
-                    json_array_add_string_element(codecs, codec.id.c_str());
-                if (encoder_factory)
-                    gst_object_unref(encoder_factory);
-                if (parser_factory)
-                    gst_object_unref(parser_factory);
-                if (payloader_factory)
-                    gst_object_unref(payloader_factory);
+                for (const auto &entry : available_backends())
+                    if (backend_offers(entry, codec.id)) {
+                        json_array_add_string_element(codecs, codec.id.c_str());
+                        break;
+                    }
+            }
+            for (const auto &entry : available_backends()) {
+                auto backend_object = json_object_new();
+                json_object_set_string_member(backend_object, "id", entry.backend->id.c_str());
+                json_object_set_string_member(backend_object, "label",
+                                              entry.backend->label.c_str());
+                json_object_set_boolean_member(backend_object, "onCaptureAdapter",
+                                               entry.on_capture_adapter);
+                auto backend_codecs = json_array_new();
+                auto minimums = json_object_new();
+                for (const auto &codec_id : entry.codecs) {
+                    json_array_add_string_element(backend_codecs, codec_id.c_str());
+                    const auto minimum = encoder_minimum(*entry.backend, codec_id);
+                    auto size = json_object_new();
+                    json_object_set_int_member(size, "width", minimum.width);
+                    json_object_set_int_member(size, "height", minimum.height);
+                    json_object_set_object_member(minimums, codec_id.c_str(), size);
+                }
+                json_object_set_array_member(backend_object, "codecs", backend_codecs);
+                json_object_set_object_member(backend_object, "minimums", minimums);
+                json_array_add_object_element(backends, backend_object);
             }
             json_object_set_array_member(object, "codecs", codecs);
+            json_object_set_array_member(object, "backends", backends);
+            // The element selection would choose right now, for diagnostics only.
+            const auto chosen = encoder_selection_for(video_codecs()[0].id);
+            json_object_set_string_member(
+                object, "encoder", chosen.found ? chosen.candidate.element_name.c_str() : "");
             json_object_set_array_member(object, "displays",
                                          display_inventory_json(enumerate_displays()));
             auto root = json_node_new(JSON_NODE_OBJECT);
@@ -1351,10 +1619,19 @@ int main(int argc, char **argv) {
             profile = {1280, 720, 15, 2000, 1200};
             return self_test();
         }
-        if (argc == 3 && std::string(argv[1]) == "--self-test-codec") {
-            video_codec = find_video_codec(argv[2]);
+        // Two arguments: a backend is named explicitly so every family can be exercised on a
+        // machine that has more than one. There is no one-argument form.
+        if (argc == 4 && std::string(argv[1]) == "--self-test-codec") {
+            encoder_backend = find_encoder_backend(argv[2]);
+            if (!encoder_backend)
+                throw std::runtime_error("Invalid encoder backend");
+            video_codec = find_video_codec(argv[3]);
             if (!video_codec)
                 throw std::runtime_error("Invalid video codec");
+            if (encoder_element(*encoder_backend, video_codec->id).empty())
+                throw std::runtime_error("Backend " + encoder_backend->id + " has no encoder for " +
+                                         video_codec->id);
+            forced_backend = encoder_backend->id;
             profile = {1280, 720, 30, 4000, 1200};
             return self_test();
         }
@@ -1367,9 +1644,8 @@ int main(int argc, char **argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--session")
             return session();
-        throw std::runtime_error(
-            "Expected --probe, --self-test, --self-test-mobile, --self-test-codec <codec> or "
-            "--self-test-vbr <codec>.");
+        throw std::runtime_error("Expected --probe, --self-test, --self-test-mobile, "
+                                 "--self-test-codec <backend> <codec> or --self-test-vbr <codec>.");
     } catch (const std::exception &error) {
         std::cerr << error.what() << std::endl;
         return 1;

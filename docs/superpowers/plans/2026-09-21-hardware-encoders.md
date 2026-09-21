@@ -17,9 +17,10 @@ Every task's requirements include these, copied from the spec.
 - Backend ids are exactly `nvenc`, `qsv`, `amf`, `mediafoundation`. The policy value `auto` means automatic selection and is the default.
 - Codec ids do not change: `h264`, `h265`, `av1`. The backend never appears in the protocol to clients, in the SDP, or in any client-visible surface.
 - Element names per backend and codec: NVENC `nvd3d11h264enc` / `nvd3d11h265enc` / `nvd3d11av1enc`; QSV `qsvh264enc` / `qsvh265enc` / `qsvav1enc`; AMF `amfh264enc` / `amfh265enc` / `amfav1enc`; Media Foundation `mfh264enc` / `mfh265enc` and **no AV1 encoder**.
-- Property dialects, exactly. NVENC: `rc-mode` with `cbr`/`vbr`, `bitrate`, `max-bitrate`, `gop-size`, `bframes`, `qp-min-i`, `qp-min-p`, low-latency fragment `preset=p3 tune=ultra-low-latency zerolatency=true`, header repeat `repeat-sequence-header=true`. QSV: `rate-control` with `cbr`/`vbr`, `bitrate`, `max-bitrate`, `gop-size`, `b-frames`, `min-qp-i`, `min-qp-p`, **no low-latency property**, add `ref-frames=1`. AMF: `rate-control` with `cbr`/`vbr`, `bitrate`, `max-bitrate`, `gop-size`, `b-frames`, `min-qp-i`, `min-qp-p`, low-latency fragment `usage=ultra-low-latency preset=speed`. Media Foundation: `rc-mode` with `cbr` and **`pcvbr` (there is no plain `vbr`)**, `bitrate`, `max-bitrate`, `gop-size`, `bframes`, a **single** `min-qp` covering all frame types, low-latency fragment `low-latency=true`.
+- Property dialects, exactly. NVENC: `rc-mode` with `cbr`/`vbr`, `bitrate`, `max-bitrate`, `gop-size`, `bframes`, `qp-min-i`, `qp-min-p`, low-latency fragment `preset=p3 tune=ultra-low-latency zerolatency=true`, header repeat `repeat-sequence-header=true`. QSV: `rate-control` with `cbr`/`vbr`, `bitrate`, `max-bitrate`, `gop-size`, `b-frames`, `min-qp-i`, `min-qp-p`, **no low-latency property**, add `ref-frames=1`. AMF: `rate-control` with `cbr`/`vbr`, `bitrate`, `max-bitrate`, `gop-size`, `b-frames`, low-latency fragment `usage=ultra-low-latency preset=speed`, and QP floors that **vary by codec** — see the next constraint. Media Foundation: `rc-mode` with `cbr` and **`pcvbr` (there is no plain `vbr`)**, `bitrate`, `max-bitrate`, `gop-size`, `bframes`, a **single** `min-qp` covering all frame types, low-latency fragment `low-latency=true`.
 - Bitrate and max-bitrate are in kbit/s on every backend. `bitrateKbps` keeps its range of 100 to 50000; under VBR it is the sustained cap and the peak is twice it.
 - Where a backend declares a single QP floor property rather than one per frame type, the I-frame floor is applied to it and the P-frame floor is dropped.
+- A family's QP floor is an **ordered list of candidate property names**, not one name, because AMF differs across its own codecs. Verified against the installed elements on 2026-09-21: `amfh264enc` has a global `min-qp` and `b-frames`; `amfh265enc` has `min-qp-i` and `min-qp-p` and **no** `b-frames`; `amfav1enc` has none of the three. AMF's I-floor candidates are therefore `min-qp-i` then `min-qp`, and its P-floor candidate is `min-qp-p`. The first candidate the element declares is emitted; if it declares none, the floor is dropped and logged. Emitting a name an element lacks is not ignored — `gst_parse_launch` refuses the whole pipeline and the backend is lost.
 - QP floors are stored normalised as a fraction of the property's declared range and rescaled per element. Rescaling onto NVENC's declared ranges must reproduce today's literal values: H.264 and H.265 `efficient` 30/34, `balanced` 24/28, `high` 20/24; AV1 `efficient` 150/170, `balanced` 120/140, `high` 100/120.
 - A property the element class does not declare is skipped and logged, never emitted.
 - Minimum input dimensions come from the element, not the codec. `MINIMUM_DIMENSIONS` in `video-codecs.mjs` is deleted. Known floors: NVENC AV1 192x128, NVENC H.265 144x48, QSV 16x16, AMF 128x128, Media Foundation 64x64.
@@ -312,7 +313,7 @@ Commit message: `feat: build encoder properties from element introspection`
 
   Ranking, highest first: a candidate whose `has_adapter` is true and whose `adapter_luid` equals the capture adapter; then a candidate whose `has_adapter` is true with a different adapter; then a candidate with `has_adapter` false. Within a rank, the earlier backend in `encoder_backends()` order wins. When the capture adapter is unknown, every candidate falls into the second rank and the fixed order alone decides.
 
-- [ ] **Step 1: Write the failing tests in `tests/encoder-selection.cpp`**
+- [x] **Step 1: Write the failing tests in `tests/encoder-selection.cpp`**
 
   Six cases, all pure:
 
@@ -323,22 +324,22 @@ Commit message: `feat: build encoder properties from element introspection`
   5. Forced backend wins outright: forcing `qsv` selects the `qsv` candidate with reason `Forced`, even when an `nvenc` candidate sits on the capture adapter.
   6. Forced but absent: forcing `qsv` when no `qsv` candidate exists falls back to automatic selection, returns the automatically chosen candidate, and reports reason `ForcedUnavailable`. An empty candidate list returns `found` false.
 
-- [ ] **Step 2: Run the build and confirm the tests fail**
+- [x] **Step 2: Run the build and confirm the tests fail**
 
 Run: `.\build-native.cmd`
 Expected: `encoder-selection-test` fails to compile because the header does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Create `encoder-selection.hpp` implementing the ranking above as a pure function over the candidate list. No GStreamer calls: building the list is Task 5's job.
   - Register `encoder-selection` in the `CMakeLists.txt` test loop.
 
-- [ ] **Step 4: Run the required test**
+- [x] **Step 4: Run the required test**
 
 Run: `.\build-native.cmd`
 Expected: `media-worker.encoder-selection` passes.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add native/media-worker/src/encoder-selection.hpp native/media-worker/tests/encoder-selection.cpp native/media-worker/CMakeLists.txt`
 Commit message: `feat: rank encoder backends by capture adapter`
@@ -357,7 +358,7 @@ Commit message: `feat: rank encoder backends by capture adapter`
   - `--self-test-codec <backend> <codec>` replaces `--self-test-codec <codec>`. Both arguments are required; the old one-argument form is removed, not kept as a fallback.
   - `start_source` reads an optional `encoderBackend` string from its configuration object, defaulting to `auto` when absent or empty.
 
-- [ ] **Step 1: Write the failing tests in `tests/native-worker.test.mjs`**
+- [x] **Step 1: Write the failing tests in `tests/native-worker.test.mjs`**
 
   Four cases, against the real worker binary on this machine:
 
@@ -367,12 +368,12 @@ Commit message: `feat: rank encoder backends by capture adapter`
   4. Adapter affinity fires for real. This machine has two adapters, so the probe's `onCaptureAdapter` is true for exactly one backend, and `encoder` names an element from that backend. This is the only genuine test of the feature and it exists only because the development machine happens to be hybrid.
   5. The existing NVENC self-tests in this file still pass unchanged. Do not rewrite them.
 
-- [ ] **Step 2: Run the build and the worker test, and confirm the new cases fail**
+- [x] **Step 2: Run the build and the worker test, and confirm the new cases fail**
 
 Run: `.\build-native.cmd`, then `node --test native/media-worker/tests/native-worker.test.mjs`
 Expected: the four new cases fail — no `backends` key, and the two-argument self-test is a usage error.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Candidate discovery: for each backend in `encoder_backends()` and each codec, look up the encoder element factory together with the codec's parser and payloader factories, exactly as the existing probe already does for codecs. A backend offers a codec only when all three are found.
   - Encoder adapter LUID: instantiate the candidate encoder element and read `adapter-luid` when the element class declares it; otherwise record `has_adapter` false. `nvd3d11h264enc` declares it, verified 2026-09-21.
@@ -384,12 +385,12 @@ Expected: the four new cases fail — no `backends` key, and the two-argument se
   - `start_source`: read `encoderBackend`, pass it to `select_encoder` as the forced id, and record the resulting `SelectionReason`. Make the chosen backend id, chosen element and reason available to the existing telemetry or sample payload that already reports `codec`, so Task 8 can surface it.
   - `pipeline_description`: drop the hardcoded `nvenc` from Task 3 and use the selected backend and element.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `.\build-native.cmd`, then `node --test native/media-worker/tests/native-worker.test.mjs`
 Expected: all pass, the pre-existing NVENC self-tests included. If an existing case asserts the old `encoder` constant, updating that one assertion is the only acceptable edit to existing tests.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add native/media-worker/src/media-worker.cpp native/media-worker/tests/native-worker.test.mjs`
 Commit message: `feat: select an encoder backend per machine`

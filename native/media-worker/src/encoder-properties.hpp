@@ -60,15 +60,18 @@ struct Builder {
             result.text += ' ';
         result.text += name + '=' + value;
     }
-    void add_floor(const std::string &name, double normalised) {
-        if (name.empty() || normalised < 0.0)
+    // Takes the family's candidate spellings, best first, and uses the first one this element
+    // declares. Nothing is emitted when the element declares none of them: an absent floor costs
+    // quality at the VBR tiers, while an unknown property name fails the pipeline outright.
+    void add_floor(const std::vector<std::string> &names, double normalised) {
+        if (names.empty() || normalised < 0.0)
             return;
-        auto *spec = find(name);
-        if (!spec) {
-            result.skipped.push_back(name);
-            return;
-        }
-        add(name, std::to_string(scale_qp_floor(normalised, spec)));
+        for (const auto &name : names)
+            if (auto *spec = find(name)) {
+                add(name, std::to_string(scale_qp_floor(normalised, spec)));
+                return;
+            }
+        result.skipped.push_back(names.front());
     }
 };
 
@@ -105,8 +108,8 @@ inline EncoderProperties encoder_properties(const EncoderBackend &backend,
     builder.add(dialect.bitrate_property, std::to_string(intent.bitrate_kbps));
     if (vbr)
         builder.add(dialect.max_bitrate_property, std::to_string(intent.max_bitrate_kbps));
-    builder.add_floor(dialect.qp_floor_i_property, intent.qp_floor_i);
-    builder.add_floor(dialect.qp_floor_p_property, intent.qp_floor_p);
+    builder.add_floor(dialect.qp_floor_i_properties, intent.qp_floor_i);
+    builder.add_floor(dialect.qp_floor_p_properties, intent.qp_floor_p);
     builder.add(dialect.gop_property, std::to_string(intent.gop_frames));
     builder.add(dialect.bframes_property, "0");
     // Only H.264 repeated the sequence header through the encoder; H.265 and AV1 rely on the

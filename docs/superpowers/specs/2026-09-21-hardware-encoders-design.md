@@ -64,16 +64,34 @@ everywhere, which is the one portable part; nothing else is.
 | Low latency | `preset=p3 tune=ultra-low-latency zerolatency=true` | no such property | `usage=ultra-low-latency preset=speed` | `low-latency=true` |
 | Rate control | `rc-mode` | `rate-control` | `rate-control` | `rc-mode` |
 | VBR spelling | `vbr` | `vbr` | `vbr` | `pcvbr` (no plain `vbr`) |
-| QP floor | `qp-min-i`, `qp-min-p` | `min-qp-i`, `min-qp-p` | `min-qp-i`, `min-qp-p` | `min-qp` (not per frame type) |
-| B-frames | `bframes` | `b-frames` | `b-frames` | `bframes` |
+| QP floor | `qp-min-i`, `qp-min-p` | `min-qp-i`, `min-qp-p` | **varies by codec**, see below | `min-qp` (not per frame type) |
+| B-frames | `bframes` | `b-frames` | `b-frames` on H.264 only | `bframes` |
 | AV1 | Ada and newer | `qsvav1enc` | `amfav1enc` | none |
 | Minimum input | AV1 192x128 | 16x16 | 128x128 | 64x64 |
 
-Two consequences run through the rest of this document. Media Foundation has no plain
+Three consequences run through the rest of this document. Media Foundation has no plain
 `vbr` and only a single global QP floor, so it is the backend most likely to need
 per-backend special handling rather than table entries. QSV has no low-latency or
 target-usage property at all, so its latency has to come from `rate-control=cbr`,
 `b-frames=0`, `ref-frames=1` and a short GOP.
+
+The third is the sharpest, and was found by checking the installed elements rather than
+the documentation. **AMF does not spell its properties consistently across its own
+codecs**, verified on 2026-09-21:
+
+| | `amfh264enc` | `amfh265enc` | `amfav1enc` |
+|---|---|---|---|
+| QP floor | `min-qp` (global) | `min-qp-i`, `min-qp-p` | none at all |
+| B-frames | `b-frames` | absent | absent |
+
+This is not a detail. A property name an element does not declare is not ignored —
+`gst_parse_launch` refuses the whole pipeline, so a table that assumed one AMF spelling
+would have taken AMD support from "works" to "does not start", and the self-test gate
+would have reported the hardware as simply unavailable. A family therefore cannot hold a
+single property name for its codecs. The floors are stored as an ordered list of candidate
+spellings and the first name the element actually declares is the one emitted; where an
+element declares none, the property is dropped and logged. Dropping a floor costs quality
+at the VBR tiers, which is recoverable; emitting an unknown name loses the vendor outright.
 
 ### The constraint that shapes the design
 
@@ -96,10 +114,12 @@ a backend verifiable rather than merely plausible, and they are what will carry 
 They should not be simplified away later on the grounds that most backends turned out to
 be testable.
 
-Two further consequences. The development machine can exercise adapter affinity for real,
-because it genuinely has two adapters. And if its display is driven by the integrated GPU,
-today's NVENC-only pipeline is already paying a cross-adapter copy per frame, which this
-work would remove rather than merely avoid.
+The development machine can also exercise adapter affinity for real, because it genuinely
+has two adapters. Its display turns out to be driven by the RTX 5060 Ti rather than the
+integrated Radeon, so today's NVENC-only pipeline is *not* paying a cross-adapter copy
+here; affinity is still worth building, but this machine confirms it rather than being
+rescued by it. The probe reports `nvenc` and `mediafoundation` on the capture adapter and
+`amf` off it, which is exactly the arrangement the ranking has to get right.
 
 ## Goals and decisions
 
@@ -197,11 +217,16 @@ overruns its budget.
 
 DXGI desktop duplication captures on whichever GPU drives the monitor. On a hybrid
 laptop that is normally the integrated one, so `d3d11screencapturesrc` produces textures
-on the Intel or AMD adapter even when an NVIDIA card is present. Today those textures are
+on the Intel or AMD adapter even when an NVIDIA card is present. Those textures are then
 handed to an NVIDIA encoder, which means a cross-adapter copy of every frame at capture
 resolution. Adding Intel and AMD backends is therefore not only a compatibility change:
-on hybrid machines, picking the encoder that already owns the texture removes per-frame
-work that exists today.
+on a machine wired that way, picking the encoder that already owns the texture removes
+per-frame work.
+
+Which GPU drives the display is a per-machine fact and not something to assume. The
+development machine drives its display from the discrete card, so it pays no such copy
+today — the point of affinity is that the worker measures this rather than guessing it
+either way.
 
 The capture element does not report its adapter. Checked on 2026-09-21,
 `d3d11screencapturesrc` exposes only `adapter`, a DXGI index that applies to Windows

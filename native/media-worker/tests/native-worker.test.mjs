@@ -47,10 +47,76 @@ test('native preflight reports real primary display and required hardware plugin
   assert.equal(result.code, 0, result.stderr);
   const info = JSON.parse(result.stdout);
   assert.ok(info.width > 0 && info.height > 0);
-  assert.equal(info.encoder, 'nvd3d11h264enc');
   assert.equal(info.capture, 'dxgi');
   assert.ok(Array.isArray(info.codecs));
   assert.equal(info.codecs[0], 'h264');
+  // `encoder` is now whichever element selection would choose here, not a constant.
+  assert.ok(info.encoder.length > 0);
+});
+// Membership, not an exact set: this must still pass on a machine with different hardware.
+test('probe reports the encoder backends this machine can actually encode with', async () => {
+  const info = JSON.parse((await run('--probe')).stdout);
+  assert.ok(Array.isArray(info.backends) && info.backends.length > 0);
+  const ids = info.backends.map((backend) => backend.id);
+  for (const backend of info.backends) {
+    assert.ok(backend.id && backend.label);
+    assert.ok(Array.isArray(backend.codecs) && backend.codecs.length > 0);
+    assert.equal(typeof backend.onCaptureAdapter, 'boolean');
+    for (const codec of backend.codecs) {
+      const minimum = backend.minimums[codec];
+      assert.ok(minimum.width > 0 && minimum.height > 0, `${backend.id} ${codec}`);
+    }
+  }
+  // `codecs` is the union of what the backends offer, so existing server code keeps working.
+  assert.deepEqual(
+    [...info.codecs].sort(),
+    [...new Set(info.backends.flatMap((backend) => backend.codecs))].sort(),
+  );
+  // Media Foundation has no AV1 encoder at all.
+  const mediaFoundation = info.backends.find((backend) => backend.id === 'mediafoundation');
+  if (mediaFoundation) assert.ok(!mediaFoundation.codecs.includes('av1'));
+  const nvenc = info.backends.find((backend) => backend.id === 'nvenc');
+  if (nvenc) {
+    if (nvenc.codecs.includes('av1'))
+      assert.deepEqual(nvenc.minimums.av1, { width: 192, height: 128 });
+    if (nvenc.codecs.includes('h265'))
+      assert.deepEqual(nvenc.minimums.h265, { width: 144, height: 48 });
+  }
+  assert.ok(ids.length === new Set(ids).size, 'backends are reported once each');
+});
+test('adapter affinity resolves the capture adapter and picks an encoder on it', async () => {
+  const info = JSON.parse((await run('--probe')).stdout);
+  const onCapture = info.backends.filter((backend) => backend.onCaptureAdapter);
+  if (onCapture.length === 0) {
+    // Only reachable where no encoder sits on the capturing GPU; the fixed order then decides.
+    assert.ok(info.encoder.length > 0);
+    return;
+  }
+  const chosen = info.backends.find((backend) =>
+    info.encoder.startsWith(backend.id === 'nvenc' ? 'nvd3d11' : backend.id),
+  );
+  assert.ok(chosen, `no backend matches the chosen element ${info.encoder}`);
+  assert.ok(chosen.onCaptureAdapter, 'selection preferred an encoder off the capture adapter');
+});
+test('self-test requires both a backend and a codec', async () => {
+  const missing = await run('--self-test-codec', 'h264');
+  assert.notEqual(missing.code, 0, 'the one-argument form must be rejected');
+  const unknown = await run('--self-test-codec', 'nvidia', 'h264');
+  assert.notEqual(unknown.code, 0);
+  assert.match(unknown.stderr, /backend/i);
+  // Quick Sync is not present on this machine, so it must fail cleanly rather than hang.
+  const absent = await run('--self-test-codec', 'qsv', 'h264');
+  assert.notEqual(absent.code, 0);
+});
+test('every advertised backend really encodes desktop frames', async () => {
+  const info = JSON.parse((await run('--probe')).stdout);
+  for (const backend of info.backends) {
+    const result = await run('--self-test-codec', backend.id, 'h264');
+    assert.equal(result.code, 0, `${backend.id}: ${result.stderr}`);
+    const value = JSON.parse(result.stdout);
+    assert.equal(value.frames, 60, backend.id);
+    assert.equal(value.codec, 'h264');
+  }
 });
 test('mobile encoder emits Level 3.1 and responds to force-key-unit', async () => {
   const result = await run('--self-test-mobile');
@@ -107,7 +173,8 @@ test('h265 self-test hardware-encodes sixty desktop frames', async (t) => {
     t.skip('GPU has no h265 encoder');
     return;
   }
-  const result = await run('--self-test-codec', 'h265');
+  const backend = probe.backends.find((entry) => entry.codecs.includes('h265')).id;
+  const result = await run('--self-test-codec', backend, 'h265');
   assert.equal(result.code, 0, result.stderr);
   const value = JSON.parse(result.stdout);
   assert.equal(value.frames, 60);
@@ -121,7 +188,8 @@ test('av1 self-test hardware-encodes sixty desktop frames', async (t) => {
     t.skip('GPU has no av1 encoder');
     return;
   }
-  const result = await run('--self-test-codec', 'av1');
+  const backend = probe.backends.find((entry) => entry.codecs.includes('av1')).id;
+  const result = await run('--self-test-codec', backend, 'av1');
   assert.equal(result.code, 0, result.stderr);
   const value = JSON.parse(result.stdout);
   assert.equal(value.frames, 60);

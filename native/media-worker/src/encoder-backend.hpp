@@ -25,16 +25,20 @@ struct CodecSupport {
 };
 
 struct EncoderDialect {
-    std::string rc_mode_property;           // "rc-mode" or "rate-control".
-    std::string cbr_value;                  // Enum spelling for constant bitrate.
-    std::string vbr_value;                  // Enum spelling for variable bitrate.
-    std::string bitrate_property;           // Target bitrate, kbit/s on every backend.
-    std::string max_bitrate_property;       // Peak bitrate, kbit/s.
-    std::string gop_property;               // Keyframe interval in frames.
-    std::string bframes_property;           // "bframes" or "b-frames".
-    std::string qp_floor_i_property;        // Quality floor for I frames.
-    std::string qp_floor_p_property;        // Empty means one floor covers every frame type.
-    std::string header_repeat_property;     // Empty means the parser handles it.
+    std::string rc_mode_property;     // "rc-mode" or "rate-control".
+    std::string cbr_value;            // Enum spelling for constant bitrate.
+    std::string vbr_value;            // Enum spelling for variable bitrate.
+    std::string bitrate_property;     // Target bitrate, kbit/s on every backend.
+    std::string max_bitrate_property; // Peak bitrate, kbit/s.
+    std::string gop_property;         // Keyframe interval in frames.
+    std::string bframes_property;     // "bframes" or "b-frames".
+    // Candidate spellings for the quality floors, best first; the first name the element really
+    // declares is the one used. Lists rather than names because AMF disagrees with itself:
+    // amfh264enc has a global `min-qp`, amfh265enc has `min-qp-i` and `min-qp-p`, and amfav1enc
+    // has no floor property at all. Checked against the installed elements on 2026-09-21.
+    std::vector<std::string> qp_floor_i_properties;
+    std::vector<std::string> qp_floor_p_properties; // Empty means one floor covers every frame.
+    std::string header_repeat_property;             // Empty means the parser handles it.
     std::vector<PropertyValue> low_latency; // Whatever this family needs for lowest latency.
 };
 
@@ -59,8 +63,8 @@ inline const std::vector<EncoderBackend> &encoder_backends() {
           "max-bitrate",
           "gop-size",
           "bframes",
-          "qp-min-i",
-          "qp-min-p",
+          {"qp-min-i"},
+          {"qp-min-p"},
           "repeat-sequence-header",
           {{"preset", "p3"}, {"tune", "ultra-low-latency"}, {"zerolatency", "true"}}},
          {{"h264", "nvd3d11h264enc", {64, 64}},
@@ -77,13 +81,17 @@ inline const std::vector<EncoderBackend> &encoder_backends() {
           "max-bitrate",
           "gop-size",
           "b-frames",
-          "min-qp-i",
-          "min-qp-p",
+          {"min-qp-i"},
+          {"min-qp-p"},
           "",
           {{"ref-frames", "1"}}},
          {{"h264", "qsvh264enc", {16, 16}},
           {"h265", "qsvh265enc", {16, 16}},
           {"av1", "qsvav1enc", {16, 16}}}},
+        // AMF spells its floors differently per codec, which is why the floor fields are lists:
+        // amfh264enc takes a single `min-qp`, amfh265enc takes `min-qp-i`/`min-qp-p`, and
+        // amfav1enc takes neither. Emitting a name the element lacks fails the whole pipeline,
+        // so the property builder keeps the first name each element actually declares.
         {"amf",
          "AMD AMF",
          {"rate-control",
@@ -93,8 +101,8 @@ inline const std::vector<EncoderBackend> &encoder_backends() {
           "max-bitrate",
           "gop-size",
           "b-frames",
-          "min-qp-i",
-          "min-qp-p",
+          {"min-qp-i", "min-qp"},
+          {"min-qp-p"},
           "",
           {{"usage", "ultra-low-latency"}, {"preset", "speed"}}},
          {{"h264", "amfh264enc", {128, 128}},
@@ -102,7 +110,7 @@ inline const std::vector<EncoderBackend> &encoder_backends() {
           {"av1", "amfav1enc", {128, 128}}}},
         // Media Foundation has no plain `vbr`: the variable mode is peak-constrained and driven
         // by max-bitrate. It also has one QP floor rather than one per frame type, so the empty
-        // P-floor name tells the property builder to apply the I floor alone.
+        // P-floor list tells the property builder to apply the I floor alone.
         {"mediafoundation",
          "Media Foundation",
          {"rc-mode",
@@ -112,8 +120,8 @@ inline const std::vector<EncoderBackend> &encoder_backends() {
           "max-bitrate",
           "gop-size",
           "bframes",
-          "min-qp",
-          "",
+          {"min-qp"},
+          {},
           "",
           {{"low-latency", "true"}}},
          {{"h264", "mfh264enc", {64, 64}}, {"h265", "mfh265enc", {64, 64}}}}};

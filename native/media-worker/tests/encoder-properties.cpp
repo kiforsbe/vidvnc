@@ -32,8 +32,9 @@ static EncoderBackend fake_backend(bool single_floor) {
                        "no-such-max-bitrate",
                        "sleep-time",
                        "no-such-bframes",
-                       "error-after",
-                       single_floor ? "" : "eos-after",
+                       {"error-after"},
+                       single_floor ? std::vector<std::string>{}
+                                    : std::vector<std::string>{"eos-after"},
                        "",
                        {{"silent", "true"}, {"no-such-low-latency", "1"}}};
     backend.codecs = {{"h264", "identity", {64, 64}}};
@@ -96,6 +97,25 @@ int main(int argc, char *argv[]) {
     assert(single_built.text.find("error-after=") != std::string::npos);
     assert(single_built.text.find("eos-after=") == std::string::npos);
     assert(!has(single_built.skipped, "eos-after"));
+
+    // amfh264enc's shape: the family offers two spellings and the element declares only the
+    // second. The fallback must be used, and a preferred name that simply lost is not a skip.
+    auto fallback = fake_backend(true);
+    fallback.dialect.qp_floor_i_properties = {"no-such-min-qp-i", "error-after"};
+    const auto fallback_built =
+        encoder_properties(fallback, "identity", "h264", rate_control("h264", vbr_profile()));
+    assert(fallback_built.text.find("error-after=") != std::string::npos);
+    assert(fallback_built.text.find("no-such") == std::string::npos);
+    assert(!has(fallback_built.skipped, "no-such-min-qp-i"));
+
+    // amfav1enc's shape: the element declares no floor under any spelling. Dropping it costs
+    // quality at the VBR tiers; emitting it would fail gst_parse_launch and lose the codec.
+    auto floorless = fake_backend(true);
+    floorless.dialect.qp_floor_i_properties = {"no-such-min-qp-i", "no-such-min-qp"};
+    const auto floorless_built =
+        encoder_properties(floorless, "identity", "h264", rate_control("h264", vbr_profile()));
+    assert(floorless_built.text.find("no-such") == std::string::npos);
+    assert(has(floorless_built.skipped, "no-such-min-qp-i"));
 
     // NVENC regression. Property order does not affect gst_parse_launch, so the invariant is
     // the set of pairs: it must match exactly what the worker emitted before this refactor.

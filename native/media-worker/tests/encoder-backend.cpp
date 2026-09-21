@@ -50,9 +50,9 @@ int main() {
         assert(!dialect.max_bitrate_property.empty());
         assert(!dialect.gop_property.empty());
         assert(!dialect.bframes_property.empty());
-        assert(!dialect.qp_floor_i_property.empty());
-        // Only Media Foundation has a single floor covering every frame type.
-        assert(dialect.qp_floor_p_property.empty() == (backend.id == "mediafoundation"));
+        assert(!dialect.qp_floor_i_properties.empty());
+        // Only Media Foundation has a single floor covering every frame type on every codec.
+        assert(dialect.qp_floor_p_properties.empty() == (backend.id == "mediafoundation"));
     }
 
     assert(nvenc->dialect.rc_mode_property == "rc-mode");
@@ -73,11 +73,16 @@ int main() {
     for (const auto &backend : table)
         assert(backend.dialect.cbr_value == "cbr");
 
-    assert(nvenc->dialect.qp_floor_i_property == "qp-min-i");
-    assert(nvenc->dialect.qp_floor_p_property == "qp-min-p");
-    assert(qsv->dialect.qp_floor_i_property == "min-qp-i");
-    assert(amf->dialect.qp_floor_i_property == "min-qp-i");
-    assert(mf->dialect.qp_floor_i_property == "min-qp");
+    assert(nvenc->dialect.qp_floor_i_properties == std::vector<std::string>{"qp-min-i"});
+    assert(nvenc->dialect.qp_floor_p_properties == std::vector<std::string>{"qp-min-p"});
+    assert(qsv->dialect.qp_floor_i_properties == std::vector<std::string>{"min-qp-i"});
+    assert(mf->dialect.qp_floor_i_properties == std::vector<std::string>{"min-qp"});
+    // AMF is the reason these are lists rather than names: amfh265enc declares `min-qp-i`, but
+    // amfh264enc declares only a global `min-qp` and amfav1enc declares no floor at all. The
+    // per-codec spelling cannot be known from the family, so both are offered in preference
+    // order and the property builder keeps whichever the element has.
+    assert((amf->dialect.qp_floor_i_properties == std::vector<std::string>{"min-qp-i", "min-qp"}));
+    assert(amf->dialect.qp_floor_p_properties == std::vector<std::string>{"min-qp-p"});
 
     // Only NVENC repeats the sequence header through an encoder property.
     assert(nvenc->dialect.header_repeat_property == "repeat-sequence-header");
