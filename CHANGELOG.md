@@ -5,7 +5,7 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-21
 
 ### Added
 
