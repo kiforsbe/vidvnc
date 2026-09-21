@@ -35,13 +35,26 @@
 // there. This removal happens on the failure path too (an export that fails still
 // leaves a certificate sitting in the store unless it is cleaned up), via a JS
 // `try`/`finally` around the export step, not only after a successful one.
-import { readFileSync, mkdirSync } from 'node:fs';
+//
+// The exported PFX is reused across restarts rather than reissued every time. This
+// matters more here than it does for `mkcert.mjs`: this strategy's anchor *is* the leaf
+// (see above), so every reissue invalidates every device that already trusts the
+// previous leaf. Reuse needs the PFX's passphrase to still exist on the next process
+// start, so it is written to a plaintext sidecar file (`cert.pfx.passphrase`) next to
+// `cert.pfx`, in the same per-user state directory — the same trust boundary the PFX
+// itself already sits in (no different from `mkcert.mjs` storing a plaintext `key.pem`
+// there). A credential is reused only when `certificate-facts.mjs` confirms it is still
+// usable (not expired, not inside its renewal window, still covers every current
+// address); a missing or unreadable sidecar or PFX is treated as "nothing to reuse yet",
+// never as an error — a half-deleted state directory must not brick TLS.
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync as childProcessSpawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { X509Certificate } from 'node:crypto';
 import { createSecureContext as nodeCreateSecureContext } from 'node:tls';
+import { checkCoverage, renewalStatus } from '../certificate-facts.mjs';
 import { localAddresses as discoverLocalAddresses } from '../local-addresses.mjs';
+import { loadPfxCredential } from '../pfx-credential.mjs';
 import { dataDirectory } from '../../paths.mjs';
 
 export const name = 'windows-self-signed';
@@ -185,48 +198,49 @@ function removeFromStore({ spawnSync, thumbprint }) {
   return runPowerShell(spawnSync, script);
 }
 
-// Reads the PFX just exported and extracts its leaf certificate, exactly the way
-// `provided.mjs`'s `loadPfxCredential` does (see its doc comment for full provenance of
-// `.context.getCertificate()`): there is no public Node API that turns a PFX into an
-// `X509Certificate` directly, so this builds a real `tls` secure context from the PFX
-// (the same call `node:tls` itself would make to serve it) and reads the leaf back off
-// the context's native handle. That also proves the credential is genuinely usable.
-function loadIssuedPfxCredential(pfxPath, passphrase, { readFile, createSecureContext }) {
-  let pfxBytes;
+// PFX loading/leaf-extraction is shared with `provided.mjs` via `../pfx-credential.mjs`
+// (`loadPfxCredential`) — see that module for the full provenance comment on the
+// undocumented internal Node API it depends on (`context.context.getCertificate()`).
+
+// Checks whether the credential already exported into `pfxPath` (with its passphrase at
+// `passphrasePath`, from a prior run of this strategy) is still usable, per
+// `certificate-facts.mjs`'s documented reissue rule: reuse only when the certificate is
+// neither expired nor inside its renewal window, and only when it still covers every
+// currently discovered address. Returns `{ credential, certificate }` to reuse, or
+// `null` when there is nothing usable yet — a missing or unreadable sidecar passphrase,
+// a missing or unreadable/unopenable PFX, expiry, the renewal window, or missing
+// coverage are all simply "reissue", never an error. Every read here is wrapped so a
+// half-deleted state directory (PFX present but sidecar gone, or vice versa) falls
+// through to `null` rather than propagating.
+function tryReuseExisting(
+  pfxPath,
+  passphrasePath,
+  { readFile, createSecureContext, addresses, now },
+) {
+  let passphrase;
   try {
-    pfxBytes = readFile(pfxPath);
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `PowerShell reported success but PFX file "${pfxPath}" could not be read: ${error.message}`,
-    };
+    passphrase = readFile(passphrasePath).toString('utf8').trim();
+  } catch {
+    return null;
   }
 
-  const credential = { pfx: pfxBytes, passphrase };
+  const loaded = loadPfxCredential(pfxPath, passphrase, { readFile, createSecureContext });
+  if (!loaded.ok) return null;
 
-  let context;
-  try {
-    context = createSecureContext(credential);
-  } catch (error) {
-    return { ok: false, reason: `could not load issued PFX file "${pfxPath}": ${error.message}` };
-  }
+  // IMPORTANT: check `expired || needsRenewal`, never `needsRenewal` alone — see
+  // certificate-facts.mjs's doc comment on `renewalStatus`.
+  const status = renewalStatus(loaded.certificate, now ? { now } : undefined);
+  if (status.expired || status.needsRenewal) return null;
 
-  let certificate;
-  try {
-    certificate = new X509Certificate(context.context.getCertificate());
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `could not read the certificate inside issued PFX file "${pfxPath}": ${error.message}`,
-    };
-  }
+  const coverage = checkCoverage(loaded.certificate, addresses);
+  if (!coverage.covered) return null;
 
-  return { ok: true, certificate, credential };
+  return { credential: loaded.credential, certificate: loaded.certificate };
 }
 
-// Issues a self-signed leaf certificate through Windows certificate tooling, covering
-// every hostname/IP this machine currently reports, and reports that same leaf as the
-// anchor. Returns `{ ok: true, credential, anchor, warnings: [] }` or
+// Issues (or reuses) a self-signed leaf certificate through Windows certificate tooling,
+// covering every hostname/IP this machine currently reports, and reports that same leaf
+// as the anchor. Returns `{ ok: true, credential, anchor, warnings: [] }` or
 // `{ ok: false, reason }`; never throws.
 //
 // On non-Windows platforms this reports unavailable immediately, without ever touching
@@ -238,12 +252,14 @@ export function provision(
   {
     spawnSync = childProcessSpawnSync,
     readFile = readFileSync,
+    writeFile = writeFileSync,
     mkdir = mkdirSync,
     createSecureContext = nodeCreateSecureContext,
     localAddresses = discoverLocalAddresses,
     certificateDirectory = defaultCertificateDirectory,
     randomPassphrase = defaultRandomPassphrase,
     platform = process.platform,
+    now,
   } = {},
 ) {
   if (platform !== 'win32') {
@@ -253,12 +269,27 @@ export function provision(
     };
   }
 
-  const sanExtensionText = buildSanExtensionText(localAddresses());
+  const stateDir = certificateDirectory();
+  const pfxPath = join(stateDir, 'cert.pfx');
+  const passphrasePath = join(stateDir, 'cert.pfx.passphrase');
+
+  const addresses = localAddresses();
+
+  const reused = tryReuseExisting(pfxPath, passphrasePath, {
+    readFile,
+    createSecureContext,
+    addresses,
+    now,
+  });
+  if (reused) {
+    return { ok: true, credential: reused.credential, anchor: reused.certificate, warnings: [] };
+  }
+
+  const sanExtensionText = buildSanExtensionText(addresses);
 
   const created = createSelfSignedCertificate({ spawnSync, sanExtensionText });
   if (!created.ok) return created;
 
-  const stateDir = certificateDirectory();
   try {
     mkdir(stateDir, { recursive: true });
   } catch (error) {
@@ -269,7 +300,6 @@ export function provision(
     };
   }
 
-  const pfxPath = join(stateDir, 'cert.pfx');
   const passphrase = randomPassphrase();
 
   let exported;
@@ -282,7 +312,18 @@ export function provision(
   }
   if (!exported.ok) return exported;
 
-  const loaded = loadIssuedPfxCredential(pfxPath, passphrase, { readFile, createSecureContext });
+  // Persist the passphrase alongside the PFX so a future startup can reuse this exact
+  // credential instead of reissuing (and re-invalidating every already-enrolled device)
+  // on every restart. Best-effort: a failure to write it does not fail this call — the
+  // credential just issued is still returned and used for this run. Only the *next*
+  // startup degrades, to reissuing again, which is safe, not a failure of this one.
+  try {
+    writeFile(passphrasePath, passphrase, 'utf8');
+  } catch {
+    // Nothing more useful to do; see comment above.
+  }
+
+  const loaded = loadPfxCredential(pfxPath, passphrase, { readFile, createSecureContext });
   if (!loaded.ok) return loaded;
 
   return { ok: true, credential: loaded.credential, anchor: loaded.certificate, warnings: [] };

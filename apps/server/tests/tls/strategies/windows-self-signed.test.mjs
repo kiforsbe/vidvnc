@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, copyFileSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -349,4 +349,236 @@ test('when the issued PFX cannot actually be read back after a claimed-successfu
   assert.equal(typeof result.reason, 'string');
   assert.equal(result.credential, undefined);
   assert.equal(result.anchor, undefined);
+});
+
+// --- reuse across restarts: the sidecar passphrase makes the exported PFX reopenable ---
+//
+// Every reissue under this strategy invalidates every device that already trusts the
+// previous leaf (the anchor IS the leaf here), so reuse is not a nice-to-have: it is
+// what stops a normal restart from silently un-enrolling every device. Reuse only works
+// because the passphrase used to export the PFX is persisted to a sidecar file next to
+// it — these tests exercise that persistence directly, by pre-seeding the sidecar the
+// way a prior provision() call would have left it.
+
+// Matches `pfx/cert.pfx`'s real SAN set exactly (same fixture, same addresses used in
+// provided.test.mjs), so coverage passes cleanly regardless of this machine's own
+// addresses.
+const addressesCoveredByFixturePfx = () => ({
+  hostnames: ['vidvnc-test-pfx.invalid'],
+  ips: ['127.0.0.1', '203.0.113.25'],
+  errors: [],
+});
+
+// Seeds `stateDir` with exactly what a prior successful provision() call would have
+// left behind: the exported PFX and (unless told not to) its passphrase sidecar.
+function seedExistingCredential(
+  stateDir,
+  { passphrase = VALID_PFX_PASSPHRASE, withSidecar = true } = {},
+) {
+  mkdirSync(stateDir, { recursive: true });
+  copyFileSync(validPfxPath, join(stateDir, 'cert.pfx'));
+  if (withSidecar) {
+    writeFileSync(join(stateDir, 'cert.pfx.passphrase'), passphrase, 'utf8');
+  }
+}
+
+// A fake `spawnSync` that always succeeds end to end (create, export a copy of the real
+// fixture PFX, remove), for the "this should reissue exactly once" tests below, where
+// what matters is *whether* create was invoked and how many times, not its result.
+function fullSuccessSpawnSync({ thumbprint = 'REISSUED0000000000' } = {}) {
+  return fakeSpawnSync({
+    onCreate: () => ok(`${thumbprint}\r\n`),
+    onExport: (script) => {
+      const match = script.match(/-FilePath\s+'([^']+)'/);
+      assert.ok(match, `expected an -FilePath argument in: ${script}`);
+      copyFileSync(validPfxPath, match[1]);
+      return ok();
+    },
+    onRemove: () => ok(),
+  });
+}
+
+test('a still-valid existing credential is reused with no PowerShell call at all', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir);
+
+  const spawnSync = () => {
+    throw new Error('must not call PowerShell when an existing credential still serves');
+  };
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: addressesCoveredByFixturePfx,
+    certificateDirectory: () => stateDir,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(result.credential.pfx, readFileSync(join(stateDir, 'cert.pfx')));
+  assert.equal(result.credential.passphrase, VALID_PFX_PASSPHRASE);
+  assert.equal(result.anchor.subject, 'CN=vidvnc-test-pfx.invalid');
+  assert.deepEqual(result.warnings, []);
+});
+
+test('an expired existing credential is reissued exactly once, not reused', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir);
+
+  const spawnSync = fullSuccessSpawnSync({ thumbprint: 'EXPIREDREISSUE0001' });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: addressesCoveredByFixturePfx,
+    certificateDirectory: () => stateDir,
+    // Long past the fixture's real 2036-09-21 expiry.
+    now: () => new Date('2040-01-01T00:00:00Z'),
+    // Matches the fixture PFX's real passphrase, so the (fake) export step's canned PFX
+    // bytes are actually decryptable with whatever passphrase provision() generated.
+    randomPassphrase: () => VALID_PFX_PASSPHRASE,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  const createCalls = spawnSync.calls.filter((script) =>
+    script.includes('New-SelfSignedCertificate'),
+  );
+  assert.equal(createCalls.length, 1, 'expected exactly one reissue');
+});
+
+test('an existing credential inside its renewal window (but not yet expired) is reissued exactly once, not reused', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir);
+
+  const spawnSync = fullSuccessSpawnSync({ thumbprint: 'RENEWALWINDOW0001' });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: addressesCoveredByFixturePfx,
+    certificateDirectory: () => stateDir,
+    // 10 days before the fixture's 2036-09-21 expiry: inside the default 30-day renewal
+    // window but not yet expired — proves `needsRenewal` alone triggers reissue too, per
+    // certificate-facts.mjs's documented `expired || needsRenewal` rule (never
+    // `needsRenewal` alone would still pass this test; `expired` alone would not).
+    now: () => new Date('2036-09-11T00:00:00Z'),
+    randomPassphrase: () => VALID_PFX_PASSPHRASE,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  const createCalls = spawnSync.calls.filter((script) =>
+    script.includes('New-SelfSignedCertificate'),
+  );
+  assert.equal(createCalls.length, 1, 'expected exactly one reissue');
+});
+
+test('an existing credential that no longer covers current addresses is reissued exactly once, not reused', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir);
+
+  const spawnSync = fullSuccessSpawnSync({ thumbprint: 'COVERAGELOSS0001' });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    // A brand-new address the fixture's SAN set does not cover at all.
+    localAddresses: () => ({ hostnames: [], ips: ['10.0.0.250'], errors: [] }),
+    certificateDirectory: () => stateDir,
+    randomPassphrase: () => VALID_PFX_PASSPHRASE,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  const createCalls = spawnSync.calls.filter((script) =>
+    script.includes('New-SelfSignedCertificate'),
+  );
+  assert.equal(createCalls.length, 1, 'expected exactly one reissue');
+});
+
+test('a missing sidecar passphrase falls back to reissuing rather than failing', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir, { withSidecar: false });
+
+  const spawnSync = fullSuccessSpawnSync({ thumbprint: 'NOSIDECAR0001' });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: addressesCoveredByFixturePfx,
+    certificateDirectory: () => stateDir,
+    randomPassphrase: () => VALID_PFX_PASSPHRASE,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  const createCalls = spawnSync.calls.filter((script) =>
+    script.includes('New-SelfSignedCertificate'),
+  );
+  assert.equal(createCalls.length, 1, 'expected exactly one reissue');
+});
+
+test('an unreadable sidecar passphrase (pointing at a directory, not a file) falls back to reissuing rather than failing', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir, { withSidecar: false });
+  // A directory at the sidecar's path throws EISDIR on read — a different flavor of
+  // "unreadable" than simply missing (ENOENT), and both must fall through to reissue.
+  mkdirSync(join(stateDir, 'cert.pfx.passphrase'));
+
+  const spawnSync = fullSuccessSpawnSync({ thumbprint: 'UNREADABLESIDECAR0001' });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: addressesCoveredByFixturePfx,
+    certificateDirectory: () => stateDir,
+    randomPassphrase: () => VALID_PFX_PASSPHRASE,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  const createCalls = spawnSync.calls.filter((script) =>
+    script.includes('New-SelfSignedCertificate'),
+  );
+  assert.equal(createCalls.length, 1, 'expected exactly one reissue');
+});
+
+// --- mkdir failure: cleanup still happens, and a readable reason comes back ---
+
+test('when creating the TLS state directory fails, the store entry is still cleaned up and a readable reason comes back', (t) => {
+  const scratch = makeScratch(t);
+  let removeScript;
+  const spawnSync = fakeSpawnSync({
+    onCreate: () => ok('MKDIRFAIL0001\r\n'),
+    onRemove: (script) => {
+      removeScript = script;
+      return ok();
+    },
+  });
+
+  const mkdir = () => {
+    throw new Error('EACCES: permission denied, mkdir fake state dir');
+  };
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    mkdir,
+    localAddresses: () => ({ hostnames: ['localhost'], ips: ['127.0.0.1'], errors: [] }),
+    certificateDirectory: () => join(scratch, 'state'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(typeof result.reason, 'string');
+  assert.match(result.reason, /permission denied|EACCES/);
+  assert.equal(result.credential, undefined);
+  assert.equal(result.anchor, undefined);
+
+  // The certificate created in the store before mkdir failed was still cleaned up,
+  // including its key container — export was never even attempted (no onExport handler
+  // was supplied above; the fake would have thrown if it had been reached).
+  assert.ok(removeScript, 'expected Remove-Item to be invoked even after mkdir failed');
+  assert.ok(removeScript.includes('MKDIRFAIL0001'));
+  assert.ok(removeScript.includes('-DeleteKey'));
 });
