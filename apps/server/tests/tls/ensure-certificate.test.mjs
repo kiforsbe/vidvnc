@@ -123,6 +123,40 @@ test('"provided" mode never consults mkcert or self-signed even if they would ha
   assert.doesNotThrow(() => ensureCertificate(providedSettings(), { strategies }));
 });
 
+// Candidate selection for "provided" mode must be by strategy identity (`name`), not by
+// list position — see ensure-certificate.mjs's module-level comment for why a positional
+// `strategies[0]` check was rejected in review: nothing enforces that "index 0" and "the
+// strategy named provided" stay the same thing. These two tests would both still pass
+// under the old, rejected positional check if they used a normally-ordered list, so each
+// deliberately puts `provided` somewhere other than first.
+test('"provided" mode selects the strategy named "provided" by identity, even when it is not first in the list', () => {
+  const strategies = [
+    neverCalledStrategy('mkcert'), // deliberately first — position must not matter
+    fakeStrategy('provided', { available: true, result: failResult('bad passphrase') }),
+    neverCalledStrategy('windows-self-signed'),
+  ];
+
+  const result = ensureCertificate(providedSettings(), { strategies });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.strategy, null);
+  assert.deepEqual(result.reasons, [{ strategy: 'provided', reason: 'bad passphrase' }]);
+});
+
+test('"provided" mode ignores an unrelated strategy inserted before "provided" in the list, and still finds and wins on "provided"', () => {
+  const strategies = [
+    neverCalledStrategy('some-future-strategy'),
+    fakeStrategy('provided', { available: true, result: okResult('provided') }),
+    neverCalledStrategy('mkcert'),
+    neverCalledStrategy('windows-self-signed'),
+  ];
+
+  const result = ensureCertificate(providedSettings(), { strategies });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.strategy, 'provided');
+});
+
 test('a failing mkcert falls through to self-signed and records why', () => {
   const log = [];
   const strategies = [
@@ -276,6 +310,13 @@ function reissueScenario(triggerState) {
 
 test('reissue trigger: credential absent causes exactly one reissue', () => {
   const { result, state } = reissueScenario({ absent: true, credentialId: 0 });
+  assert.equal(result.ok, true);
+  assert.equal(state.calls, 1);
+  assert.equal(state.writes, 1);
+});
+
+test('reissue trigger: an expired credential causes exactly one reissue', () => {
+  const { result, state } = reissueScenario({ expired: true, credentialId: 5 });
   assert.equal(result.ok, true);
   assert.equal(state.calls, 1);
   assert.equal(state.writes, 1);

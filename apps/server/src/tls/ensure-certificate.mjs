@@ -29,16 +29,27 @@
 // `provision(settings, deps)` — no strategy gets special-cased inside that walk.
 //
 // The one piece of mode-driven gating that happens *before* the walk: in `provided`
-// mode, only the first strategy is ever a candidate. This is not a name check inside the
-// loop — `mkcert.mjs` and `windows-self-signed.mjs` both decide their own availability
-// purely by probing the environment (does the binary resolve, is this Windows), not by
-// consulting `settings.mode` at all, so without this restriction a failed `provided`
-// certificate in `provided` mode could still fall through to a freshly generated one on
-// a machine that happens to have mkcert installed — exactly the silent substitution the
-// design forbids ("an operator who configured a certificate and silently got a
-// self-signed one instead has been lied to"). Restricting the candidate list to
-// `strategies[0]` uses only the ordering the strategy list is already required to have;
-// it adds no new coupling to any strategy's name or identity.
+// mode, only the strategy named `provided` is ever a candidate. `mkcert.mjs` and
+// `windows-self-signed.mjs` both decide their own availability purely by probing the
+// environment (does the binary resolve, is this Windows), not by consulting
+// `settings.mode` at all — that boundary was set deliberately in Task 5
+// (`mkcert.mjs:82-84`) and is not this module's to reopen — so without this restriction
+// a failed `provided` certificate in `provided` mode could still fall through to a
+// freshly generated one on a machine that happens to have mkcert installed — exactly the
+// silent substitution the design forbids ("an operator who configured a certificate and
+// silently got a self-signed one instead has been lied to").
+//
+// This filters by `name`, not by position (`strategies[0]`). An earlier version of this
+// module used position, reasoning that the fixed order was itself a non-negotiable this
+// module's own tests pin — but nothing actually *enforces* that "index 0" and "the
+// `provided` strategy" stay the same thing: a future strategy inserted before `provided`
+// in `DEFAULT_STRATEGIES`, or a caller passing `deps.strategies` (the same override the
+// tests below use) with `provided` anywhere but first, would silently gate on the wrong
+// strategy — reopening the exact "operator has been lied to" outcome this check exists
+// to close, through the door position-based gating left open. Filtering by identity
+// closes it regardless of where `provided` sits in the list. The loop body below stays
+// byte-identical either way — this changes only how the candidate list is built, not how
+// it is walked.
 import { providedStrategy } from './strategies/provided.mjs';
 import { mkcertStrategy } from './strategies/mkcert.mjs';
 import { windowsSelfSignedStrategy } from './strategies/windows-self-signed.mjs';
@@ -106,10 +117,13 @@ export function ensureCertificate(settings, deps = {}) {
     return report({ ok: false, attempted: false });
   }
 
-  // Mode `provided`: only the first (canonical-order) strategy is ever a candidate. See
-  // the module-level comment above for why this is a candidate-list restriction, not a
-  // name check inside the walk below.
-  const candidates = settings?.mode === 'provided' ? strategies.slice(0, 1) : strategies;
+  // Mode `provided`: only the strategy named `provided` is ever a candidate, found by
+  // identity rather than position — see the module-level comment above for why. In every
+  // other mode every strategy is a candidate; `provided` naturally excludes itself
+  // outside `provided` mode via its own `isAvailable(settings)`, so no restriction is
+  // needed on that side.
+  const candidates =
+    settings?.mode === 'provided' ? strategies.filter((s) => s.name === 'provided') : strategies;
 
   const reasons = [];
   for (const strategy of candidates) {
