@@ -7,6 +7,12 @@ import { audioModes, chooseAudioMode } from './audio.mjs';
 import { defaultStreamPolicy, resolveStreamPolicy } from './stream-policy.mjs';
 import { applyProfileOrder } from './profile-order.mjs';
 import { isAllowedOrigin } from './tls/origin.mjs';
+import {
+  anchorReport,
+  ENROLMENT_NOT_REQUIRED,
+  ENROLMENT_REQUIRED,
+  ENROLMENT_UNKNOWN,
+} from './tls/anchor.mjs';
 import { applyServerLimits } from './server-limits.mjs';
 
 function send(response, status, body) {
@@ -21,13 +27,66 @@ function send(response, status, body) {
 // plaintext listener, unredirected, because a device that does not yet trust the host has
 // no un-warned way to fetch the trust anchor over the very connection that anchor exists
 // to authenticate. Every other plaintext request redirects to the HTTPS equivalent once
-// TLS is active. Task 11 fills in the handlers at these exact paths; until then they fall
-// through to the existing 404 catch-all below, same as any other unknown route.
+// TLS is active. `/api/trust/anchor` and `/api/trust/status` are handled below (Task 11);
+// `/trust`, the human page, is Task 12's and until then falls through to the existing 404
+// catch-all, same as any other unknown route.
 export const PLAINTEXT_ALLOWED_PATHS = Object.freeze([
   '/trust',
   '/api/trust/anchor',
   '/api/trust/status',
 ]);
+
+// What the two trust endpoints tell a device, decided once from the listener's `report()`
+// (tls/listener.mjs, built on tls/anchor.mjs) so the download and the status can never
+// disagree. Both are readable by any unauthenticated LAN client, on plaintext by design, so
+// they say only public things: the state, the strategy's name, the anchor certificate and
+// its fingerprint. Every `message` here is a fixed string chosen from the state and never
+// derived from `report.failureReason`, which can embed file paths and provisioning detail
+// (a `provided`-mode failure names the operator's certificate and key files). The reason
+// stays in the log, the CLI and the host UI.
+const TRUST_ANCHOR_PATH = '/api/trust/anchor';
+const ANCHOR_FILENAME = 'VidVNC-trust.crt';
+function trustOffer(report) {
+  if (!report.active) {
+    return {
+      download: false,
+      httpStatus: 503,
+      message: report.failureReason
+        ? 'HTTPS could not be started on this host, so there is no certificate to install. The reason is in the server log and host app.'
+        : 'HTTPS is not running on this host, so there is no certificate to install.',
+    };
+  }
+  if (report.enrolmentStatus === ENROLMENT_REQUIRED) {
+    // Never an empty file with 200: an anchor with no bytes is reported as unavailable.
+    if (!report.anchor?.raw?.length)
+      return {
+        download: false,
+        httpStatus: 503,
+        message: 'This host has no certificate to offer right now. Try again shortly.',
+      };
+    return {
+      download: true,
+      httpStatus: 200,
+      message:
+        'This host uses a certificate your device does not trust yet. Download and install it, then check that its fingerprint matches the one shown on the host.',
+    };
+  }
+  if (report.enrolmentStatus === ENROLMENT_UNKNOWN)
+    return {
+      download: false,
+      httpStatus: 404,
+      message:
+        'This host uses a certificate supplied by its operator and issued by another authority, so VidVNC has nothing to install. If your device does not already trust that issuer, ask your administrator for their CA certificate.',
+    };
+  return {
+    download: false,
+    httpStatus: 404,
+    message:
+      report.enrolmentStatus === ENROLMENT_NOT_REQUIRED
+        ? 'This host uses a certificate your device already trusts, so there is nothing to install.'
+        : 'This host has nothing to install.',
+  };
+}
 
 async function readJson(request) {
   let size = 0,
@@ -245,6 +304,44 @@ export function createHttpApp({
           control: { available: !!media },
           connectionMode: connectionMode(),
         });
+      // Trust-anchor enrolment (see `trustOffer`). Behind the host and origin guards above
+      // and, like every other route, reachable on either listener; the plaintext one leaves
+      // these paths unredirected (PLAINTEXT_ALLOWED_PATHS). No `tls`, or a `tls` without
+      // `report()`, is TLS inactive.
+      if (route === TRUST_ANCHOR_PATH || route === '/api/trust/status') {
+        if (request.method !== 'GET') return send(response, 405, { error: 'GET required' });
+        const report = tls?.report?.() ?? { ...anchorReport(null), failureReason: null };
+        const offer = trustOffer(report);
+        if (route === TRUST_ANCHOR_PATH) {
+          if (!offer.download)
+            return send(response, offer.httpStatus, {
+              error: offer.message,
+              enrolmentStatus: report.enrolmentStatus,
+            });
+          // DER, not PEM: `application/x-x509-ca-cert` is the type iOS, Android and Windows
+          // offer to install, and DER is what they parse. The bytes are the public anchor
+          // certificate only (`anchor.raw`), never the credential's key. `no-store`
+          // because a reissue changes the anchor.
+          response.writeHead(200, {
+            'content-type': 'application/x-x509-ca-cert',
+            'content-disposition': `attachment; filename="${ANCHOR_FILENAME}"`,
+            'content-length': report.anchor.raw.length,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+          });
+          return response.end(report.anchor.raw);
+        }
+        const live = tls?.status?.();
+        return send(response, 200, {
+          active: report.active,
+          enrolmentStatus: report.enrolmentStatus,
+          strategy: report.strategy,
+          fingerprint: report.fingerprint,
+          httpsPort: report.active && live?.active ? live.port : null,
+          message: offer.message,
+          ...(offer.download ? { download: TRUST_ANCHOR_PATH } : {}),
+        });
+      }
       if (
         request.method !== 'POST' ||
         ![

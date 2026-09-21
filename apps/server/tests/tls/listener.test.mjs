@@ -297,14 +297,17 @@ test('a plaintext POST also redirects, 307 preserving the method for a mid-sessi
   assert.equal(response.headers.get('location'), 'https://127.0.0.1:8443/api/heartbeat');
 });
 
-test('a plaintext request to an enrolment path is served without redirect (still 404 until Task 11)', async (t) => {
+// What each enrolment path answers is anchor-endpoint.test.mjs's business (Task 11) and
+// /trust's is Task 12's; this test only pins that none of them is redirected. `/trust` is
+// the one still unhandled, so it is the one that is still a 404.
+test('a plaintext request to an enrolment path is served without redirect', async (t) => {
   const plaintext = await startPlaintext(t, { status: () => ({ active: true, port: 8443 }) });
   for (const path of PLAINTEXT_ALLOWED_PATHS) {
     const response = await fetch(plaintext.url + path, { redirect: 'manual' });
     assert.notEqual(response.status, 307, path);
     assert.equal(response.headers.get('location'), null, path);
-    assert.equal(response.status, 404, path);
   }
+  assert.equal((await fetch(plaintext.url + '/trust', { redirect: 'manual' })).status, 404);
 });
 
 test('a request that arrived over TLS is never redirected, even to an enrolment path', async (t) => {

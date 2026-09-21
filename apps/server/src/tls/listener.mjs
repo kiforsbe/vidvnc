@@ -17,6 +17,7 @@
 import { createServer as nodeCreateServer } from 'node:https';
 import { ensureCertificate as realEnsureCertificate } from './ensure-certificate.mjs';
 import { applyServerLimits } from '../server-limits.mjs';
+import { anchorReport } from './anchor.mjs';
 
 // `settings` is an already-validated TLS settings object (tls-settings.mjs).
 // `requestListener` is the plaintext app's own request handler, so both listeners share
@@ -38,6 +39,22 @@ export function createTlsListener({
   let boundPort = null;
   let inflight = null;
   let closed = false;
+  // What `report()` describes. `served` is the anchor-bearing part of the latest
+  // `ensureCertificate` result for the credential that is ACTUALLY serving. It is set only
+  // after a bind that is really listening, or a rotation whose `setSecureContext` did not
+  // throw, and never for a credential that failed either, so a report can never describe a
+  // certificate no client is being handed. It is narrowed to what `anchorReport` reads
+  // (`ok`, `strategy`, `anchor`), so the private key in `result.credential` is not kept
+  // alive here for a report that has no use for it. `failureReason` is the latest failure,
+  // cleared by the next success. It can outlive a served credential (a failed re-check),
+  // and is then reported next to it.
+  let served = null;
+  let failureReason = null;
+
+  const succeeded = (result) => {
+    served = { ok: true, strategy: result.strategy, anchor: result.anchor ?? null };
+    failureReason = null;
+  };
 
   // Rotation: replace the running listener's secure context in place. Existing
   // connections keep the credential they negotiated with; new ones get the replacement.
@@ -45,7 +62,9 @@ export function createTlsListener({
   function rotate(result) {
     try {
       server.setSecureContext({ ...result.credential });
+      succeeded(result);
     } catch (error) {
+      failureReason = `certificate rotation failed (${error.message})`;
       log(
         `TLS certificate rotation failed (${error.message}). Continuing with the current certificate.`,
       );
@@ -64,6 +83,7 @@ export function createTlsListener({
         secure = createServer({ ...result.credential }, requestListener);
         applyServerLimits(secure);
       } catch (error) {
+        failureReason = `the credential could not be used (${error.message})`;
         log(
           `TLS configuration error (${error.message}). Serving plaintext only; the credential could not be used.`,
         );
@@ -78,8 +98,13 @@ export function createTlsListener({
         if (wasServing) {
           server = null;
           boundPort = null;
+          served = null; // nothing is serving any more, so nothing is described
           secure.close();
         }
+        failureReason =
+          error.code === 'EADDRINUSE'
+            ? `port ${settings.port} is already in use`
+            : `listener error on port ${settings.port} (${error.message})`;
         log(
           error.code === 'EADDRINUSE'
             ? `TLS port ${settings.port} is already in use. Serving plaintext only.`
@@ -95,6 +120,7 @@ export function createTlsListener({
           }
           server = secure;
           boundPort = secure.address().port;
+          succeeded(result);
           const warnings = result.warnings ?? [];
           log(
             `TLS ready on port ${boundPort} (strategy: ${result.strategy})` +
@@ -105,6 +131,7 @@ export function createTlsListener({
         });
       } catch (error) {
         // listen() throws synchronously for an out-of-range port or an invalid host.
+        failureReason = `listener error on port ${settings.port} (${error.message})`;
         log(
           `TLS listener error on port ${settings.port} (${error.message}). Serving plaintext only.`,
         );
@@ -124,6 +151,7 @@ export function createTlsListener({
 
     if (!result.ok) {
       const reason = result.reason ?? 'no TLS provisioning strategy is available';
+      failureReason = reason;
       if (server) {
         log(`TLS re-check failed (${reason}). Continuing with the current certificate.`);
       } else if (settings.mode === 'provided') {
@@ -170,8 +198,18 @@ export function createTlsListener({
     status() {
       return { active: server !== null, port: boundPort };
     },
+    // What a device must trust to reach this listener, for the enrolment endpoints (Task
+    // 11), the CLI (Task 13) and the host UI (Task 14): `anchor.mjs`'s report for the
+    // credential that is serving, plus the latest failure reason. Inactive (`active: false`,
+    // null anchor) whenever nothing is bound. `failureReason` is for the log, the CLI and
+    // the host UI: it can embed file paths and provisioning detail, so a network-facing
+    // reader (the HTTP endpoints) must not serve it.
+    report() {
+      return { ...anchorReport(served), failureReason };
+    },
     async close() {
       closed = true;
+      served = null;
       const secure = server;
       server = null;
       boundPort = null;
