@@ -4,12 +4,21 @@
 //
 // This module also defines the strategy shape shared by all three provisioning
 // strategies (Task 4 is first; `mkcert.mjs` and `self-signed.mjs` implement the same
-// shape): a `name`, an `isAvailable(settings)` check, and a `provision(settings, deps)`
-// operation that returns either a usable credential plus the anchor a device must trust,
-// or a reason it could not. Every strategy reports failure through that same `{ ok:
-// false, reason }` shape rather than throwing — TLS is an improvement, never a
+// shape): a `name`, an `isAvailable(settings, deps)` check, and a `provision(settings,
+// deps)` operation that returns either a usable credential plus the anchor a device must
+// trust, or a reason it could not. Every strategy reports failure through that same
+// `{ ok: false, reason }` shape rather than throwing — TLS is an improvement, never a
 // precondition, so a caller (Task 7) can walk the strategy list, log each reason it
 // skips, and fall through to plaintext if all of them fail.
+//
+// `isAvailable`'s second argument, `deps`, is optional and ignorable: this strategy's own
+// availability is a pure settings check, so its `isAvailable` below only declares
+// `settings` and never looks at `deps`. A strategy whose availability depends on probing
+// the environment (`mkcert.mjs` checks whether the mkcert binary resolves; the Windows
+// self-signed strategy checks the platform) takes the same `deps` object `provision`
+// does — e.g. an injectable `spawnSync` — so its check stays testable without requiring
+// the real tool. Task 7 calls every strategy's `isAvailable(settings, deps)` uniformly;
+// a strategy that does not need `deps` simply has a parameter it never reads.
 //
 // `credential` is deliberately shaped as whatever `node:tls` needs directly:
 // `{ cert, key }` for a PEM pair, `{ pfx, passphrase }` for a PFX. Both are valid

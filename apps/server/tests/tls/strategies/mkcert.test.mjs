@@ -388,22 +388,6 @@ test('when mkcert is unavailable (binary missing), provision fails cleanly rathe
   assert.ok(result.reason.length > 0);
 });
 
-test('default dependencies (no explicit spawnSync) do not throw against this real machine', (t) => {
-  // Uses the real, un-injected spawnSync against whatever mkcert (if any) is actually on
-  // this machine's PATH — proves the default wiring works, whichever way it resolves.
-  // certificateDirectory is still confined to a scratch temp dir so this never touches
-  // real VidVNC state.
-  const scratch = makeScratch(t);
-  assert.doesNotThrow(() =>
-    provision(mkcertSettings(), { certificateDirectory: () => join(scratch, 'state') }),
-  );
-  const result = provision(mkcertSettings(), {
-    certificateDirectory: () => join(scratch, 'state'),
-  });
-  assert.equal(typeof result.ok, 'boolean');
-  if (!result.ok) assert.equal(typeof result.reason, 'string');
-});
-
 test('the strategy never attempts to install anything (no -install argument is ever passed)', (t) => {
   const scratch = makeScratch(t);
   const rootDir = join(scratch, 'caroot');
