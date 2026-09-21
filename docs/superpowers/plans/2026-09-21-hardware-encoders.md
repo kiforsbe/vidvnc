@@ -40,7 +40,7 @@ Every task's requirements include these, copied from the spec.
 
 Principles:
 
-- Write few tests. Each new test proves one behaviour no existing test covers. Three of the four backends cannot be executed here, so do not write tests that pretend to exercise them — test the tables and the arithmetic, which are pure, and let the self-test gate cover the rest at runtime.
+- Write few tests. Each new test proves one behaviour no existing test covers. The development machine has an AMD Radeon integrated GPU and an NVIDIA RTX 5060 Ti, so NVENC, AMF and Media Foundation can all be exercised for real and must be; only Quick Sync cannot. Do not write tests that pretend to exercise Quick Sync — test the tables and the arithmetic, which are pure, and let the self-test gate cover it at runtime.
 - Write no new end-to-end tests. The existing hardware tests named below are the only cross-process proof.
 - Run only the commands in this table, at the step where the task says so. Do not widen a run "to be safe".
 
@@ -88,6 +88,23 @@ Cluster A is indivisible: Task 1 removes `encoder` from `VideoCodec` while
 Clusters B and C are the probe-shape lockstep pair and should land back to back. Between
 them the server still starts, because Task 5 only adds `backends` to the probe and Task 7
 treats a missing `backends` as an empty array.
+
+**Cluster B also carries the AMF and Media Foundation verification**, because that is the
+first point at which a real encoder can be driven through the new code, and because the
+development machine can do it. Beyond the automated cases in Task 5, record by hand and
+paste into the cluster's report:
+
+- The property string built for each of `nvenc`, `amf` and `mediafoundation`, for H.264 in
+  CBR and in VBR `balanced`. This is the only direct look at what the dialects produce.
+  Confirm Media Foundation emits `rc-mode=pcvbr` and a single `min-qp`, and that AMF emits
+  `usage=ultra-low-latency preset=speed`.
+- Which codecs each backend's self-test accepted and which it rejected. AMF advertises AV1
+  only on RDNA3 and newer, so a rejection there is expected behaviour, not a failure.
+- Which adapter the capture resolved to, and which backend won the ranking as a result.
+
+**Cluster F additionally runs one interactive session on AMF**, forced through the host
+override. A passing self-test proves the encoder accepts caps; it does not prove the stream
+is usable. Only Quick Sync ships without this treatment.
 
 Commits are authorised for this execution session: one commit per task as each task's
 step 5 describes, and the cluster gate must pass before the cluster's last commit.
@@ -345,9 +362,10 @@ Commit message: `feat: rank encoder backends by capture adapter`
   Four cases, against the real worker binary on this machine:
 
   1. Probe shape: `--probe` returns a `backends` array with at least one entry; every entry has all five fields; `codecs` at the top level equals the union of the backends' `codecs`; `encoder` is a non-empty string that appears as an element name for the chosen backend.
-  2. On this NVIDIA machine, `backends` contains exactly one entry, `nvenc`, and its `minimums` give 192x128 for `av1` and 144x48 for `h265`.
-  3. Two-argument self-test: `--self-test-codec nvenc h264` succeeds; `--self-test-codec qsv h264` fails cleanly with a non-zero exit and a message naming the backend, rather than hanging or crashing; `--self-test-codec h264` (the old form) is rejected as a usage error.
-  4. The existing NVENC self-tests in this file still pass unchanged. Do not rewrite them.
+  2. On this machine `backends` contains `nvenc`, `amf` and `mediafoundation`, and does not contain `qsv`. NVENC's `minimums` give 192x128 for `av1` and 144x48 for `h265`; `mediafoundation` lists no `av1`. Assert membership, not an exact set, so the test does not break on a machine with different hardware.
+  3. Two-argument self-test: `--self-test-codec nvenc h264` succeeds; `--self-test-codec amf h264` succeeds, because AMF really works here; `--self-test-codec qsv h264` fails cleanly with a non-zero exit and a message naming the backend, rather than hanging or crashing; `--self-test-codec h264` (the old form) is rejected as a usage error.
+  4. Adapter affinity fires for real. This machine has two adapters, so the probe's `onCaptureAdapter` is true for exactly one backend, and `encoder` names an element from that backend. This is the only genuine test of the feature and it exists only because the development machine happens to be hybrid.
+  5. The existing NVENC self-tests in this file still pass unchanged. Do not rewrite them.
 
 - [ ] **Step 2: Run the build and the worker test, and confirm the new cases fail**
 
@@ -357,7 +375,8 @@ Expected: the four new cases fail — no `backends` key, and the two-argument se
 - [ ] **Step 3: Implement**
 
   - Candidate discovery: for each backend in `encoder_backends()` and each codec, look up the encoder element factory together with the codec's parser and payloader factories, exactly as the existing probe already does for codecs. A backend offers a codec only when all three are found.
-  - Adapter LUID: instantiate the candidate encoder element and read `adapter-luid` when the element class declares it; otherwise record `has_adapter` false. For the capture adapter, read `adapter-luid` from `d3d11screencapturesrc` when it declares it, and otherwise report the capture adapter as unknown. Do not infer an adapter from an index; an unknown adapter degrades to the fixed order, which is correct and safe.
+  - Encoder adapter LUID: instantiate the candidate encoder element and read `adapter-luid` when the element class declares it; otherwise record `has_adapter` false. `nvd3d11h264enc` declares it, verified 2026-09-21.
+  - Capture adapter LUID: **do not look for `adapter-luid` on `d3d11screencapturesrc` — it does not have one.** Verified 2026-09-21: the element exposes only `adapter`, a DXGI index that applies to Windows Graphics Capture mode and does not identify the adapter DXGI duplication actually used. Derive the LUID from the monitor instead. The display inventory already carries each monitor's handle; walk DXGI adapters and their outputs, match the output whose monitor handle equals the captured one, and take that adapter's LUID. When no monitor is selected, use the primary monitor. When the walk finds no match, report the capture adapter as unknown, which degrades ranking to the fixed order.
   - Self-test gate: before advertising a backend, run the existing short encode for its first supported codec and drop the backend when it fails. Do not cache the result.
   - `preflight`: keep every currently-required element except the three NVENC-specific ones. Replace those with a check that at least one backend survives the gate with an `h264` element, and that `h264parse` and `rtph264pay` are present. On failure, raise a message naming the encoders looked for and stating that none worked.
   - `--probe`: emit `backends` as specified, keep `codecs` as the union, and set `encoder` from `select_encoder` under the current policy.
@@ -581,7 +600,7 @@ Expected: the three new cases fail; the existing Codecs cases pass.
 
   - Add the selector, bound to the policy field, following how the existing codec checkboxes on this page read and write policy.
   - Show the active backend, element and reason, and the substitution notice.
-  - Mark the three new backends as untested against real hardware. NVENC is the only verified path, and the interface must not present four equal options. One short line near the selector is enough; the wording belongs with the README wording from Task 12.
+  - Mark Quick Sync alone as untested against real hardware, and leave NVENC, AMF and Media Foundation unqualified, since all three are exercised on the development machine. The interface must not present four equal options, and it must not imply AMF and Media Foundation are unverified when they are not. One short line on the Quick Sync option is enough; match the README wording from Task 12.
 
 - [ ] **Step 4: Run the required tests**
 
@@ -649,11 +668,11 @@ Commit message: `feat: package the Quick Sync, AMF and Media Foundation plugins`
 
   - The "Currently implemented" paragraph says NVIDIA H.264 hardware encoding and states that there is no fallback. Replace the hardware sentence with the four backends and what each covers, and keep the statement that there is no software encoder or software capture fallback, which is still true.
   - The install prerequisites say "An NVIDIA graphics card with its current driver" in both package sections. Replace with the real requirement: a GPU with a supported hardware encoder — NVIDIA, Intel or AMD — with a current driver.
-  - State plainly which backends are verified. NVENC has been tested on real hardware; Quick Sync, AMF and Media Foundation have not. A user should be able to learn this from the README without reading the spec.
+  - State plainly which backends are verified. NVENC, AMF and Media Foundation have been exercised on real hardware; Quick Sync has not, because no Intel graphics was available. Mark Quick Sync alone as untested and leave the other three unqualified — marking all three new backends as untested would now understate two of them. A user should be able to learn this from the README without reading the spec.
 
 - [ ] **Step 2: Update the roadmap**
 
-  Record that multi-vendor encoding landed, and that promoting Quick Sync, AMF or Media Foundation from untested to supported needs a real machine, the self-tests across all codecs in both bitrate modes, and the VBR bitrate measurements that produced the NVENC floors.
+  Record that multi-vendor encoding landed, that NVENC, AMF and Media Foundation were exercised on real hardware, and that promoting Quick Sync from untested to supported needs an Intel machine, the self-tests across all codecs in both bitrate modes, the VBR bitrate measurements that produced the NVENC floors, and a latency measurement in particular, since it is the one backend with no low-latency property.
 
 - [ ] **Step 3: Update the packaging document**
 
@@ -698,6 +717,15 @@ Expected: both packages build and the three new plugin DLLs appear in the staged
 Run: `node --test native/media-worker/tests/native-worker.test.mjs`
 Expected: passes, including the pre-existing NVENC self-tests. NVENC behaviour must be identical to before this plan.
 
-- [ ] **Step 5: Report**
+- [ ] **Step 5: One interactive session on AMF**
 
-  State plainly what was verified and what was not. Quick Sync, AMF and Media Foundation were never executed. Do not describe them as working, tested or supported — only as shipped behind the runtime self-test gate.
+  Force `encoder-backend` to `amf` in stream policy, start a session, connect a browser and use it briefly. Confirm the stream is watchable and responsive, not merely that it negotiated. Then set the policy back to `auto`. A passing self-test proves the encoder accepts caps; only this proves the stream is usable.
+
+- [ ] **Step 6: Report**
+
+  State plainly what was verified and what was not:
+
+  - NVENC, AMF and Media Foundation were exercised on the development machine's AMD Radeon integrated GPU and NVIDIA RTX 5060 Ti. Say which codecs each one accepted and which its self-test rejected.
+  - Adapter affinity was tested on a genuinely hybrid machine. Say which adapter captured and which backend won.
+  - **Quick Sync was never executed.** No Intel graphics was available. Do not describe it as working, tested or supported — only as shipped behind the runtime self-test gate.
+  - NVENC behaviour is identical to before this plan, proven by the exact-string regression in Task 3 and the pre-existing self-tests.

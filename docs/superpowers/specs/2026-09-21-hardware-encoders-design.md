@@ -77,11 +77,29 @@ target-usage property at all, so its latency has to come from `rate-control=cbr`
 
 ### The constraint that shapes the design
 
-Development and testing hardware is a single NVIDIA RTX 5060 Ti. Quick Sync, AMF and
-Media Foundation will be written, reviewed and released without ever being run. Every
-decision below that looks defensive — runtime property introspection, a per-backend
-self-test gate, degrading instead of failing — exists because of this and should not be
-simplified away later on the grounds that it looks like belt and braces.
+The development machine carries an AMD Radeon integrated GPU and an NVIDIA RTX 5060 Ti,
+which is itself the hybrid configuration this design cares most about. Checked on
+2026-09-21 with `gst-inspect-1.0` and a 30-frame `gst-launch-1.0` encode:
+
+| Backend | Registers here | Encodes here |
+|---|---|---|
+| NVENC | yes | yes, and already in production use |
+| AMF | yes | yes |
+| Media Foundation | yes | yes |
+| Quick Sync | no | no Intel graphics on this machine |
+
+So three of the four backends can be verified, and **only Quick Sync ships without ever
+being run**. That is a much better position than assumed when this work started, but it
+does not change the design. The defensive decisions below — runtime property
+introspection, a per-backend self-test gate, degrading instead of failing — are what make
+a backend verifiable rather than merely plausible, and they are what will carry Quick Sync.
+They should not be simplified away later on the grounds that most backends turned out to
+be testable.
+
+Two further consequences. The development machine can exercise adapter affinity for real,
+because it genuinely has two adapters. And if its display is driven by the integrated GPU,
+today's NVENC-only pipeline is already paying a cross-adapter copy per frame, which this
+work would remove rather than merely avoid.
 
 ## Goals and decisions
 
@@ -185,8 +203,17 @@ resolution. Adding Intel and AMD backends is therefore not only a compatibility 
 on hybrid machines, picking the encoder that already owns the texture removes per-frame
 work that exists today.
 
-The worker reads the adapter LUID of the device backing the capture element, then ranks
-candidate encoder elements:
+The capture element does not report its adapter. Checked on 2026-09-21,
+`d3d11screencapturesrc` exposes only `adapter`, a DXGI index that applies to Windows
+Graphics Capture mode, and no `adapter-luid`. The worker therefore derives the capture
+adapter from the monitor it is capturing: the display inventory already holds each
+monitor's handle, and DXGI's adapter and output enumeration maps that handle to the
+adapter that drives it, which is exactly the GPU desktop duplication captures on. Where
+that mapping fails, the capture adapter is reported as unknown and ranking degrades to the
+fixed order.
+
+Encoder elements do report theirs: `nvd3d11h264enc` exposes `adapter-luid`, checked the
+same day. The worker reads it per candidate and ranks them:
 
 1. Elements that declare an `adapter-luid` matching the capture adapter.
 2. Elements that declare an `adapter-luid` for some other adapter.
@@ -314,10 +341,12 @@ multiply the build matrix and the support burden for a download-size saving.
 - **Web client:** unchanged. Clients choose codecs and profiles; the encoder backend is
   never visible to them and never appears in the protocol.
 
-Labelling matters given the testing constraint. NVENC is the verified backend; the other
-three ship untested against real hardware, and the host app and README should say so
-rather than presenting four equal options. A user hitting a Quick Sync bug should be able
-to tell from the interface that they are on a path nobody has run.
+Labelling matters, but it applies to one backend rather than three. NVENC, AMF and Media
+Foundation are all exercised on the development machine; Quick Sync is not, because there
+is no Intel graphics to run it on. The host app and README should mark Quick Sync as
+untested against real hardware and leave the other three unqualified. Presenting all four
+as equal would overstate Quick Sync; marking all three new ones as untested would now
+understate AMF and Media Foundation, which is its own kind of inaccuracy.
 
 ## Testing and validation
 
@@ -349,34 +378,56 @@ to tell from the interface that they are on a path nobody has run.
   backend where that can be proved.
 - The VBR measurements from the variable-bitrate investigation are re-run for H.264 to
   confirm the normalised-floor arithmetic reproduces the previous bitrates.
-- The probe reports NVENC as available and the other three as absent, and the adapter
-  affinity ranking picks NVENC, which on this machine is also the capture adapter.
+- The probe reports NVENC, AMF and Media Foundation as available and Quick Sync as absent.
 - Forcing an unavailable backend falls back to automatic and reports the substitution.
+
+### AMF and Media Foundation, on the development machine
+
+These are verifiable here and must actually be verified rather than reasoned about:
+
+- The per-backend self-test passes for every codec each backend claims: AMF for H.264,
+  H.265 and AV1 if the integrated GPU is RDNA3 or newer, and Media Foundation for H.264
+  and H.265. Whichever codecs the self-test rejects are dropped from the advertised set,
+  and that dropping is itself the behaviour under test.
+- The property strings built by introspection are inspected once per backend and recorded,
+  because this is the only chance to see what the dialects actually produce. In particular,
+  confirm Media Foundation's `pcvbr` path and its single `min-qp`, and confirm AMF accepts
+  `usage=ultra-low-latency` together with `preset=speed`.
+- Adapter affinity is exercised for real. With two adapters present, capture on the monitor
+  driven by the integrated GPU must select AMF over NVENC, and forcing `nvenc` must
+  override that. This is the feature's only genuine test.
+- A short interactive session runs end to end on AMF, since a passing self-test proves the
+  encoder accepts caps, not that the stream is usable.
 
 ### What cannot be verified here
 
-Quick Sync, AMF and Media Foundation cannot be run at all. The self-test gate is what
-stands in for verification: a backend that does not work is not advertised, so the worst
-realistic outcome on unsupported hardware is that VidVNC behaves as it does today and
+Quick Sync alone. There is no Intel graphics on the development machine, so `qsvh264enc`
+does not register and nothing about that backend can be exercised. The self-test gate is
+what stands in for verification: a backend that does not work is not advertised, so the
+worst realistic outcome on an Intel machine is that VidVNC behaves as it does today and
 declines to stream, rather than starting a session that fails later.
 
-Before any of the three is promoted from untested to supported, it needs the same
-treatment NVENC had: a real machine, the self-tests across all codecs in both bitrate
-modes, and the VBR bitrate measurements that produced the current floors.
+Before Quick Sync is promoted from untested to supported it needs the same treatment the
+others had: a real Intel machine, the self-tests across all codecs in both bitrate modes,
+and the VBR bitrate measurements that produced the current floors. Its latency is the
+specific thing to measure, because it is the one backend with no low-latency property.
 
 ## Risks
 
-- **Three backends ship unrun.** Mitigated by introspection, the self-test gate and
-  honest labelling, not eliminated. The first external bug reports are likely to be
-  Quick Sync latency, since QSV has no low-latency property and its latency rests
+- **Quick Sync ships unrun.** Mitigated by introspection, the self-test gate and honest
+  labelling, not eliminated. The first external bug reports are likely to be Quick Sync
+  latency, since it is the one backend with no low-latency property and its latency rests
   entirely on CBR, no B-frames, one reference frame and a short GOP.
-- **QP floor scaling is arithmetic over an unverified range.** Bounded: `max-bitrate`
-  still caps the stream, so a wrong floor costs efficiency rather than breaching a budget.
-  Worth an explicit note in the host app that VBR quality tiers are calibrated on NVENC.
-- **Adapter affinity changes behaviour on existing NVIDIA hybrid laptops**, which would
-  now prefer an Intel or AMD encoder where they previously used NVENC. This is intended
-  and should be faster, but it is a behaviour change for users who are working today, and
-  the override exists partly for them.
+- **QP floor scaling is arithmetic over a range that is verified for three backends and
+  not for Quick Sync.** Bounded either way: `max-bitrate` still caps the stream, so a
+  wrong floor costs efficiency rather than breaching a budget. Worth an explicit note in
+  the host app that VBR quality tiers are calibrated on NVENC.
+- **Adapter affinity changes behaviour on existing hybrid machines**, which would now
+  prefer an integrated encoder where they previously used NVENC — including the
+  development machine itself. This is intended and should be faster, but it is a
+  behaviour change for users who are working today, and the override exists partly for
+  them. It also means the development machine's own behaviour changes during this work,
+  so a regression there is a signal, not noise.
 - **Media Foundation may front the same hardware as a vendor backend** with less control,
   which is why it ranks last. Where it is chosen, it is because nothing better was found.
 - **Package size grows** for all users, including NVIDIA-only ones who gain nothing.
