@@ -625,31 +625,31 @@ Commit message: `feat: choose an encoder backend from the host app`
 - Consumes: nothing from earlier tasks. This task is independent and can land at any point.
 - Produces: `gstqsv.dll`, `gstamfcodec.dll` and `gstmediafoundation.dll` in the staged plugin set, with component entries carrying their licences, and any transitive DLLs those three pull in.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   Two cases:
 
   1. `staging.test.mjs`: the staged plugin list contains the three new plugin DLLs alongside the existing ones, and every plugin named in `inputs.json` has a component entry that declares a licence. The second half is the guard that a future plugin cannot be added without its licence metadata.
   2. `pe-dependencies.test.mjs`: the dependency walk over the new plugins resolves every import to either a staged file or a known system DLL, with nothing unresolved.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `node --test packaging/tests/staging.test.mjs packaging/tests/pe-dependencies.test.mjs`
 Expected: both new cases fail — the plugins are absent from the manifest.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Add the three plugin DLLs to the `plugins` list.
   - Add or extend component entries for them. `gstqsv.dll` and `gstmediafoundation.dll` come from `gst-plugins-bad-1.0`, which already has an entry; `gstamfcodec.dll` comes from the same recipe. Verify each against the SDK's own licence directories rather than assuming, the same way the existing entries were derived.
   - Run the dependency walker's output and add any newly required transitive DLLs to the right component, with licences.
   - Do not build a package in this task. Task 13 does that once.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `node --test packaging/tests/staging.test.mjs packaging/tests/pe-dependencies.test.mjs`
 Expected: both pass.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add packaging/windows/inputs.json packaging/tests/staging.test.mjs packaging/tests/pe-dependencies.test.mjs`
 Commit message: `feat: package the Quick Sync, AMF and Media Foundation plugins`
@@ -665,25 +665,25 @@ Commit message: `feat: package the Quick Sync, AMF and Media Foundation plugins`
 - Consumes: the finished behaviour from every earlier task.
 - Produces: no code. Documentation only, so no tests run for this task.
 
-- [ ] **Step 1: Update the README**
+- [x] **Step 1: Update the README**
 
   - The "Currently implemented" paragraph says NVIDIA H.264 hardware encoding and states that there is no fallback. Replace the hardware sentence with the four backends and what each covers, and keep the statement that there is no software encoder or software capture fallback, which is still true.
   - The install prerequisites say "An NVIDIA graphics card with its current driver" in both package sections. Replace with the real requirement: a GPU with a supported hardware encoder — NVIDIA, Intel or AMD — with a current driver.
   - State plainly which backends are verified. NVENC, AMF and Media Foundation have been exercised on real hardware; Quick Sync has not, because no Intel graphics was available. Mark Quick Sync alone as untested and leave the other three unqualified — marking all three new backends as untested would now understate two of them. A user should be able to learn this from the README without reading the spec.
 
-- [ ] **Step 2: Update the roadmap**
+- [x] **Step 2: Update the roadmap**
 
   Record that multi-vendor encoding landed, that NVENC, AMF and Media Foundation were exercised on real hardware, and that promoting Quick Sync from untested to supported needs an Intel machine, the self-tests across all codecs in both bitrate modes, the VBR bitrate measurements that produced the NVENC floors, and a latency measurement in particular, since it is the one backend with no low-latency property.
 
-- [ ] **Step 3: Update the packaging document**
+- [x] **Step 3: Update the packaging document**
 
   Note the three added plugins and, if the package size moved materially, the new figures.
 
-- [ ] **Step 4: No tests**
+- [x] **Step 4: No tests**
 
   This task changes no code path. Do not run a test suite.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add README.md docs/ROADMAP.md docs/PACKAGING.md`
 Commit message: `docs: describe the supported encoder backends`
