@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NativeMedia } from '../src/native-media.mjs';
+import { NativeMedia, probe } from '../src/native-media.mjs';
+
+test('the probe surfaces encoder backends beside the codec list', () => {
+  const info = probe();
+  assert.ok(Array.isArray(info.backends) && info.backends.length > 0);
+  for (const backend of info.backends) {
+    assert.ok(backend.id && backend.label);
+    assert.ok(Array.isArray(backend.codecs) && backend.codecs.length > 0);
+    for (const codec of backend.codecs) {
+      const minimum = backend.minimums[codec];
+      assert.ok(minimum.width > 0 && minimum.height > 0, `${backend.id} ${codec}`);
+    }
+  }
+  // Every codec the host advertises must come from some backend, or codec selection would
+  // offer a codec that nothing can actually encode.
+  const supported = new Set(info.backends.flatMap((backend) => backend.codecs));
+  for (const codec of info.codecs) assert.ok(supported.has(codec), codec);
+});
+
 test('stop is idempotent, ignores other sessions and resolves after worker exit', async () => {
   const media = new NativeMedia();
   const negotiation = media.offer('owner', 'invalid').catch(() => {});

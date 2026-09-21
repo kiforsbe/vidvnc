@@ -47,7 +47,17 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
   const policy = {
     snapshot: () => ({ ...defaultStreamPolicy(), displaySharing: { [display.id]: true } }),
   };
-  const runtime = new StreamRuntime({ sessions, media, inventory, policy });
+  // These routes are about authorization, not encoding, but a runtime with no backends can
+  // encode nothing, so give it the one every machine is required to have.
+  const videoBackends = [
+    {
+      id: 'nvenc',
+      label: 'NVIDIA NVENC',
+      codecs: ['h264'],
+      minimums: { h264: { width: 64, height: 64 } },
+    },
+  ];
+  const runtime = new StreamRuntime({ sessions, media, inventory, policy, videoBackends });
   const server = createHttpApp({ sessionStore: sessions, media, inventory, policy, runtime });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => {

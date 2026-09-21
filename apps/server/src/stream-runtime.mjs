@@ -18,6 +18,7 @@ export class StreamRuntime {
     registry = new StreamRegistry(),
     clock = Date.now,
     videoCodecs = ['h264'],
+    videoBackends = [],
   }) {
     Object.assign(this, {
       sessions,
@@ -28,6 +29,7 @@ export class StreamRuntime {
       registry,
       clock,
       videoCodecs,
+      videoBackends,
     });
     this.stopping = false;
     this.sessionStops = new Map();
@@ -301,8 +303,9 @@ export class StreamRuntime {
     const codec = selectVideoCodec(
       request.sdp,
       policy.videoCodecs,
-      this.videoCodecs,
+      this.videoBackends,
       effective.profile,
+      effective.encoderBackend,
     );
     const plan = {
       profile: effective.profile,

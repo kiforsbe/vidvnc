@@ -8,7 +8,7 @@ import { peerSample } from './media-sample.mjs';
 import { DEFAULT_BITRATE_MODE, DEFAULT_QUALITY } from './rate-control.mjs';
 
 export function probe() {
-  return JSON.parse(
+  const info = JSON.parse(
     execFileSync(executable, ['--probe'], {
       env: workerEnvironment(),
       windowsHide: true,
@@ -16,6 +16,10 @@ export function probe() {
       encoding: 'utf8',
     }),
   );
+  // A worker built before encoder backends existed reports codecs but no backends. Defaulting
+  // to an empty list keeps such a binary from crashing the server at startup; codec selection
+  // then finds nothing eligible and says so per request, which is the honest failure.
+  return { ...info, backends: Array.isArray(info.backends) ? info.backends : [] };
 }
 export async function listDisplays(signal) {
   const { stdout } = await promisify(execFile)(executable, ['--list-displays'], {

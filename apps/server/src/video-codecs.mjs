@@ -3,13 +3,6 @@
 export const VIDEO_CODECS = Object.freeze(['av1', 'h265', 'h264']);
 export const CODEC_LABELS = Object.freeze({ av1: 'AV1', h265: 'H.265', h264: 'H.264' });
 
-// The new encoders have larger minimum input sizes than the policy's 64x64 floor, so a tiny
-// custom profile must fall back to a smaller codec instead of failing in the worker.
-const MINIMUM_DIMENSIONS = {
-  av1: { width: 192, height: 128 },
-  h265: { width: 144, height: 48 },
-};
-
 // Codec ids whose encoding name appears in an `a=rtpmap:<pt> <NAME>/90000` line inside an
 // `m=video` section. Names are matched case-insensitively.
 export function offeredVideoCodecs(sdp) {
@@ -30,15 +23,28 @@ export function offeredVideoCodecs(sdp) {
   return found;
 }
 
-// Returns the first id in policyCodecs that is in hostCodecs, is offered by the browser, and
-// fits the encoder's minimum input size for the resolved profile.
-export function selectVideoCodec(sdp, policyCodecs, hostCodecs, profile) {
+// Minimum input size belongs to the encoder element, not to the codec: NVENC needs 192x128 for
+// AV1 while Quick Sync needs 16x16. Eligibility is therefore asked of the backends the probe
+// reported, which carry their own minimums, rather than of a table keyed by codec.
+function canEncode(backend, codec, profile) {
+  if (!backend.codecs.includes(codec)) return false;
+  const minimum = backend.minimums?.[codec];
+  if (!minimum) return true;
+  return profile.width >= minimum.width && profile.height >= minimum.height;
+}
+
+// Returns the first id in policyCodecs that the browser offered and that some usable backend
+// can encode at the resolved profile's size. `encoderBackend` is the host's setting: `auto`, or
+// a backend id. Naming a backend the machine does not have falls back to considering them all,
+// mirroring the worker, which substitutes automatic selection rather than failing the session.
+export function selectVideoCodec(sdp, policyCodecs, backends, profile, encoderBackend = 'auto') {
   const offered = offeredVideoCodecs(sdp);
+  const forced =
+    encoderBackend !== 'auto' && backends.some((backend) => backend.id === encoderBackend);
+  const usable = forced ? backends.filter((backend) => backend.id === encoderBackend) : backends;
   for (const codec of policyCodecs) {
-    if (!hostCodecs.includes(codec) || !offered.has(codec)) continue;
-    const minimum = MINIMUM_DIMENSIONS[codec];
-    if (minimum && (profile.width < minimum.width || profile.height < minimum.height)) continue;
-    return codec;
+    if (!offered.has(codec)) continue;
+    if (usable.some((backend) => canEncode(backend, codec, profile))) return codec;
   }
   throw Object.assign(new Error('Browser must offer a supported video codec.'), { status: 400 });
 }

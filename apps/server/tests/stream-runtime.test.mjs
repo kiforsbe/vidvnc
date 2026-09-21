@@ -51,11 +51,27 @@ const noKnownCodecSdp = () =>
     'a=rtpmap:111 opus/48000/2',
   ].join('\r\n');
 
+// One probe-shaped backend carrying the real NVENC minimums, so a test that restricts the
+// runtime's codecs keeps meaning what it meant before eligibility moved onto the backends.
+const NVENC_MINIMUMS = {
+  av1: { width: 192, height: 128 },
+  h265: { width: 144, height: 48 },
+  h264: { width: 64, height: 64 },
+};
+const nvencBackends = (codecs) => [
+  {
+    id: 'nvenc',
+    label: 'NVIDIA NVENC',
+    codecs: [...codecs],
+    minimums: Object.fromEntries(codecs.map((codec) => [codec, NVENC_MINIMUMS[codec]])),
+  },
+];
+
 async function setup(
   t,
   defaultControl = 'approval',
   approvedClients = undefined,
-  { registry, videoCodecs = ['av1', 'h265', 'h264'], ...mediaOptions } = {},
+  { registry, videoCodecs = ['av1', 'h265', 'h264'], videoBackends, ...mediaOptions } = {},
 ) {
   const { StreamRuntime } = await import('../src/stream-runtime.mjs');
   const sessions = new SessionStore({ maxSessions: 2 });
@@ -94,6 +110,7 @@ async function setup(
     policy: { snapshot: () => structuredClone(policy) },
     ...(registry ? { registry } : {}),
     videoCodecs,
+    videoBackends: videoBackends ?? nvencBackends(videoCodecs),
   });
   t.after(() => runtime.shutdown());
   const a = sessions.connect(sessions.password, 'a').sessionId;

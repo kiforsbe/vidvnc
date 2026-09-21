@@ -75,6 +75,7 @@ async function serve() {
       access,
       approvedClients,
       videoCodecs: hostCodecs,
+      videoBackends: info.backends,
     });
     const server = createHttpApp({
       runtime,
