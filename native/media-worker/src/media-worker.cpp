@@ -26,6 +26,8 @@
 #include "display-inventory.hpp"
 #include "stream-profile.hpp"
 #include "rate-control.hpp"
+#include "encoder-backend.hpp"
+#include "encoder-properties.hpp"
 #include "telemetry.hpp"
 #include "transport-telemetry.hpp"
 static MediaTelemetry telemetry;
@@ -116,6 +118,9 @@ static const char *quality_name(Quality quality) {
 static bool video_enabled = true;
 static int audio_channels = 0; // 0: no audio chain; 1: mono-32k; 2: stereo-96k
 static const VideoCodec *video_codec = &video_codecs()[0];
+// Task 5 replaces this with per-machine selection. Until then the worker behaves exactly as it
+// did when NVENC was the only encoder it knew about.
+static const EncoderBackend *encoder_backend = find_encoder_backend("nvenc");
 static bool host_control_required = false;
 static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
@@ -560,16 +565,19 @@ static std::string pipeline_description(int frames = -1) {
                               std::to_string(reinterpret_cast<uintptr_t>(capture_display->handle))
                         : "monitor-index=-1";
     const bool h264 = video_codec->id == "h264";
+    const auto element = encoder_element(*encoder_backend, video_codec->id);
+    const auto encoder = encoder_properties(*encoder_backend, element, video_codec->id,
+                                            rate_control(video_codec->id, profile));
+    if (error_log.is_open())
+        for (const auto &name : encoder.skipped)
+            error_log << "ENCODER " << element << " has no property " << name << std::endl;
     return "d3d11screencapturesrc name=capture " + target +
            " show-cursor=true num-buffers=" + std::to_string(frames) +
            " ! d3d11convert ! "
            "video/x-raw(memory:D3D11Memory),format=NV12,width=" +
            std::to_string(profile.width) + ",height=" + std::to_string(profile.height) +
-           ",framerate=" + std::to_string(profile.fps) + "/1 ! " + video_codec->encoder +
-           " name=encoder preset=p3 tune=ultra-low-latency " +
-           rate_control(video_codec->id, profile).properties + " bframes=0 zerolatency=true" +
-           (video_codec->encoder_extra.empty() ? "" : " " + video_codec->encoder_extra) + " ! " +
-           video_codec->caps +
+           ",framerate=" + std::to_string(profile.fps) + "/1 ! " + element + " name=encoder " +
+           encoder.text + " ! " + video_codec->caps +
            std::string(h264 && profile.fps == 15 && profile.width <= 1280 && profile.height <= 720
                            ? ",level=(string)3.1"
                            : "") +
@@ -1312,7 +1320,9 @@ int main(int argc, char **argv) {
             auto codecs = json_array_new();
             for (const auto &codec : video_codecs()) {
                 const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
-                auto encoder_factory = gst_element_factory_find(codec.encoder.c_str());
+                const auto element = encoder_element(*encoder_backend, codec.id);
+                auto encoder_factory =
+                    element.empty() ? nullptr : gst_element_factory_find(element.c_str());
                 auto parser_factory = gst_element_factory_find(parser_name.c_str());
                 auto payloader_factory = gst_element_factory_find(codec.payloader.c_str());
                 if (encoder_factory && parser_factory && payloader_factory)

@@ -30,7 +30,7 @@ Every task's requirements include these, copied from the spec.
 - Backend selection happens once at stream start and never changes mid-session.
 - Selection order: same-adapter elements first, then other-adapter elements, then elements with no `adapter-luid`; ties break `nvenc`, `qsv`, `amf`, `mediafoundation`.
 - Not in scope: software encoding, software capture, Direct3D 12 encoding, VP9, 10-bit or HDR, multi-GPU load balancing, changing backend mid-session, re-tuning the NVENC VBR floors.
-- NVENC behaviour must not change. This is the only backend that can be verified here, and every task that touches shared code must prove NVENC's emitted properties are unchanged.
+- NVENC behaviour must not change. It is the backend already in production use, and every task that touches shared code must prove NVENC's emitted properties are unchanged. AMF and Media Foundation can also be exercised on the development machine; only Quick Sync cannot.
 - Platform: Windows 11 25H2 (build 26200) and an NVIDIA GPU for GPU steps; Node 20.6 or newer; C++17 with MSVC `/W4`.
 - Formatting: run `npm run format` before committing. `npm run format:check` must pass.
 - Commits: conventional style (`feat:`, `test:`, `refactor:`, `docs:`), ending with the trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`. Commit steps below apply only when the user has authorised commits for the execution session; otherwise stop after the verification step and leave the work uncommitted.
@@ -165,7 +165,7 @@ The web client is deliberately absent. The backend is never visible to clients.
   - `Dimensions encoder_minimum(const EncoderBackend &, const std::string &codec_id)`.
 - Also produces: `VideoCodec` with `encoder` and `encoder_extra` **removed**. All other fields keep their current names and values.
 
-- [ ] **Step 1: Write the failing test in `tests/encoder-backend.cpp`**
+- [x] **Step 1: Write the failing test in `tests/encoder-backend.cpp`**
 
   Six cases, all pure assertions over the table:
 
@@ -178,24 +178,24 @@ The web client is deliberately absent. The backend is never visible to clients.
 
   Do not test the `VideoCodec` fields that did not change; `tests/video-codec.cpp` already covers them.
 
-- [ ] **Step 2: Run the build and confirm the new test fails**
+- [x] **Step 2: Run the build and confirm the new test fails**
 
 Run: `.\build-native.cmd`
 Expected: `encoder-backend-test` fails to compile or fails its assertions because `encoder-backend.hpp` does not exist yet.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Create `encoder-backend.hpp` with the structures and the four-entry table, using the exact element names, property spellings, low-latency pairs and minimum dimensions from Global Constraints.
   - Remove `encoder` and `encoder_extra` from `VideoCodec` and from the three rows of `video_codecs()`. Leave every other field untouched, including the caps strings and the H.264 `level=(string)3.1` logic's inputs.
   - Update `tests/video-codec.cpp` to drop any assertion on the two removed fields.
   - Register `encoder-backend` in the `CMakeLists.txt` test loop.
 
-- [ ] **Step 4: Run the required test**
+- [x] **Step 4: Run the required test**
 
 Run: `.\build-native.cmd`
 Expected: `media-worker.encoder-backend` and `media-worker.video-codec` pass. The `media-worker` executable itself does not build yet; that is expected and is resolved in Task 3.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add native/media-worker/src/encoder-backend.hpp native/media-worker/src/video-codec.hpp native/media-worker/tests/encoder-backend.cpp native/media-worker/tests/video-codec.cpp native/media-worker/CMakeLists.txt`
 Commit message: `refactor: split encoder backends out of the video codec table`
@@ -216,7 +216,7 @@ Commit message: `refactor: split encoder backends out of the video codec table`
   - `int qp_reference_maximum(const std::string &codec_id)` returning 51 for `h264` and `h265` and 255 for `av1`. This is the scale the measured NVENC values were expressed on, and is the reference the normalisation divides by.
 - Removed: the old `RateControl { std::string properties; int gop_frames; }` and the `QpFloors` struct returning integers. The literal tables move into the normalisation.
 
-- [ ] **Step 1: Write the failing tests in `tests/rate-control.cpp`**
+- [x] **Step 1: Write the failing tests in `tests/rate-control.cpp`**
 
   Four cases. Rewrite the existing file's expectations rather than adding alongside them; the old string assertions cannot survive the type change.
 
@@ -225,23 +225,23 @@ Commit message: `refactor: split encoder backends out of the video codec table`
   3. VBR intent: a VBR profile returns `RateMode::Vbr`, `max_bitrate_kbps` twice the profile's bitrate, and `gop_frames` equal to fps times 10.
   4. Unknown codec still throws `std::invalid_argument`.
 
-- [ ] **Step 2: Run the build and confirm the tests fail**
+- [x] **Step 2: Run the build and confirm the tests fail**
 
 Run: `.\build-native.cmd`
 Expected: `rate-control-test` fails to compile against the new struct.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Replace the `RateControl` struct and delete the property-string construction. Keep the two literal floor tables exactly as they are today and divide each by `qp_reference_maximum` for the codec to produce the fractions.
   - Keep the existing CBR and VBR branch conditions, the doubling of the bitrate for the peak, and the ten-second GOP, all unchanged in meaning.
   - Do not clamp or round here. Scaling onto a real element's range is Task 3's job, and rounding twice would lose the round-trip.
 
-- [ ] **Step 4: Run the required test**
+- [x] **Step 4: Run the required test**
 
 Run: `.\build-native.cmd`
 Expected: `media-worker.rate-control` passes, including all eighteen round-trip assertions.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add native/media-worker/src/rate-control.hpp native/media-worker/tests/rate-control.cpp`
 Commit message: `refactor: express quality floors as fractions of the qp range`
@@ -262,7 +262,7 @@ Commit message: `refactor: express quality floors as fractions of the qp range`
   - `EncoderProperties encoder_properties(const EncoderBackend &, const std::string &element_name, const std::string &codec_id, const RateControl &)` — returns the property text for the element and the names of every property that was wanted but not declared.
 - Emission order, which must be stable because this task's NVENC regression asserts an exact string: the backend's `low_latency` pairs in declared order, then the rate-control mode, the target bitrate, the peak bitrate (VBR only), the I floor, the P floor (VBR only, and only when `qp_floor_p_property` is non-empty), the GOP length, then the B-frame property with value `0`, then the header repeat property with value `true` when the backend declares one and the codec is `h264`.
 
-- [ ] **Step 1: Write the failing tests in `tests/encoder-properties.cpp`**
+- [x] **Step 1: Write the failing tests in `tests/encoder-properties.cpp`**
 
   Four cases. The test links the GStreamer SDK and calls `gst_init`, but must not require any vendor hardware.
 
@@ -271,12 +271,12 @@ Commit message: `refactor: express quality floors as fractions of the qp range`
   3. Media Foundation's single floor: a dialect with an empty `qp_floor_p_property` emits the I floor only, and does not list the P floor as skipped, because it was never wanted.
   4. NVENC regression, the gate on this whole refactor. Guarded so it is skipped when `nvd3d11h264enc` is not registered. For a 1920x1080 30 fps 6000 kbit/s profile, the H.264 CBR text equals exactly `preset=p3 tune=ultra-low-latency rc-mode=cbr bitrate=6000 gop-size=30 bframes=0 zerolatency=true repeat-sequence-header=true`, and the VBR `balanced` text equals the same with `rc-mode=vbr bitrate=6000 max-bitrate=12000 qp-min-i=24 qp-min-p=28 gop-size=300` in place of the CBR middle. Assert H.265 CBR too, which differs only by having no `repeat-sequence-header`.
 
-- [ ] **Step 2: Run the build and confirm the tests fail**
+- [x] **Step 2: Run the build and confirm the tests fail**
 
 Run: `.\build-native.cmd`
 Expected: `encoder-properties-test` fails to compile because the header does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Create `encoder-properties.hpp`. Obtain the element class by finding the factory for `element_name`, loading it, and taking its type's class; release what you take. Use `g_object_class_find_property` for every wanted property and skip what is absent.
   - Emit in the order fixed above. Values are formatted as plain integers or literal strings, with a single space between pairs and no leading or trailing space.
@@ -284,12 +284,12 @@ Expected: `encoder-properties-test` fails to compile because the header does not
   - Log every skipped property name once per pipeline build to the existing worker log.
   - Register `encoder-properties` in the `CMakeLists.txt` test loop and link it against `gstreamer_sdk`.
 
-- [ ] **Step 4: Run the required test**
+- [x] **Step 4: Run the required test**
 
 Run: `.\build-native.cmd`
 Expected: `media-worker.encoder-properties` passes, the NVENC case included on this machine, and the `media-worker` executable builds again.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add native/media-worker/src/encoder-properties.hpp native/media-worker/tests/encoder-properties.cpp native/media-worker/src/media-worker.cpp native/media-worker/CMakeLists.txt`
 Commit message: `feat: build encoder properties from element introspection`
