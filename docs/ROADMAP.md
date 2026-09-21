@@ -8,8 +8,22 @@ each release contains, see the [changelog](../CHANGELOG.md).
 
 Implemented:
 
-- A Windows 11 25H2 server with NVIDIA H.264 capture and encoding, Opus desktop audio
-  and a browser client served by the server.
+- A Windows 11 25H2 server with DXGI capture, Opus desktop audio and a browser client
+  served by the server.
+- Multi-vendor hardware encoding: NVENC, Intel Quick Sync, AMD AMF and Windows Media
+  Foundation, chosen per machine with a preference for the GPU that captured the frame,
+  and overridable from the host. A backend is advertised only after passing a real
+  short encode, and encoder properties are read from the element at runtime rather than
+  assumed, because the four families do not agree on property names -- AMF does not
+  even agree with itself across its own codecs.
+  NVENC, AMF and Media Foundation were exercised on real hardware (an NVIDIA RTX 5060
+  Ti and an AMD Radeon integrated GPU). **Quick Sync remains untested**: no Intel
+  graphics was available. Promoting it from untested to supported needs an Intel
+  machine and, on it: the self-tests across H.264, H.265 and AV1 in both CBR and VBR;
+  the VBR bitrate measurements that produced the NVENC quality floors, repeated to
+  confirm the rescaled floors behave; and a latency measurement in particular, since
+  Quick Sync is the one family with no low-latency or target-usage property at all and
+  its latency comes only from CBR, one reference frame, no B-frames and a short GOP.
 - Display selection: per-display sharing and default profiles, switching between
   shared displays, handling for displays being plugged in or removed, and Identify
   labels. Sessions and diagnostics show each stream's source display.

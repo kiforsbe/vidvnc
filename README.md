@@ -8,9 +8,13 @@ a server-hosted browser client, and a WinUI 3 server host. It is a development p
   <img src="docs/images/windows-host-overview.png" alt="The VidVNC app's Overview page: sharing is on, with two displays and no connected devices">
 </p>
 
-Currently implemented: Windows 11 **25H2/build 26200 or newer**, x64, NVIDIA H.264
-hardware encoding, selectable-monitor DXGI capture, WASAPI desktop audio compressed
-with Opus, and host-granted browser keyboard/mouse control. Up to two connected
+Currently implemented: Windows 11 **25H2/build 26200 or newer**, x64, hardware
+H.264/H.265/AV1 encoding on NVIDIA, Intel and AMD graphics, selectable-monitor DXGI
+capture, WASAPI desktop audio compressed with Opus, and host-granted browser
+keyboard/mouse control. VidVNC picks the encoder on the graphics card driving the
+display, so hybrid laptops do not copy each frame between GPUs; the host can also
+name one. There is still **no software encoder and no software capture fallback** --
+a GPU with a working hardware encoder is required. Up to two connected
 devices, each with two video streams and one independent audio stream. Only one
 device holds input permission at a time. Multi-session hardware acceptance is
 still in progress; see [the roadmap](docs/ROADMAP.md).
@@ -30,9 +34,20 @@ VidVNC comes in two Windows packages. Both include VidVNC's own media components
 so you never install GStreamer or developer tools. Both need:
 
 - Windows 11 25H2 (build 26200) or later, x64
-- An NVIDIA graphics card with its current driver
+- A graphics card with a supported hardware video encoder, and its current driver:
+  NVIDIA (NVENC), Intel (Quick Sync) or AMD (AMF). Most Windows 11 PCs from the last
+  five years qualify, including integrated Intel and AMD graphics. Windows Media
+  Foundation covers anything else that exposes a hardware H.264 encoder
 - [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vc14/vc_redist.x64.exe),
   version 14.44 or later
+
+> **Which encoders have been tested.** NVIDIA NVENC, AMD AMF and Windows Media
+> Foundation have all been exercised on real hardware. **Intel Quick Sync has not** --
+> no Intel graphics was available during development, so it ships supported but
+> unverified. VidVNC proves an encoder really works before it offers it: each backend
+> must pass a short real encode at startup, so an untested one that turns out to be
+> broken is dropped rather than producing a dead stream. If Quick Sync misbehaves on
+> your PC, please open an issue.
 
 ### VidVNC app
 
@@ -87,7 +102,7 @@ Use VidVNC only on a trusted local network, and don't forward its port.
 ## Build and run (Windows)
 
 Prerequisites: Node.js 20.6+ (use a maintained LTS), npm, Visual Studio 2022 C++
-desktop tools/Windows SDK, CMake 3.25+, NVIDIA driver, and GStreamer **1.28.6 MSVC
+desktop tools/Windows SDK, CMake 3.25+, a current GPU driver, and GStreamer **1.28.6 MSVC
 x86_64 development SDK**. The optional WinUI host also requires .NET 10.
 
 From the repository root:
@@ -213,7 +228,7 @@ to package Node.js as plain files used only by the app, and `--include-runtime-i
 to also write a ZIP with the MSIX, certificate, installers and `INSTALL.txt`.
 
 `node packaging/windows/tests/cli-bundle-check.mjs [zip] [node.exe]` extracts a ZIP
-outside the checkout and runs it with a minimal environment on NVIDIA hardware.
+outside the checkout and runs it with a minimal environment on real GPU hardware.
 `node packaging/windows/tests/server-package-check.mjs [msix] [--register]` checks
 the MSIX files and signature and runs the unpacked app from a relocated folder;
 `--register` also installs it with Developer Mode, checks it, then removes it.
@@ -266,7 +281,7 @@ networks/local subnet only; do not disable the firewall globally.
 | `npm test`                                | Portable server, browser utility and tooling tests; no capture/GPU |
 | `npm test --workspace @vidvnc/server`     | Server-owned portable tests                                        |
 | `npm test --workspace @vidvnc/web-client` | Browser-owned utility tests                                        |
-| `npm run test:hardware`                   | Windows/NVIDIA worker and whole-system lifecycle checks            |
+| `npm run test:hardware`                   | Windows GPU worker and whole-system lifecycle checks               |
 | `npm run build`                           | `build:native`, then `build:host`                                  |
 | `npm run build:native`                    | Native formatting, CMake Release build and module-local C++ tests  |
 | `npm run build:host`                      | Native WinUI/MSBuild project                                       |

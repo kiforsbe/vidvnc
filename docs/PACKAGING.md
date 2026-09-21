@@ -33,6 +33,12 @@ User requirement revised 2026-09-15 (replaces the earlier "self-contained" rule)
   app packager requires inside its installer.
 - Packaging never copies DLLs or other files from outside the project, such as
   Visual Studio redistributable folders, System32 or global installations.
+- The encoder plugins are staged for every supported vendor, not only the one the
+  build machine has: `gstnvcodec.dll` (NVENC), `gstqsv.dll` (Quick Sync),
+  `gstamfcodec.dll` (AMF) and `gstmediafoundation.dll`, which together add roughly
+  2 MB. Media Foundation also pulls in `gstwinrt-1.0-0.dll`. Which plugins load is a
+  runtime decision on the user's PC, so a package built on an NVIDIA machine must
+  still carry the Intel and AMD plugins or it will not encode there.
 - General-purpose runtimes are declared prerequisites the user installs. On Windows:
   Microsoft Visual C++ Redistributable (x64) and Node.js for both server products, and
   .NET 10 Runtime plus Windows App Runtime for the host.
