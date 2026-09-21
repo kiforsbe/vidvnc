@@ -6,6 +6,7 @@ import { chooseProfile, profileNames } from './profiles.mjs';
 import { audioModes, chooseAudioMode } from './audio.mjs';
 import { defaultStreamPolicy, resolveStreamPolicy } from './stream-policy.mjs';
 import { applyProfileOrder } from './profile-order.mjs';
+import { isAllowedOrigin } from './tls/origin.mjs';
 
 function send(response, status, body) {
   response.writeHead(status, {
@@ -117,7 +118,10 @@ export function createHttpApp({
       const host = new URL(`http://${request.headers.host}`).hostname;
       if (!allowedHosts.has(host))
         return send(response, 403, { error: 'Use the server IP address.' });
-      if (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)
+      // The scheme is read from the socket, not from a client-supplied header (e.g.
+      // X-Forwarded-Proto): only the connection itself can say whether it is encrypted.
+      const scheme = request.socket.encrypted ? 'https' : 'http';
+      if (!isAllowedOrigin(scheme, request.headers.host, request.headers.origin))
         return send(response, 403, { error: 'Cross-origin request denied' });
       const route = new URL(request.url, 'http://localhost').pathname;
       if (route === '/diagnostics' || route === '/api/diagnostics') {
