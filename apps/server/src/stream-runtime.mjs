@@ -167,6 +167,9 @@ export class StreamRuntime {
           state: stream.state,
           viewers: this.registry.source(stream.sourceId)?.subscriptions.length ?? 1,
           codec: stream.plan.codec ?? 'h264',
+          // What the worker actually chose, not what policy asked for: the two differ when a
+          // named backend is absent and the worker substitutes one.
+          encoder: this.media.encoder?.(stream.sourceId) ?? null,
         };
       });
       row.health =
@@ -183,6 +186,11 @@ export class StreamRuntime {
         maxStreamsPerSession: this.registry.limits.perSession,
         primaryDisplayOnly: false,
         hostControl: true,
+      },
+      // Host-facing only. Which GPU encodes is the host's business; no client ever sees this.
+      encoders: {
+        available: this.videoBackends.map(({ id, label, codecs }) => ({ id, label, codecs })),
+        setting: this.policy.snapshot().encoderBackend ?? 'auto',
       },
     };
   }
@@ -313,9 +321,16 @@ export class StreamRuntime {
       revision: effective.revision,
       audio: { mode: 'off', enabled: false },
       codec,
+      encoderBackend: effective.encoderBackend,
     };
     const { stream, answer } = await this.#subscribe(sessionId, plan, request.sdp, {
-      start: { video: true, profile: effective.profile, display, codec },
+      start: {
+        video: true,
+        profile: effective.profile,
+        display,
+        codec,
+        encoderBackend: effective.encoderBackend,
+      },
       configure: (diagnostics) => diagnostics.startStream(plan.profile, plan.audio, display, codec),
       valid: () => this.valid({ plan }),
     });

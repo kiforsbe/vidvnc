@@ -71,7 +71,14 @@ export class NativeMedia {
   }
   start(
     sourceId,
-    { video = true, profile = { name: 'desktop' }, display = null, audioFormat, codec } = {},
+    {
+      video = true,
+      profile = { name: 'desktop' },
+      display = null,
+      audioFormat,
+      codec,
+      encoderBackend,
+    } = {},
   ) {
     if (this.workers.has(sourceId))
       return Promise.reject(busy('This stream already has a worker.'));
@@ -157,6 +164,9 @@ export class NativeMedia {
                 quality: profile.quality ?? DEFAULT_QUALITY,
               },
         display: (video && display) || undefined,
+        // The host's encoder choice. Absent means automatic, which is also what the worker
+        // assumes, so an audio-only source simply omits it.
+        encoderBackend: video ? encoderBackend : undefined,
         audioFormat,
         codec: video ? codec : undefined,
       }) + '\n',
@@ -171,7 +181,17 @@ export class NativeMedia {
       typeof message.allowed === 'boolean'
     )
       active.permission.resolve(message.allowed);
-    if (message.type === 'ready') active.resolveReady();
+    if (message.type === 'ready') {
+      // The worker chooses its encoder once per stream, so this arrives once and then holds.
+      if (typeof message.encoderBackend === 'string')
+        active.encoder = {
+          backend: message.encoderBackend,
+          label: message.encoderLabel ?? message.encoderBackend,
+          element: message.encoder ?? null,
+          reason: message.encoderReason ?? null,
+        };
+      active.resolveReady();
+    }
     if (
       message.type === 'answer' &&
       typeof message.sdp === 'string' &&
@@ -198,6 +218,11 @@ export class NativeMedia {
       active.diagnostics?.record('server', peerSample(message, active.id));
       this.onMetrics(active.id, message);
     }
+  }
+  // Which encoder this source actually got, as the worker reported it at `ready`. Null before
+  // the worker is ready, for an audio-only source, or for a worker too old to report it.
+  encoder(sourceId) {
+    return this.workers.get(sourceId)?.encoder ?? null;
   }
   addPeer(sourceId, peerId, sdp) {
     const active = this.workers.get(sourceId);

@@ -508,6 +508,40 @@ test('an offer containing AV1 is started, answered and reported with the AV1 cod
   assert.equal(runtime.status().sessions[0].streams[0].codec, 'av1');
 });
 
+test('the worker plan carries the policy encoder backend', async (t) => {
+  const { a, offer, starts } = await setup(t);
+  await offer(a, 0);
+  assert.equal(starts.at(-1)[1].encoderBackend, 'auto');
+});
+
+test('status reports the available backends, the host setting and what the worker chose', async (t) => {
+  const backends = [
+    {
+      id: 'amf',
+      label: 'AMD AMF',
+      codecs: ['h264'],
+      minimums: { h264: { width: 64, height: 64 } },
+    },
+  ];
+  const { runtime, a, offer } = await setup(t, 'approval', undefined, {
+    videoCodecs: ['h264'],
+    videoBackends: backends,
+  });
+  assert.deepEqual(runtime.status().encoders, {
+    available: [{ id: 'amf', label: 'AMD AMF', codecs: ['h264'] }],
+    setting: 'auto',
+  });
+  await offer(a, 0);
+  // The chosen encoder comes from the worker, not from policy: with the setting on `auto` the
+  // host still learns which GPU is encoding and why it won.
+  assert.deepEqual(runtime.status().sessions[0].streams[0].encoder, {
+    backend: 'nvenc',
+    label: 'NVIDIA NVENC',
+    element: 'nvd3d11h264enc',
+    reason: 'capture-adapter',
+  });
+});
+
 test('two sessions on the same profile and display get separate sources when they support different codecs', async (t) => {
   const { a, b, offer, media, starts } = await setup(t);
   await offer(a, 0, 'mobile', av1H264Sdp());

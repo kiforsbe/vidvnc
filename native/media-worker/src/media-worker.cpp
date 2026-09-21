@@ -126,6 +126,21 @@ static const VideoCodec *video_codec = &video_codecs()[0];
 static const EncoderBackend *encoder_backend = find_encoder_backend("nvenc");
 static std::string forced_backend = "auto";
 static SelectionReason selection_reason = SelectionReason::FixedOrder;
+// Reported to the server so the host app can say which GPU is encoding and why. The host is
+// entitled to know that its chosen backend was substituted; the viewer never sees any of it.
+static const char *selection_reason_name(SelectionReason reason) {
+    switch (reason) {
+    case SelectionReason::AdapterMatch:
+        return "capture-adapter";
+    case SelectionReason::Forced:
+        return "forced";
+    case SelectionReason::ForcedUnavailable:
+        return "forced-unavailable";
+    case SelectionReason::FixedOrder:
+        break;
+    }
+    return "fixed-order";
+}
 static bool host_control_required = false;
 static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
@@ -1403,7 +1418,13 @@ static void start_source(JsonObject *object) {
     auto bus = gst_element_get_bus(pipeline);
     gst_bus_add_watch(bus, bus_message, nullptr);
     gst_object_unref(bus);
-    emit("ready");
+    if (video_enabled)
+        emit("ready", {{"encoderBackend", encoder_backend->id},
+                       {"encoderLabel", encoder_backend->label},
+                       {"encoder", encoder_element(*encoder_backend, video_codec->id)},
+                       {"encoderReason", selection_reason_name(selection_reason)}});
+    else
+        emit("ready");
 }
 static gboolean command(gpointer data) {
     auto text = static_cast<std::string *>(data);

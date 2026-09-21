@@ -408,7 +408,7 @@ Commit message: `feat: select an encoder backend per machine`
 - Consumes: the export style of `apps/server/src/video-codecs.mjs` and `rate-control.mjs`. Follow it.
 - Produces: `encoder-backends.mjs` exporting `ENCODER_BACKENDS` (`['nvenc', 'qsv', 'amf', 'mediafoundation']`), `ENCODER_BACKEND_CHOICES` (`['auto', ...ENCODER_BACKENDS]`), `BACKEND_LABELS` (`{ nvenc: 'NVIDIA NVENC', qsv: 'Intel Quick Sync', amf: 'AMD AMF', mediafoundation: 'Media Foundation' }`) and `DEFAULT_ENCODER_BACKEND` (`'auto'`). Stream policy gains a top-level `encoderBackend` string, and `resolveStreamPolicy` returns it alongside the resolved profile.
 
-- [ ] **Step 1: Write the failing tests in `stream-policy.test.mjs`**
+- [x] **Step 1: Write the failing tests in `stream-policy.test.mjs`**
 
   Four cases:
 
@@ -419,23 +419,23 @@ Commit message: `feat: select an encoder backend per machine`
 
   Do not add cases for `videoCodecs` or profile fields; existing tests cover them.
 
-- [ ] **Step 2: Run the new tests and confirm they fail**
+- [x] **Step 2: Run the new tests and confirm they fail**
 
 Run: `node --test apps/server/tests/stream-policy.test.mjs`
 Expected: the four new cases fail; the rest of the file passes.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Create `encoder-backends.mjs` with the four exports above.
   - In `stream-policy.mjs`: add `encoderBackend` to `defaultStreamPolicy`; back-fill a missing value with `auto` before the exact-key-set check; add it to the top-level key list beside `videoCodecs`; validate against `ENCODER_BACKEND_CHOICES` with the exact message; return it from `resolveStreamPolicy`.
   - `schemaVersion` stays 1.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `node --test apps/server/tests/stream-policy.test.mjs`, then once `node tools/test.mjs server`
 Expected: all pass. The full server run is required here because the policy shape changed. Any existing test asserting an exact policy object needs the new field added; that is the only acceptable edit to existing tests.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add apps/server/src/encoder-backends.mjs apps/server/src/stream-policy.mjs apps/server/tests/stream-policy.test.mjs`
 Commit message: `feat: add an encoder backend setting to stream policy`
@@ -458,7 +458,7 @@ Commit message: `feat: add an encoder backend setting to stream policy`
   - `offeredVideoCodecs` is unchanged.
   - `native-media.mjs` exposes the probe's `backends` alongside the existing `codecs`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   In `video-codecs.test.mjs`, five cases:
 
@@ -470,22 +470,22 @@ Commit message: `feat: add an encoder backend setting to stream policy`
 
   In `native-media.test.mjs`, one case: a probe response is parsed into both `codecs` and `backends`, and a response without `backends` yields an empty array rather than throwing, so an old worker binary cannot crash the server.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `node --test apps/server/tests/video-codecs.test.mjs`
 Expected: the five new cases fail on the changed signature.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Delete `MINIMUM_DIMENSIONS` and rewrite `selectVideoCodec` to the signature and rules above.
   - Surface `backends` from the probe in `native-media.mjs`, defaulting to an empty array.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `node --test apps/server/tests/video-codecs.test.mjs`, then `node --test apps/server/tests/native-media.test.mjs` (needs the GPU and the Task 5 build)
 Expected: all pass.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add apps/server/src/video-codecs.mjs apps/server/src/native-media.mjs apps/server/tests/video-codecs.test.mjs apps/server/tests/native-media.test.mjs`
 Commit message: `feat: choose codecs from per-backend encoder limits`
@@ -502,7 +502,7 @@ Commit message: `feat: choose codecs from per-backend encoder limits`
 - Consumes: `resolveStreamPolicy`'s `encoderBackend` (Task 6), the new `selectVideoCodec` signature (Task 7), and the worker's reported backend, element and selection reason (Task 5).
 - Produces: `StreamRuntime` gains a `videoBackends` constructor field carrying the probe's `backends`, replacing the `videoCodecs` argument at the `selectVideoCodec` call site around `stream-runtime.mjs:301`. The worker plan sent by `native-media.mjs` gains `encoderBackend` beside the existing `codec`. Host status and diagnostics report the available backends, the chosen backend, the chosen element and the selection reason.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   Three cases:
 
@@ -510,23 +510,23 @@ Commit message: `feat: choose codecs from per-backend encoder limits`
   2. `stream-runtime.test.mjs`: `selectVideoCodec` receives the runtime's `videoBackends` and the resolved `encoderBackend`, not a flat codec list.
   3. `host-status.test.mjs`: status projects the available backend ids with their labels, and the active backend, element and reason when a stream is running; with no stream running it reports the available backends and no active one.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `node --test apps/server/tests/stream-runtime.test.mjs apps/server/tests/host-status.test.mjs`
 Expected: the three new cases fail.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
   - Thread `videoBackends` through `StreamRuntime` and update the `selectVideoCodec` call.
   - Add `encoderBackend` to the worker plan.
   - Project the backend fields in `host-status.mjs` and `diagnostics.mjs`, including the substitution case where a forced backend was unavailable.
 
-- [ ] **Step 4: Run the required tests**
+- [x] **Step 4: Run the required tests**
 
 Run: `node --test apps/server/tests/stream-runtime.test.mjs apps/server/tests/host-status.test.mjs`
 Expected: all pass.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 Run: `npm run format`, then `git add apps/server/src/stream-runtime.mjs apps/server/src/host-status.mjs apps/server/src/diagnostics.mjs apps/server/tests/stream-runtime.test.mjs apps/server/tests/host-status.test.mjs`
 Commit message: `feat: report the selected encoder backend`

@@ -10,8 +10,17 @@ input.on('line', (line) => {
   if (message.type === 'start') {
     if (started || message.display?.id === 'fail') return process.exit(2);
     started = message;
-    // Echoes the received codec so tests can observe what NativeMedia forwarded.
-    send({ type: 'ready', codec: message.codec });
+    // Echoes the received codec so tests can observe what NativeMedia forwarded. The encoder
+    // fields mirror the real worker, which reports the backend it actually selected: `nvenc`
+    // stands in for automatic selection so a substitution is visible as a difference.
+    send({
+      type: 'ready',
+      codec: message.codec,
+      encoderBackend: message.encoderBackend === 'auto' ? 'nvenc' : message.encoderBackend,
+      encoderLabel: 'NVIDIA NVENC',
+      encoder: 'nvd3d11h264enc',
+      encoderReason: message.encoderBackend === 'auto' ? 'capture-adapter' : 'forced',
+    });
   }
   if (message.type === 'add-peer') {
     if (message.sdp === 'crash') return process.exit(2);
