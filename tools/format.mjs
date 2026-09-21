@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const excluded = new Set([
+export const excluded = new Set([
   'node_modules',
   '.deps',
   'build',

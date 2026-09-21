@@ -3,6 +3,12 @@ import { networkInterfaces as systemInterfaces, hostname as systemHostname } fro
 const LOOPBACK_HOSTNAMES = ['localhost'];
 const LOOPBACK_IPS = ['127.0.0.1', '::1'];
 
+// Plain code-unit order, named for symmetry with compareIps below (both are passed
+// to Array.prototype.sort explicitly rather than relying on its bare default).
+function compareHostnames(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 // IPv4 addresses sort before IPv6 (a plain colon count is enough to tell them apart),
 // then lexicographically within each family, so order never depends on how the OS
 // happened to enumerate adapters.
@@ -43,7 +49,7 @@ export function localAddresses({ interfaces = systemInterfaces, hostname = syste
   }
 
   return {
-    hostnames: [...hostnames].sort(),
+    hostnames: [...hostnames].sort(compareHostnames),
     ips: [...ips].sort(compareIps),
     errors,
   };
