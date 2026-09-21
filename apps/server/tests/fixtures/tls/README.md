@@ -34,3 +34,27 @@ There is no separate "inside the renewal window" fixture. That case is exercised
 injecting a fake clock next to `valid/`'s real expiry date rather than committing a
 certificate that is only "inside the window" for a limited time (which would make the
 suite go red on some future date for no reason).
+
+## `pfx/`
+
+Generated the same way as `valid/`/`expired/` above (`New-SelfSignedCertificate` in
+`Cert:\CurrentUser\My`, certificate removed from the store afterward), then exported to
+PFX with `Export-PfxCertificate` and a passphrase, since PFX loading needs a passphrase
+to have something real to fail against. Node's `node:tls` consumes this PFX directly —
+there is no PEM conversion step anywhere in the loading path that reads it.
+
+- Subject: `CN=vidvnc-test-pfx.invalid`
+- SANs: `DNS:vidvnc-test-pfx.invalid`, `IP:127.0.0.1`, `IP:203.0.113.25` (same
+  reserved/non-routable ranges as `valid/`, for the same reason)
+- Validity: 2026-09-21 to **2036-09-21** (10 years, so this fixture does not need
+  regenerating for a long time)
+- File: `pfx/cert.pfx`
+- **Passphrase: `vidvnc-test-pfx-passphrase`** — recorded here deliberately; this is a
+  test fixture and the secret is intentionally public, same as the private keys above.
+- Thumbprint at creation (removed from `Cert:\CurrentUser\My`, including its key
+  container, with `-DeleteKey`, and confirmed empty afterward):
+  `1ECA22ADF0387AA3C99EDF4FD83F2F692C6DE3C8`
+
+Never load this PFX outside the test suite, never reuse the passphrase for anything
+real, and never treat anything in this directory as secret — the same rule as the PEM
+fixtures above.
