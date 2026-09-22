@@ -1,5 +1,5 @@
 import { describeTrust, detectPlatform } from './trust-model.js';
-import { PLATFORMS, instructionsFor, reissueNote } from './trust-instructions.js';
+import { PLATFORMS, authorityNote, instructionsFor, reissueNote } from './trust-instructions.js';
 
 // The enrolment page's renderer: fetch the status, let `describeTrust` decide what the page
 // may show, and build it. Every piece of text goes in as text, never as markup, because it
@@ -57,6 +57,12 @@ function renderInstall(instructions) {
   card.id = 'install';
   card.append(el('h2', null, `Install on ${instructions.label}`));
   if (instructions.warning) card.append(el('p', 'warning', instructions.warning));
+  if (instructions.check) {
+    const check = el('div', 'check', el('h3', null, 'Check what you are about to trust'));
+    check.append(el('p', 'note', instructions.check.text));
+    if (instructions.check.command) check.append(el('code', 'command', instructions.check.command));
+    card.append(check);
+  }
   for (const phase of instructions.install) {
     const wrapper = el('div', phase.required ? 'phase required' : 'phase');
     if (phase.title) {
@@ -64,11 +70,6 @@ function renderInstall(instructions) {
     }
     wrapper.append(renderSteps(phase.steps));
     card.append(wrapper);
-  }
-  if (instructions.check) {
-    const check = el('div', 'check', el('p', 'note', instructions.check.text));
-    check.append(el('code', 'command', instructions.check.command));
-    card.append(check);
   }
   if (instructions.notes.length) {
     const notes = el('ul', 'notes');
@@ -109,7 +110,7 @@ function renderInstructions(view, detected) {
   }
   select.value = detected;
   const show = () => {
-    const instructions = instructionsFor(select.value);
+    const instructions = instructionsFor(select.value, view.strategy);
     detail.replaceChildren(
       renderInstall(instructions),
       renderUninstall(instructions, view.strategy),
@@ -145,16 +146,21 @@ function renderFingerprint(view) {
   for (const group of view.fingerprint.groups)
     groups.append(el('span', 'fingerprint-group', group));
   card.append(groups);
+  // What the comparison does and does not cover, kept next to the thing being compared.
+  if (view.compareScope) card.append(el('p', 'note', view.compareScope));
   return card;
 }
 
 function renderDownload(view) {
   const link = el('a', 'download-link', 'Download the certificate');
   link.href = view.download.href;
+  // Said before the download, and only where it is true (see authorityNote).
+  const scope = authorityNote(view.strategy);
   return el(
     'section',
     'trust-card',
     el('h2', null, 'Download'),
+    scope ? el('p', 'warning', scope) : null,
     link,
     el(
       'p',
@@ -208,14 +214,32 @@ function render(view, platform) {
   root.replaceChildren(...parts);
 }
 
+// Whatever goes wrong while building the page, the person is not left on the loading line:
+// they get the error view with a retry, and if even that cannot be built, one plain sentence.
+function renderFailure() {
+  try {
+    render(describeTrust(null), 'other');
+  } catch {
+    const message = document.createElement('p');
+    message.append(
+      document.createTextNode('This page could not be shown. Reload it to try again.'),
+    );
+    root.replaceChildren(message);
+  }
+}
+
 async function load() {
   root.replaceChildren(el('p', 'trust-loading', "Checking this host's certificate…"));
-  const outcome = await fetchStatus();
-  const platform = detectPlatform({
-    userAgent: navigator.userAgent,
-    maxTouchPoints: navigator.maxTouchPoints,
-  });
-  render(describeTrust(outcome, { hostname: location.hostname }), platform);
+  try {
+    const outcome = await fetchStatus();
+    const platform = detectPlatform({
+      userAgent: navigator.userAgent,
+      maxTouchPoints: navigator.maxTouchPoints,
+    });
+    render(describeTrust(outcome, { hostname: location.hostname }), platform);
+  } catch {
+    renderFailure();
+  }
 }
 
 load();

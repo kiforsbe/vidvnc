@@ -7,7 +7,7 @@ import {
   groupFingerprint,
   secureAddress,
 } from '../src/trust-model.js';
-import { instructionsFor, reissueNote } from '../src/trust-instructions.js';
+import { authorityNote, instructionsFor, reissueNote } from '../src/trust-instructions.js';
 
 // Real user-agent strings, so detection is pinned against what browsers actually send.
 const UA = {
@@ -324,7 +324,9 @@ test('page text never claims more than is known: no "safe" download, no secure-c
     });
   }
   for (const id of ['ios', 'android', 'windows', 'macos', 'linux', 'other'])
-    collect(instructionsFor(id));
+    for (const strategy of ['windows-self-signed', 'mkcert', 'provided'])
+      collect(instructionsFor(id, strategy));
+  collect(authorityNote('mkcert'));
   for (const strategy of ['windows-self-signed', 'mkcert', 'provided', null])
     collect(reissueNote(strategy));
   assert.ok(texts.length > 50, 'the scan actually covered the page text');
@@ -336,5 +338,53 @@ test('page text never claims more than is known: no "safe" download, no secure-c
       text,
     );
     assert.doesNotMatch(text, /\byour connection is\b/i, text);
+  }
+});
+
+// --- wording that stays inside what is known ----------------------------------------------
+
+test('the comparison rule is kept, and what it covers is said honestly and separately', () => {
+  const view = describeTrust(ok(requiredBody()), CONTEXT);
+  assert.match(view.compare, /if they differ, do not install the certificate/i);
+  assert.match(view.compare, /character for character/);
+  // What the comparison does not prove, and the check that goes further.
+  assert.match(view.compareScope, /host reports|matches the one on the host/i);
+  assert.match(view.compareScope, /does not by itself prove/i);
+  assert.match(view.compareScope, /file you download/i);
+  assert.match(view.compareScope, /certificate viewer/i);
+  assert.match(view.compareScope, /where your device shows one/i);
+  for (const state of ['unknown', 'not-required']) {
+    const other = describeTrust(ok(requiredBody({ enrolmentStatus: state })), CONTEXT);
+    assert.equal(other.compareScope, null, state);
+  }
+});
+
+test('not-required does not state as fact that every device already trusts the certificate', () => {
+  const view = describeTrust(ok(requiredBody({ enrolmentStatus: 'not-required' })), CONTEXT);
+  assert.match(view.message, /should accept/i);
+  assert.doesNotMatch(view.message, /devices accept|already trusts|always/i);
+  assert.match(view.message, /nothing to install/i);
+});
+
+test('describing a response never throws: a body that cannot be read becomes the error view', () => {
+  const hostile = {
+    httpStatus: 200,
+    get body() {
+      throw new Error('cannot read');
+    },
+  };
+  const trap = {
+    httpStatus: 200,
+    body: {
+      get active() {
+        throw new Error('boom');
+      },
+    },
+  };
+  for (const outcome of [hostile, trap]) {
+    const view = describeTrust(outcome, CONTEXT);
+    assert.equal(view.state, 'error');
+    assert.equal(view.retry, true);
+    assert.equal(view.download, null);
   }
 });

@@ -381,8 +381,23 @@ test('the human enrolment page is served next to the two endpoints, all allow-li
   const page = await httpCall(port, '/trust');
   assert.equal(page.status, 200);
   assert.equal(page.headers['content-type'], 'text/html');
-  for (const path of ['/trust', ANCHOR_PATH, STATUS_PATH])
-    assert.ok(PLAINTEXT_ALLOWED_PATHS.includes(path), path);
+  // Exact, not a membership check: the list is a security boundary (listener.test.mjs and
+  // trust-page.test.mjs pin it too, from an explicit copy and from the page itself).
+  assert.deepEqual(
+    [...PLAINTEXT_ALLOWED_PATHS].sort(),
+    [
+      '/trust',
+      '/trust.js',
+      '/trust.css',
+      '/trust-model.js',
+      '/trust-instructions.js',
+      '/theme.js',
+      '/style.css',
+      '/shell.css',
+      ANCHOR_PATH,
+      STATUS_PATH,
+    ].sort(),
+  );
 });
 
 // --- the report the listener retains ---------------------------------------------------

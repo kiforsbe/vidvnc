@@ -84,6 +84,70 @@ function httpCall(port, path, method = 'GET') {
   });
 }
 
+// The derivation above understands one spelling of each reference: double-quoted src/href in
+// the HTML, and single-quoted './x.js' specifiers (from / import()) in scripts. A reference
+// written any other way is an asset the page loads that the allow-list tests would never
+// see, so these tests turn any other spelling into a failure instead of a silent gap.
+// Comments are prose ("read from `navigator`"), not imports, so they are removed first.
+const withoutComments = (text) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+const sourceOf = (path) => readWebClient(path.slice(1)).toString('utf8');
+const STRICT_SPECIFIER = /(?:from\s+|import\s*\(\s*)'(\.\/[^']+)'/g;
+// Every string literal that follows `from`, `import` or `import(` in any quoting.
+const LOOSE_SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*(['"`])([^'"`]*)\1/g;
+
+test('the HTML references every asset in the one spelling the derivation understands', () => {
+  const html = readWebClient('trust.html').toString('utf8');
+  const strict = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)];
+  const loose = [...html.matchAll(/\b(?:src|href|srcset|poster|data|action|formaction)\s*=/gi)];
+  assert.equal(loose.length, strict.length, 'every asset attribute is a double-quoted src or href');
+  assert.doesNotMatch(html, /<(?:img|source|video|audio|object|embed|iframe|form|base)\b/i);
+  assert.doesNotMatch(html, /<link\b(?![^>]*\brel="stylesheet")/i, 'only stylesheets are linked');
+});
+
+test('every script the page loads imports only in the spelling the derivation understands', () => {
+  for (const path of pageAssets().filter((asset) => asset.endsWith('.js'))) {
+    const script = withoutComments(sourceOf(path));
+    const understood = new Set([...script.matchAll(STRICT_SPECIFIER)].map((match) => match[1]));
+    const seen = [...script.matchAll(LOOSE_SPECIFIER)].map((match) => match[2]);
+    for (const specifier of seen)
+      assert.ok(understood.has(specifier), `${path}: import form not understood: "${specifier}"`);
+    // A computed or non-literal import, or code loaded another way, is equally invisible.
+    assert.doesNotMatch(script, /\bimport\s*\(\s*[^'\s]/, `${path}: computed import()`);
+    assert.doesNotMatch(script, /importScripts|new\s+(?:Shared)?Worker\b/, path);
+  }
+});
+
+test('no stylesheet the page loads pulls in anything else', () => {
+  for (const path of pageAssets().filter((asset) => asset.endsWith('.css')))
+    assert.doesNotMatch(sourceOf(path), /@import|url\(/i, `${path} loads something unseen`);
+});
+
+test('the derivation notices a spelling it does not understand', () => {
+  // The guards above must be able to fail: feed them the forms they exist to catch.
+  const cases = [
+    "import './x.js';",
+    'import { a } from "./x.js";',
+    "import { a } from '../x.js';",
+    'const m = await import(`./x.js`);',
+  ];
+  for (const script of cases) {
+    const understood = new Set([...script.matchAll(STRICT_SPECIFIER)].map((match) => match[1]));
+    const seen = [...script.matchAll(LOOSE_SPECIFIER)].map((match) => match[2]);
+    assert.ok(
+      seen.some((specifier) => !understood.has(specifier)) || /\bimport\s*\(\s*[^'\s]/.test(script),
+      script,
+    );
+  }
+  // ...and understands the one form the page uses.
+  const fine = "import { a } from './x.js';";
+  const understood = new Set([...fine.matchAll(STRICT_SPECIFIER)].map((match) => match[1]));
+  assert.deepEqual(
+    [...fine.matchAll(LOOSE_SPECIFIER)].map((match) => match[2]).filter((s) => !understood.has(s)),
+    [],
+  );
+});
+
 test('the page loads a specific, non-empty set of assets', () => {
   // Guards the guard: an empty or shrunken list would make the tests below vacuous.
   const assets = pageAssets();

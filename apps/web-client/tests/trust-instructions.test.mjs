@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectPlatform } from '../src/trust-model.js';
-import { PLATFORMS, instructionsFor, reissueNote } from '../src/trust-instructions.js';
+import {
+  PLATFORMS,
+  authorityNote,
+  instructionsFor,
+  reissueNote,
+} from '../src/trust-instructions.js';
 
 const IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
@@ -191,4 +196,98 @@ test('the reissue consequence is worded by strategy and makes no claim for one i
   assert.equal(reissueNote('provided'), null);
   assert.equal(reissueNote(null), null);
   assert.equal(reissueNote('something-new'), null);
+});
+
+// --- how the certificate is identified, by strategy ---------------------------------------
+
+const IDS = ['ios', 'android', 'windows', 'macos', 'linux', 'other'];
+const FALLBACK = /SHA-256 fingerprint \(shown above\)/;
+
+test('every platform can be told to match the certificate by its fingerprint, for every strategy', () => {
+  for (const strategy of ['windows-self-signed', 'mkcert', 'provided', undefined, null, 'new-one'])
+    for (const id of IDS) {
+      const { uninstall } = instructionsFor(id, strategy);
+      assert.match(textOf(uninstall), FALLBACK, `${id} uninstall (${strategy})`);
+    }
+  // Install steps that make the person pick a certificate out of a list carry it too.
+  for (const strategy of ['windows-self-signed', 'mkcert', 'provided', undefined])
+    for (const id of ['ios', 'macos'])
+      assert.match(textOf(instructionsFor(id, strategy).install), FALLBACK, `${id} install`);
+});
+
+test('the self-signed strategy names its certificate VidVNC, because that is what it is called', () => {
+  for (const id of IDS)
+    assert.match(textOf(instructionsFor(id, 'windows-self-signed').uninstall), /"VidVNC"/, id);
+});
+
+test('mkcert is identified as a certificate issued by mkcert, never as VidVNC, with the name hedged', () => {
+  for (const id of IDS) {
+    const instructions = instructionsFor(id, 'mkcert');
+    const uninstall = textOf(instructions.uninstall);
+    assert.match(uninstall, /issued by mkcert/, id);
+    assert.match(uninstall, /mkcert <user>@<host>/, id);
+    assert.match(uninstall, /can differ/, id);
+    assert.doesNotMatch(textOf(instructions), /"VidVNC"|VidVNC certificate|VidVNC profile/, id);
+  }
+  assert.match(textOf(instructionsFor('ios', 'mkcert').install), /issued by mkcert/);
+  assert.match(textOf(instructionsFor('macos', 'mkcert').install), /issued by mkcert/);
+});
+
+test('a provided certificate, or a strategy the page does not know, is identified by fingerprint only', () => {
+  for (const strategy of ['provided', undefined, null, 'new-one'])
+    for (const id of IDS) {
+      const instructions = instructionsFor(id, strategy);
+      assert.doesNotMatch(textOf(instructions), /"VidVNC"|VidVNC certificate|VidVNC profile/, id);
+      assert.doesNotMatch(textOf(instructions), /mkcert/, id);
+      assert.match(textOf(instructions.uninstall), /its name can differ/i, id);
+    }
+});
+
+test('instructionsFor still answers by platform alone, and still falls back to generic', () => {
+  assert.equal(instructionsFor('ios').id, 'ios');
+  assert.equal(instructionsFor('nope', 'mkcert').id, 'other');
+});
+
+test('what mkcert asks a device to trust is said plainly, and only for mkcert', () => {
+  const note = authorityNote('mkcert');
+  assert.match(note, /certificate authority/i);
+  assert.match(note, /any (website|site)/i);
+  assert.match(note, /remov/i);
+  assert.match(note, /undo/i);
+  for (const strategy of ['windows-self-signed', 'provided', null, undefined, 'new-one'])
+    assert.equal(authorityNote(strategy), null, String(strategy));
+});
+
+// --- what each platform checks before the person trusts anything ---------------------------
+
+test('on desktop the file-hash check is a normal step, not an optional extra', () => {
+  for (const id of ['windows', 'macos', 'linux']) {
+    const { check } = instructionsFor(id);
+    assert.doesNotMatch(check.text, /optional/i, id);
+    assert.match(check.text, /do not install/i, id);
+    assert.match(check.text, /host/i, id);
+    assert.match(check.command, /VidVNC-trust\.crt/, id);
+  }
+});
+
+test('iOS and Android get a hedged step to compare the fingerprint their own viewer shows', () => {
+  for (const id of ['ios', 'android']) {
+    const { check } = instructionsFor(id);
+    assert.ok(check, `${id} has a check`);
+    assert.equal(check.command, null, `${id} has no command to run`);
+    assert.match(check.text, /certificate itself|certificate you are about to trust/i, id);
+    assert.match(check.text, /SHA-256 fingerprint/, id);
+    assert.match(check.text, /if your (device|version)/i, `${id} is hedged, not asserted`);
+    assert.match(check.text, /do not install|remove/i, id);
+  }
+  assert.match(instructionsFor('ios').check.text, /before you tap Install/i);
+});
+
+test('the generic entry checks the certificate viewer and mentions the hash commands without running one', () => {
+  const { check } = instructionsFor('other');
+  assert.match(check.text, /SHA-256 fingerprint/);
+  assert.match(check.text, /do not install/i);
+  assert.match(check.text, /certutil -hashfile/);
+  assert.match(check.text, /sha256sum/);
+  assert.equal(check.command, null);
 });

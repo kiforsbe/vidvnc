@@ -91,6 +91,7 @@ function view(state, title, message, extra = {}) {
     fingerprint: null,
     compareTitle: null,
     compare: null,
+    compareScope: null,
     download: null,
     showInstructions: false,
     strategy: null,
@@ -124,6 +125,15 @@ const UNAVAILABLE_VIEW = () =>
 // the response carried a `download` field, so a device is never handed a file the host did
 // not decide to offer.
 export function describeTrust(outcome, context) {
+  // Total by design: whatever a response turns out to contain, the person gets a view.
+  try {
+    return describe(outcome, context);
+  } catch {
+    return ERROR_VIEW();
+  }
+}
+
+function describe(outcome, context) {
   const hostname = context?.hostname;
   if (!outcome || outcome.httpStatus == null) return ERROR_VIEW();
   // The host answered that HTTPS is unavailable.
@@ -151,6 +161,8 @@ export function describeTrust(outcome, context) {
           compareTitle: 'Check the fingerprint first',
           compare:
             "Before you install anything, compare the fingerprint below with the one shown on the host computer's screen. They must match exactly, character for character. If they differ, do not install the certificate.",
+          compareScope:
+            "This confirms that the fingerprint shown here matches the one on the host. It does not by itself prove that the file you download is that certificate, because this page may have been loaded without encryption. The strongest check is to compare the same fingerprint with the one your device's own certificate viewer shows for the certificate you are about to trust, where your device shows one. The steps below say how.",
           download: { href: status.download, filename: ANCHOR_FILENAME },
           showInstructions: true,
           strategy,
@@ -177,7 +189,7 @@ export function describeTrust(outcome, context) {
       return view(
         'not-required',
         'No enrolment is needed for this host',
-        'This host uses a certificate that devices accept without installing anything, so there is nothing to install.',
+        'This host uses a certificate that devices should accept without installing anything, so there is nothing to install. If your device still warns, ask whoever runs the host.',
         {
           fingerprint,
           strategy,

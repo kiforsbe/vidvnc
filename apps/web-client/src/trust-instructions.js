@@ -5,19 +5,48 @@
 //   install    ordered phases; each { title, required?, steps: [{ text, command? }] }. A phase
 //              marked `required` is one people skip and then keep seeing warnings.
 //   warning    an emphasised sentence shown above the install phases, or null
-//   check      optional { text, command }: how to hash the downloaded file on that device
+//   check      { text, command } shown before the phases: how to check what is about to be
+//              trusted (hash the file on a computer; look at the device's own certificate
+//              viewer where there is one). `command` is null where there is nothing to run.
 //   notes      short caveats shown under the install phases
 //   uninstall  { steps: [{ text, command? }], notes? }
+//
+// What the certificate is called depends on who made it, so the entries are built for a
+// strategy (see `identify`). Wherever a person has to pick the certificate out of a list, the
+// steps say what it is called for that strategy and offer the fingerprint as the fallback.
 //
 // The file name is fixed by the server (Content-Disposition on /api/trust/anchor).
 // The steps are written for what the operating systems present at the time of writing; menu
 // names drift between versions and vendors, and the entries say so where that matters.
 const FILE = 'VidVNC-trust.crt';
 
-const CHECK_TEXT =
-  "Optional: to check the file you actually downloaded, not just this page, run this in the folder that holds it and compare the result with the fingerprint on the host's screen. Ignore case, colons and spaces.";
+// How the certificate shows up in a device's lists. `windows-self-signed` makes a certificate
+// with the subject CN=VidVNC. `mkcert` hands over mkcert's own certificate authority, whose
+// name is not ours. Anything else (an operator's own certificate) could be called anything,
+// so it is identified by fingerprint alone. No platform-specific screen is claimed to show a
+// fingerprint; the text says "where your device shows one".
+function identify(strategy) {
+  const fallback =
+    'If you cannot tell which one it is, match it by its SHA-256 fingerprint (shown above) where your device shows one.';
+  if (strategy === 'windows-self-signed')
+    return { find: 'the certificate named "VidVNC"', match: fallback };
+  if (strategy === 'mkcert')
+    return {
+      find: 'the certificate issued by mkcert (usually named "mkcert <user>@<host>", but the name can differ)',
+      match: fallback,
+    };
+  return {
+    find: 'the certificate you installed (its name can differ)',
+    match: 'Identify it by its SHA-256 fingerprint (shown above) where your device shows one.',
+  };
+}
 
-const ios = {
+// The file-hash check on a computer: it covers the file itself, which the page's fingerprint
+// does not. Recommended as a normal step before installing, not an extra.
+const CHECK_TEXT =
+  "Check the file you downloaded before you install it: run this in the folder that holds it and compare the result with the fingerprint on the host's screen. Ignore case, colons and spaces. If it differs, do not install the certificate.";
+
+const ios = (who) => ({
   id: 'ios',
   label: 'iPhone or iPad',
   warning:
@@ -35,9 +64,8 @@ const ios = {
         {
           text: 'Open the Settings app. Tap Profile Downloaded near the top, or go to General → VPN & Device Management.',
         },
-        {
-          text: 'Tap the downloaded VidVNC profile, tap Install, enter your passcode, then tap Install again to confirm.',
-        },
+        { text: `Open the downloaded profile: ${who.find}. ${who.match}` },
+        { text: 'Tap Install, enter your passcode, then tap Install again to confirm.' },
       ],
     },
     {
@@ -54,7 +82,10 @@ const ios = {
       ],
     },
   ],
-  check: null,
+  check: {
+    text: "Check the certificate itself, not only this page. Before you tap Install, look for a way to view the certificate's details on the profile screen (some versions offer More Details). If your device shows a SHA-256 fingerprint there, compare it with the one above and with the host's screen. If it differs, do not install.",
+    command: null,
+  },
   notes: [
     'On older versions of iOS the first Settings screen is called Profiles or Profiles & Device Management.',
     'Certificate Trust Settings only appears after a profile containing a certificate has been installed.',
@@ -63,16 +94,17 @@ const ios = {
     steps: [
       { text: 'Open Settings → General → VPN & Device Management.' },
       {
-        text: 'Under Configuration Profile, tap the VidVNC profile you installed for this host, then tap Remove Profile and confirm with your passcode.',
+        text: `Under Configuration Profile, tap the profile you installed for this host: ${who.find}. ${who.match}`,
       },
+      { text: 'Tap Remove Profile and confirm with your passcode.' },
       {
         text: 'The full-trust setting in Certificate Trust Settings goes away together with the profile. There is nothing else to undo.',
       },
     ],
   },
-};
+});
 
-const android = {
+const android = (who) => ({
   id: 'android',
   label: 'Android',
   warning: null,
@@ -93,7 +125,10 @@ const android = {
       ],
     },
   ],
-  check: null,
+  check: {
+    text: "Check the certificate itself, not only this page. Android does not always show a fingerprint before you install. If your version lets you open the certificate's details (for example under User credentials once it is installed), compare its SHA-256 fingerprint with the one above and with the host's screen. If it differs, remove the certificate straight away using the steps below.",
+    command: null,
+  },
   notes: [
     'The wording and the position of these menus vary by manufacturer and Android version. If you cannot find them, search Settings for "certificate".',
     'Chrome uses the system store this installs into, so it applies to Chrome once installed. Android shows a standing notice that the network may be monitored while a certificate you added is installed.',
@@ -104,14 +139,13 @@ const android = {
         text: 'Open Settings → Security (or Security & privacy → More security & privacy) → Encryption & credentials.',
       },
       { text: 'Tap User credentials (on some versions: Trusted credentials, then the User tab).' },
-      {
-        text: 'Tap the VidVNC certificate you installed, then tap Remove or Uninstall and confirm.',
-      },
+      { text: `Tap the certificate you installed: ${who.find}. ${who.match}` },
+      { text: 'Tap Remove or Uninstall and confirm.' },
     ],
   },
-};
+});
 
-const windows = {
+const windows = (who) => ({
   id: 'windows',
   label: 'Windows',
   warning: null,
@@ -125,7 +159,7 @@ const windows = {
           text: 'Choose "Place all certificates in the following store", choose Browse, select "Trusted Root Certification Authorities", then choose Next and Finish.',
         },
         {
-          text: "Windows shows a security warning about the certificate. Choose Yes only if you have already compared the fingerprint above with the host's screen.",
+          text: "Windows shows a security warning about the certificate. Choose Yes only if you have already checked the file and compared the fingerprint above with the host's screen.",
         },
       ],
     },
@@ -147,7 +181,7 @@ const windows = {
     steps: [
       { text: 'Press Windows+R, type certmgr.msc, and press Enter.' },
       {
-        text: 'Open Trusted Root Certification Authorities → Certificates and find the VidVNC certificate issued to this host. If you are unsure which one it is, open it and check its details.',
+        text: `Open Trusted Root Certification Authorities → Certificates and find ${who.find}. ${who.match} Open a certificate and look at its details if you are unsure.`,
       },
       { text: 'Right-click it, choose Delete, and confirm.' },
       {
@@ -156,9 +190,9 @@ const windows = {
       },
     ],
   },
-};
+});
 
-const macos = {
+const macos = (who) => ({
   id: 'macos',
   label: 'Mac',
   warning: null,
@@ -177,11 +211,9 @@ const macos = {
       required: true,
       steps: [
         {
-          text: 'In Keychain Access, choose the same keychain and the Certificates category, then double-click the certificate you just added.',
+          text: `In Keychain Access, choose the same keychain and the Certificates category, then double-click the certificate you just added: ${who.find}. ${who.match}`,
         },
-        {
-          text: 'Expand Trust and set "When using this certificate" to Always Trust.',
-        },
+        { text: 'Expand Trust and set "When using this certificate" to Always Trust.' },
         { text: 'Close the window and enter your password to save the change.' },
         {
           text: 'Adding the certificate alone is not enough: until it is set to Always Trust, macOS keeps warning about this host.',
@@ -197,16 +229,16 @@ const macos = {
     steps: [
       { text: 'Open Keychain Access and choose the keychain you added the certificate to.' },
       {
-        text: 'Choose the Certificates category and find the VidVNC certificate for this host. Open it and compare the SHA-256 fingerprint in its details with the one above if you are unsure.',
+        text: `Choose the Certificates category and find ${who.find}. ${who.match} Open a certificate and look at its details if you are unsure.`,
       },
       {
         text: 'Right-click (or Control-click) it, choose Delete, and confirm. Enter your password if asked.',
       },
     ],
   },
-};
+});
 
-const linux = {
+const linux = (who) => ({
   id: 'linux',
   label: 'Linux',
   warning: null,
@@ -253,13 +285,13 @@ const linux = {
         command: `sudo trust anchor --remove ${FILE}`,
       },
       {
-        text: 'In Firefox or Chromium, open the same Authorities list you imported it into and delete the VidVNC certificate.',
+        text: `In Firefox or Chromium, open the same Authorities list you imported it into and delete ${who.find}. ${who.match}`,
       },
     ],
   },
-};
+});
 
-const other = {
+const other = (who) => ({
   id: 'other',
   label: 'Another device or browser',
   warning: null,
@@ -282,36 +314,43 @@ const other = {
       ],
     },
   ],
-  check: null,
+  check: {
+    text: `Check the certificate itself, not only this page: if your system's certificate viewer shows a SHA-256 fingerprint for the file, compare it with the one above and with the host's screen, and do not install it if they differ. On a computer you can also hash the file: certutil -hashfile ${FILE} SHA256 (Windows), shasum -a 256 ${FILE} (macOS) or sha256sum ${FILE} (Linux).`,
+    command: null,
+  },
   notes: [
     'On Linux: sudo update-ca-certificates after copying a PEM .crt into /usr/local/share/ca-certificates (Debian, Ubuntu), or sudo trust anchor VidVNC-trust.crt (Fedora, Arch). Firefox and Chromium may use their own certificate stores instead of the system one.',
   ],
   uninstall: {
     steps: [
       {
-        text: 'Open the same list of trusted certificate authorities you added it to, and remove the VidVNC certificate for this host. If you are unsure which entry it is, compare its fingerprint with the one above.',
+        text: `Open the same list of trusted certificate authorities you added it to, and remove ${who.find}. ${who.match}`,
       },
       {
         text: 'On Linux, delete the file you copied under /usr/local/share/ca-certificates and run sudo update-ca-certificates --fresh, or run sudo trust anchor --remove VidVNC-trust.crt.',
       },
-      {
-        text: 'Once it is removed, this device warns about this host again.',
-      },
+      { text: 'Once it is removed, this device warns about this host again.' },
     ],
   },
-};
+});
 
-const ENTRIES = Object.freeze([ios, android, windows, macos, linux, other]);
+const BUILDERS = Object.freeze([ios, android, windows, macos, linux, other]);
 
 // Display order for the platform chooser.
 export const PLATFORMS = Object.freeze(
-  ENTRIES.map(({ id, label }) => Object.freeze({ id, label })),
+  BUILDERS.map((build) => {
+    const { id, label } = build(identify(null));
+    return Object.freeze({ id, label });
+  }),
 );
 
-// Instructions for one platform id. Anything unrecognised gets the generic entry rather
-// than nothing: the detector can be wrong and the chooser can be misused.
-export function instructionsFor(id) {
-  return ENTRIES.find((entry) => entry.id === id) ?? other;
+// Instructions for one platform id, worded for the strategy that made the certificate.
+// Anything unrecognised gets the generic entry rather than nothing: the detector can be wrong
+// and the chooser can be misused. An unknown strategy is identified by fingerprint alone.
+export function instructionsFor(id, strategy) {
+  const who = identify(strategy);
+  const entries = BUILDERS.map((build) => build(who));
+  return entries.find((entry) => entry.id === id) ?? entries[entries.length - 1];
 }
 
 // What a reissued certificate means for a device that installed the old one, worded by the
@@ -321,5 +360,15 @@ export function reissueNote(strategy) {
     return "This host's certificate is self-signed. If the host ever creates a new one, the certificate you install now will no longer match it and this device will warn again. Remove the old certificate using the steps above, then come back to this page and install the new one.";
   if (strategy === 'mkcert')
     return "This host's certificate comes from a local certificate authority (mkcert). That authority normally stays the same when the host issues a new certificate, so you usually do not need to install anything again. If the host ever creates a new authority, remove the old one using the steps above and install the new one from this page.";
+  return null;
+}
+
+// What installing the anchor means for the device, where that is more than "trust this one
+// host". mkcert hands over a certificate authority, not a single host's certificate, and a
+// device that trusts an authority accepts whatever it signs. The other strategies get no
+// claim here: nothing is said that has not been established.
+export function authorityNote(strategy) {
+  if (strategy === 'mkcert')
+    return "What you would be installing: mkcert's local certificate authority, not only this host's certificate. A device that trusts it accepts certificates that authority signs for any website, and whoever holds the authority's private key can create them. Removing it undoes that.";
   return null;
 }
