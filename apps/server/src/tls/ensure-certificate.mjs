@@ -107,8 +107,29 @@ function report({
 // each strategy module for the full list). `deps.strategies` overrides the candidate
 // list itself, which is how tests inject fakes instead of the real three strategies;
 // real callers never need to pass it.
+//
+// `deps.force` (default false) is the one dep this module does not forward blindly. It
+// asks the winning strategy to skip its own reuse check for exactly this call and reissue
+// unconditionally — the host UI's "regenerate" action (Task 14). It is a dep, not a
+// separate parameter, precisely so the reissue arithmetic stays where the header above
+// says it lives: each strategy decides what "reissue" means for its own credential, and
+// this module only passes the request along. Two things are stripped here:
+//
+//   * `provided` never receives it, in any mode. An operator-supplied certificate is
+//     loaded, never generated, so there is nothing to regenerate, and the principle that
+//     a configured certificate is never silently replaced applies to an explicit
+//     regenerate request as much as to a failure.
+//   * Nothing receives it in mode `off`, which returns before any strategy is consulted
+//     at all (below) — there is no credential to reissue when TLS is not wanted.
+//
+// Defaulting to false everywhere means a caller that passes no `force` gets byte-identical
+// behaviour to before this parameter existed; that is what keeps the reuse of an existing
+// PFX (and with it its persisted passphrase, and every device already enrolled against it)
+// the behaviour of every ordinary startup and periodic re-check.
 export function ensureCertificate(settings, deps = {}) {
-  const { strategies = DEFAULT_STRATEGIES } = deps;
+  const { strategies = DEFAULT_STRATEGIES, force = false } = deps;
+  const depsFor = (strategy) =>
+    strategy.name === 'provided' ? { ...deps, force: false } : { ...deps, force };
 
   // Mode `off`: no strategy is consulted at all, not even to ask whether it's
   // available. TLS is not wanted, so nothing about the environment or any configured
@@ -127,12 +148,15 @@ export function ensureCertificate(settings, deps = {}) {
 
   const reasons = [];
   for (const strategy of candidates) {
-    if (!strategy.isAvailable(settings, deps)) {
+    // `depsFor` differs from `deps` in exactly one key, `force` (see above); every other
+    // dep is forwarded unchanged, and the walk itself still treats every candidate alike.
+    const strategyDeps = depsFor(strategy);
+    if (!strategy.isAvailable(settings, strategyDeps)) {
       reasons.push(skipped(strategy.name, `${strategy.name} is not available`));
       continue;
     }
 
-    const result = strategy.provision(settings, deps);
+    const result = strategy.provision(settings, strategyDeps);
     if (result.ok) {
       return report({
         ok: true,

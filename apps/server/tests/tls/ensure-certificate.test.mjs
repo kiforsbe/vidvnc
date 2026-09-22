@@ -370,3 +370,105 @@ test('every strategy is called uniformly with the same settings and deps object,
     assert.equal(d.now, deps.now);
   }
 });
+
+// `force` (Task 14's host UI regenerate action). This module owns only *forwarding* it —
+// what "reissue" means stays inside each strategy, as the module header says. What is
+// asserted here is the forwarding itself and the two places it is deliberately withheld.
+
+// Records the `force` each strategy actually received, so the assertions below read the
+// value at the boundary rather than inferring it from a strategy's behaviour.
+function forceRecordingStrategy(name, { available = true, result, seen } = {}) {
+  return {
+    name,
+    isAvailable(settings, deps) {
+      seen.push({ strategy: name, call: 'isAvailable', force: deps.force });
+      return available;
+    },
+    provision(settings, deps) {
+      seen.push({ strategy: name, call: 'provision', force: deps.force });
+      return result;
+    },
+  };
+}
+
+test('force is forwarded to the strategy that provisions, and defaults to false', () => {
+  for (const [deps, expected] of [
+    [{}, false],
+    [{ force: false }, false],
+    [{ force: true }, true],
+  ]) {
+    const seen = [];
+    const strategies = [
+      forceRecordingStrategy('provided', { available: false, seen }),
+      forceRecordingStrategy('mkcert', { result: okResult('mkcert'), seen }),
+    ];
+    const result = ensureCertificate(autoSettings(), { ...deps, strategies });
+    assert.equal(result.ok, true);
+    assert.equal(
+      seen.find((entry) => entry.strategy === 'mkcert' && entry.call === 'provision').force,
+      expected,
+    );
+  }
+});
+
+test('force is never forwarded to the provided strategy, even when the caller asks for it', () => {
+  const seen = [];
+  // `auto` mode, where `provided` is still a candidate: it must be consulted normally but
+  // never told to regenerate. An operator-supplied certificate is loaded, not generated.
+  const strategies = [
+    forceRecordingStrategy('provided', { result: okResult('provided'), seen }),
+    forceRecordingStrategy('mkcert', { result: okResult('mkcert'), seen }),
+  ];
+  const result = ensureCertificate(autoSettings(), { force: true, strategies });
+  assert.equal(result.strategy, 'provided');
+  for (const entry of seen.filter((e) => e.strategy === 'provided'))
+    assert.equal(entry.force, false, `provided was told to force on ${entry.call}`);
+});
+
+test('force in provided mode reaches nothing that could regenerate a certificate', () => {
+  const seen = [];
+  const strategies = [
+    forceRecordingStrategy('provided', { result: okResult('provided'), seen }),
+    neverCalledStrategy('mkcert'),
+    neverCalledStrategy('windows-self-signed'),
+  ];
+  const result = ensureCertificate(providedSettings(), { force: true, strategies });
+  assert.equal(result.ok, true);
+  assert.equal(result.strategy, 'provided');
+  assert.deepEqual(
+    seen.map((entry) => entry.force),
+    [false, false],
+  );
+});
+
+test('force in mode off consults no strategy at all, so nothing is regenerated', () => {
+  const strategies = [
+    neverCalledStrategy('provided'),
+    neverCalledStrategy('mkcert'),
+    neverCalledStrategy('windows-self-signed'),
+  ];
+  const result = ensureCertificate(offSettings(), { force: true, strategies });
+  assert.equal(result.ok, false);
+  assert.equal(result.attempted, false);
+  assert.equal(result.reason, null);
+});
+
+test('every other dep is still forwarded unchanged alongside force', () => {
+  const readFile = () => {};
+  const now = () => new Date();
+  let received;
+  const strategies = [
+    {
+      name: 'mkcert',
+      isAvailable: () => true,
+      provision(settings, deps) {
+        received = deps;
+        return okResult('mkcert');
+      },
+    },
+  ];
+  ensureCertificate(autoSettings(), { readFile, now, force: true, strategies });
+  assert.equal(received.readFile, readFile);
+  assert.equal(received.now, now);
+  assert.equal(received.force, true);
+});

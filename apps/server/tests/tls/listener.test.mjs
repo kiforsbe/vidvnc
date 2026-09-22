@@ -759,3 +759,95 @@ test('close() stops the TLS listener, reports inactive, and later attempts do no
 test('makeListener refuses to run without an injected ensureCertificate', (t) => {
   assert.throws(() => makeListener(t, {}), /needs an injected ensureCertificate/);
 });
+
+// --- forced reissue (Task 14's host UI regenerate action) --------------------------------
+
+// Like `fakeEnsure`, but records the `deps` each call received rather than the settings, so
+// these tests read `force` at the boundary the listener actually controls.
+function forceRecordingEnsure(...outcomes) {
+  const forced = [];
+  const ensure = (settings, deps = {}) => {
+    forced.push(deps.force);
+    const next = outcomes.length > 1 ? outcomes.shift() : outcomes[0];
+    if (next instanceof Error) throw next;
+    return next;
+  };
+  ensure.forced = forced;
+  return ensure;
+}
+
+test('an ordinary attempt asks for no reissue; attempt({ force: true }) does', async (t) => {
+  const ensureCertificate = forceRecordingEnsure(ok(VALID));
+  const { listener } = makeListener(t, { ensureCertificate });
+  await listener.attempt();
+  await listener.attempt({ force: true });
+  await listener.attempt({ force: false });
+  assert.deepEqual(ensureCertificate.forced, [false, true, false]);
+});
+
+test('a forced attempt rotates the running listener in place rather than rebuilding it', async (t) => {
+  const ensureCertificate = forceRecordingEnsure(ok(VALID), ok(VALID, { strategy: 'mkcert' }));
+  const { listener, created } = makeListener(t, { ensureCertificate });
+  await listener.attempt();
+  const boundPort = listener.status().port;
+  await listener.attempt({ force: true });
+  assert.equal(created.length, 1, 'a regenerate must not build a second https.Server');
+  assert.deepEqual(listener.status(), { active: true, port: boundPort });
+  assert.equal(listener.report().active, false); // no anchor in these fakes, per `ok()`
+  assert.deepEqual(ensureCertificate.forced, [false, true]);
+});
+
+test('provided mode never forces: an operator certificate is not regenerated on request', async (t) => {
+  const ensureCertificate = forceRecordingEnsure(ok(VALID));
+  const { listener } = makeListener(t, {
+    ensureCertificate,
+    settings: settingsFor({ mode: 'provided' }),
+  });
+  await listener.attempt({ force: true });
+  assert.deepEqual(ensureCertificate.forced, [false]);
+});
+
+test('mode off never forces, and never provisions anything at all', async (t) => {
+  const { listener, log } = makeListener(t, {
+    ensureCertificate: neverEnsure,
+    settings: settingsFor({ mode: 'off' }),
+  });
+  await listener.attempt({ force: true });
+  assert.deepEqual(listener.status(), { active: false, port: null });
+  assert.deepEqual(log.lines, []);
+});
+
+test('a forced attempt queues behind an in-flight ordinary one instead of joining it', async (t) => {
+  const ensureCertificate = forceRecordingEnsure(ok(VALID));
+  const { listener } = makeListener(t, { ensureCertificate });
+  // Not awaited: the ordinary attempt is still binding when the forced one arrives. Joining
+  // it would return having reused the existing credential, reporting a regeneration that
+  // never happened.
+  const ordinary = listener.attempt();
+  const regenerate = listener.attempt({ force: true });
+  assert.notEqual(ordinary, regenerate);
+  await Promise.all([ordinary, regenerate]);
+  assert.deepEqual(ensureCertificate.forced, [false, true]);
+  assert.equal(listener.status().active, true);
+});
+
+test('two ordinary concurrent attempts still join rather than provisioning twice', async (t) => {
+  const ensureCertificate = forceRecordingEnsure(ok(VALID));
+  const { listener } = makeListener(t, { ensureCertificate });
+  const first = listener.attempt();
+  const second = listener.attempt();
+  assert.equal(first, second);
+  await Promise.all([first, second]);
+  assert.deepEqual(ensureCertificate.forced, [false]);
+});
+
+test('a forced attempt that fails leaves the existing certificate serving and never rejects', async (t) => {
+  const ensureCertificate = forceRecordingEnsure(ok(VALID), failed('regeneration went wrong'));
+  const { listener, log } = makeListener(t, { ensureCertificate });
+  await listener.attempt();
+  const boundPort = listener.status().port;
+  await listener.attempt({ force: true });
+  assert.deepEqual(listener.status(), { active: true, port: boundPort });
+  assert.equal(listener.report().failureReason, 'regeneration went wrong');
+  assert.ok(log.lines.some((line) => line.includes('Continuing with the current certificate')));
+});

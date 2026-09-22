@@ -140,10 +140,10 @@ export function createTlsListener({
     });
   }
 
-  async function run() {
+  async function run(force = false) {
     let result;
     try {
-      result = ensureCertificate(settings);
+      result = ensureCertificate(settings, { force });
     } catch (error) {
       // ensureCertificate promises never to throw; a caller must still survive one that does.
       result = { ok: false, reason: error.message };
@@ -179,18 +179,41 @@ export function createTlsListener({
     // (an earlier version of this module leaned on that assumption and a credential that
     // `createServer` rejected crashed the process through a fire-and-forget caller).
     // A call made while an earlier one is still binding joins it rather than racing it.
-    attempt() {
+    //
+    // `force: true` (the host UI's regenerate action, Task 14) asks the winning strategy to
+    // reissue rather than reuse what it already has. Two refusals are built in here, so the
+    // caller cannot get a reissue this module has no business performing:
+    //
+    //   * mode `off` returns before anything is attempted, as it always has — there is no
+    //     credential to regenerate.
+    //   * mode `provided` downgrades the call to an ordinary attempt. An operator-supplied
+    //     certificate is loaded, never generated, so "regenerate" would either mean nothing
+    //     or mean replacing their certificate with a generated one, which is precisely the
+    //     substitution the design forbids.
+    //
+    // A forced call also does NOT join an attempt already in flight, the way an ordinary one
+    // does: that attempt was started without `force` and would return having reused the
+    // existing credential, reporting success for a reissue that never happened. It queues
+    // behind it instead. Ordinary calls keep their existing behaviour exactly — including
+    // starting `run()` synchronously — so nothing about startup or the periodic re-check
+    // changes.
+    attempt({ force = false } = {}) {
       if (closed || settings.mode === 'off') return Promise.resolve();
-      inflight ??= run()
+      const forced = force && settings.mode !== 'provided';
+      if (!forced && inflight) return inflight;
+      const started = (forced && inflight ? inflight.then(() => run(true)) : run(forced))
         .catch((error) => {
           log(
             `TLS attempt failed unexpectedly (${error?.message ?? error}). Serving plaintext only.`,
           );
         })
+        // Identity-guarded: a forced attempt queued behind this one has already replaced
+        // `inflight`, and must not be cleared by its predecessor settling.
         .finally(() => {
-          inflight = null;
+          if (inflight === started) inflight = null;
         });
-      return inflight;
+      inflight = started;
+      return started;
     },
     // The live state the plaintext listener reads per request. `active` is true only
     // while a listener is really bound: a credential that was provisioned but failed to

@@ -502,3 +502,67 @@ test('a timed-out mkcert issuance is reported as a readable reason, not "exited 
   assert.doesNotMatch(result.reason, /status null/);
   assert.equal(result.credential, undefined);
 });
+
+// `force` (Task 14's host UI regenerate action). The pair below is the whole contract:
+// without it a still-usable leaf is reused and mkcert is never invoked; with it the same
+// still-usable leaf is reissued anyway. The anchor stays the mkcert CA root either way,
+// which is why a reissue here costs an enrolled device nothing.
+test('force reissues a leaf that is still perfectly usable', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  mkdirSync(stateDir, { recursive: true });
+  copyFileSync(validLeafCertPath, join(stateDir, 'cert.pem'));
+  copyFileSync(validLeafKeyPath, join(stateDir, 'key.pem'));
+
+  const rootDir = join(scratch, 'caroot');
+  mkdirSync(rootDir, { recursive: true });
+  copyFileSync(rootCertPath, join(rootDir, 'rootCA.pem'));
+
+  let issued = 0;
+  const spawnSync = fakeSpawnSync({
+    caRootDir: rootDir,
+    onIssue: (args) => {
+      issued += 1;
+      writeFileSync(args[args.indexOf('-cert-file') + 1], 'regenerated cert bytes');
+      writeFileSync(args[args.indexOf('-key-file') + 1], 'regenerated key bytes');
+      return { status: 0, stdout: '', stderr: '', error: undefined };
+    },
+  });
+
+  const result = provision(mkcertSettings(), {
+    spawnSync,
+    localAddresses: () => addressesCoveredByValidLeaf(),
+    certificateDirectory: () => stateDir,
+    force: true,
+  });
+
+  assert.equal(issued, 1);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.credential.cert, Buffer.from('regenerated cert bytes'));
+  assert.ok(result.anchor instanceof X509Certificate);
+});
+
+test('force: false is the default, so an ordinary call still reuses and never issues', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  mkdirSync(stateDir, { recursive: true });
+  copyFileSync(validLeafCertPath, join(stateDir, 'cert.pem'));
+  copyFileSync(validLeafKeyPath, join(stateDir, 'key.pem'));
+
+  const rootDir = join(scratch, 'caroot');
+  mkdirSync(rootDir, { recursive: true });
+  copyFileSync(rootCertPath, join(rootDir, 'rootCA.pem'));
+
+  // No `onIssue`: the fake throws the moment issuance is attempted.
+  const spawnSync = fakeSpawnSync({ caRootDir: rootDir });
+  for (const deps of [{}, { force: false }]) {
+    const result = provision(mkcertSettings(), {
+      spawnSync,
+      localAddresses: () => addressesCoveredByValidLeaf(),
+      certificateDirectory: () => stateDir,
+      ...deps,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.credential.cert, readFileSync(validLeafCertPath));
+  }
+});

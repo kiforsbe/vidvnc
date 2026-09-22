@@ -276,6 +276,7 @@ export function provision(
     certificateDirectory = defaultCertificateDirectory,
     randomPassphrase = defaultRandomPassphrase,
     platform = process.platform,
+    force = false,
     now,
   } = {},
 ) {
@@ -292,12 +293,23 @@ export function provision(
 
   const addresses = localAddresses();
 
-  const reused = tryReuseExisting(pfxPath, passphrasePath, {
-    readFile,
-    createSecureContext,
-    addresses,
-    now,
-  });
+  // `force` (the host UI's regenerate action, Task 14) skips the reuse check for this one
+  // call, so a new leaf is issued, exported and re-passphrased even though the existing PFX
+  // is still usable. It gates only the *check*: the issuing, export, store-cleanup and
+  // sidecar-passphrase path below is unchanged, and when `force` is false — every ordinary
+  // startup and every periodic re-check — this is byte-identical to reusing as before,
+  // which is what keeps the passphrase (and with it every already-enrolled device) alive
+  // across restarts. Under this strategy the leaf *is* the anchor, so a forced reissue
+  // really does invalidate every device's enrolment; that cost is stated at the point the
+  // user asks for it, in the host UI, not discovered here.
+  const reused = force
+    ? null
+    : tryReuseExisting(pfxPath, passphrasePath, {
+        readFile,
+        createSecureContext,
+        addresses,
+        now,
+      });
   if (reused) {
     return { ok: true, credential: reused.credential, anchor: reused.certificate, warnings: [] };
   }

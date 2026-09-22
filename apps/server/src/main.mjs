@@ -23,6 +23,7 @@ import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
 import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
 import { attemptAndAnnounce, connectionAddresses, secureAddressLines } from './tls/addresses.mjs';
+import { tlsDesktopStatus } from './tls/desktop-status.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -214,9 +215,21 @@ async function serve() {
           .catch((error) => console.error('Control renewal failed:', error.message));
     }, 2000).unref();
     if (desktop) {
+      // The TLS report rides along on the status message the host already reads every
+      // second, rather than as a message of its own: the host's TLS section is a view of
+      // live state, and a separate stream would let the two drift. It is merged in here,
+      // at the call site, and not added to `runtime.status()` — that method is also read
+      // by the CLI console and by `diagnosticStreams()`, neither of which has any business
+      // with TLS, and its contract is asserted by stream-runtime.test.mjs.
+      const tlsField = () =>
+        tlsDesktopStatus({
+          settings: tlsSettings,
+          status: tlsListener.status(),
+          report: tlsListener.report(),
+        });
       statusTimer = setInterval(() => {
         if (!stopping && !process.stdout.writableNeedDrain) {
-          console.log(JSON.stringify(runtime.status()));
+          console.log(JSON.stringify({ ...runtime.status(), tls: tlsField() }));
           console.log(JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }));
         }
       }, 1000).unref();
@@ -416,6 +429,37 @@ async function serve() {
                 () => reply(true),
                 (error) => reply(false, error.message),
               );
+            }
+            // Regenerate the TLS certificate on the host's request. The two refusals below
+            // are a safety net, not the control: the host UI does not offer the action in
+            // either state (Task 14). They are here because the pipe is a protocol, and a
+            // protocol that would replace an operator's own certificate on request is one
+            // no UI change should be able to reopen. `attempt({ force: true })` refuses
+            // both again in the listener itself.
+            if (command.type === 'tls-regenerate' && !stopping) {
+              const reply = (ok, reason) =>
+                console.log(JSON.stringify({ type: 'tls-regenerate-result', ok, reason }));
+              const strategy = tlsListener.report().strategy;
+              if (tlsSettings.mode === 'off')
+                reply(false, 'HTTPS is turned off, so there is no certificate to regenerate.');
+              else if (tlsSettings.mode === 'provided' || strategy === 'provided')
+                reply(
+                  false,
+                  'This host uses a certificate supplied by its operator. VidVNC never replaces it.',
+                );
+              else
+                tlsListener.attempt({ force: true }).then(
+                  // The same sanitized field the status message carries, so a failure is
+                  // worded identically whether the host learns of it from the reply or from
+                  // the next tick. `reason === null` is the success condition: a rotation
+                  // that failed leaves the previous certificate serving, which is not the
+                  // regeneration that was asked for.
+                  () => {
+                    const after = tlsField();
+                    reply(after.reason === null, after.reason ?? undefined);
+                  },
+                  () => reply(false, 'The certificate could not be regenerated.'),
+                );
             }
             if (command.type === 'disconnect' && typeof command.id === 'string')
               store.disconnect(command.id);

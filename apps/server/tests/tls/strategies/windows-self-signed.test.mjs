@@ -637,3 +637,59 @@ test('a timed-out certificate creation is reported as a readable reason naming t
   assert.doesNotMatch(result.reason, /status null/);
   assert.equal(result.credential, undefined);
 });
+
+// `force` (Task 14's host UI regenerate action). This strategy's anchor IS its leaf, so a
+// reissue here invalidates every device already enrolled — which makes the default
+// mattering more than the feature. The second test pins that default: an ordinary call,
+// and one that passes `force: false` explicitly, must both still reuse the existing PFX and
+// its persisted passphrase, because reissuing on every startup would quietly undo Task 6's
+// passphrase persistence and re-break every enrolled device once a day.
+test('force reissues a credential that is still perfectly valid, writing a fresh passphrase', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir, { passphrase: 'passphrase-from-the-previous-run' });
+
+  const spawnSync = fullSuccessSpawnSync({ thumbprint: 'FORCEDREISSUE00001' });
+
+  const result = provision(selfSignedSettings(), {
+    platform: 'win32',
+    spawnSync,
+    localAddresses: addressesCoveredByFixturePfx,
+    certificateDirectory: () => stateDir,
+    randomPassphrase: () => VALID_PFX_PASSPHRASE,
+    force: true,
+  });
+
+  assert.equal(result.ok, true, result.reason);
+  const createCalls = spawnSync.calls.filter((script) =>
+    script.includes('New-SelfSignedCertificate'),
+  );
+  assert.equal(createCalls.length, 1, 'expected exactly one reissue');
+  // The sidecar is rewritten with the new passphrase, so the NEXT ordinary startup reuses
+  // the regenerated credential rather than reissuing again.
+  assert.equal(readFileSync(join(stateDir, 'cert.pfx.passphrase'), 'utf8'), VALID_PFX_PASSPHRASE);
+  // The store entry created for the export is still cleaned up on the forced path.
+  assert.ok(spawnSync.calls.some((script) => script.includes('-DeleteKey')));
+});
+
+test('force defaults to false: an ordinary call still reuses the existing PFX and its passphrase', (t) => {
+  const scratch = makeScratch(t);
+  const stateDir = join(scratch, 'state');
+  seedExistingCredential(stateDir);
+
+  const spawnSync = () => {
+    throw new Error('must not call PowerShell when an existing credential still serves');
+  };
+
+  for (const deps of [{}, { force: false }]) {
+    const result = provision(selfSignedSettings(), {
+      platform: 'win32',
+      spawnSync,
+      localAddresses: addressesCoveredByFixturePfx,
+      certificateDirectory: () => stateDir,
+      ...deps,
+    });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.credential.passphrase, VALID_PFX_PASSPHRASE);
+  }
+});

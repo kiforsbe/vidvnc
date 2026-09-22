@@ -239,6 +239,7 @@ export function provision(
     mkdir = mkdirSync,
     localAddresses = discoverLocalAddresses,
     certificateDirectory = defaultCertificateDirectory,
+    force = false,
     now,
   } = {},
 ) {
@@ -249,7 +250,13 @@ export function provision(
   const addresses = localAddresses();
   const names = [...addresses.hostnames, ...addresses.ips];
 
-  const reused = tryReuseExisting(certPath, keyPath, { readFile, addresses, now });
+  // `force` (the host UI's regenerate action, Task 14) skips the reuse check for this one
+  // call, so a leaf is issued even though the existing one is still perfectly usable. It
+  // gates the *check*, never the issuing path below: everything about how a leaf is issued,
+  // and what counts as reusable when this is false, stays exactly as it was. Under this
+  // strategy a reissue costs devices nothing — the anchor is the mkcert CA root, which this
+  // never touches — so there is no warning to attach to it, unlike windows-self-signed.
+  const reused = force ? null : tryReuseExisting(certPath, keyPath, { readFile, addresses, now });
 
   let credential;
   if (reused) {
