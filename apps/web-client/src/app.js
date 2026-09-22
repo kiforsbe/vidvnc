@@ -10,6 +10,11 @@ import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip } from './profile-labels.js';
 const $ = (id) => document.getElementById(id);
+// The page can be reached over either listener, so the note about pairing's transport
+// says whichever one is actually true rather than staying fixed at the plaintext-only
+// wording that predates HTTPS support.
+$('networkScheme').textContent =
+  location.protocol === 'https:' ? 'Pairing uses HTTPS.' : 'Pairing uses HTTP.';
 const toolbarIcons = {
   control:
     '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 13h.01M11 13h.01M15 13h.01M8 16h8"/>',
