@@ -687,6 +687,32 @@ test('tls status reports a corrupt or invalid on-disk file as invalid, not as Of
   });
 });
 
+// The no-argument "show" path of these two reads the same on-disk settings the `tls`
+// status command does, and their `data` field already reported an unusable file as
+// invalid. Their text must not contradict that by printing the fallback defaults as
+// though they were the configuration in force.
+test('tls-mode with no argument reports a corrupt on-disk file as invalid, not as the default mode', async (t) => {
+  const { run, directory } = await offline(t);
+  await writeFile(join(directory, 'tls-settings.json'), '{ not json');
+  const shown = await run('tls-mode');
+  assert.match(
+    shown.text,
+    /^TLS settings file is invalid: the TLS settings file is not valid JSON/,
+  );
+  assert.equal(shown.text.includes('TLS mode: Automatic'), false);
+});
+
+test('tls-port with no argument reports a corrupt on-disk file as invalid, not as the default port', async (t) => {
+  const { run, directory } = await offline(t);
+  await writeFile(join(directory, 'tls-settings.json'), '{ not json');
+  const shown = await run('tls-port');
+  assert.match(
+    shown.text,
+    /^TLS settings file is invalid: the TLS settings file is not valid JSON/,
+  );
+  assert.equal(shown.text.includes('TLS port: 4383'), false);
+});
+
 test('a set command against a corrupt settings file reports a friendly message instead of a raw JSON error', async (t) => {
   const { run, directory } = await offline(t);
   await writeFile(join(directory, 'tls-settings.json'), '{ not json');

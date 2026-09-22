@@ -98,8 +98,17 @@ export const tlsSummary = (settings) =>
   settings.invalid
     ? { invalid: settings.invalid }
     : { mode: settings.mode, port: settings.port, credential: tlsCredentialLabel(settings) };
-export const formatTlsMode = (settings) => `TLS mode: ${tlsModeLabel(settings.mode)}`;
-export const formatTlsPort = (settings) => `TLS port: ${settings.port}`;
+// Same distinction as `tlsSummary` above, for the text these two commands print: without
+// it, `tls-mode`/`tls-port` with no argument report the fallback defaults as if they were
+// the real configuration, contradicting the `data` field of the very same response.
+export const formatTlsMode = (settings) =>
+  settings.invalid
+    ? `TLS settings file is invalid: ${settings.invalid}`
+    : `TLS mode: ${tlsModeLabel(settings.mode)}`;
+export const formatTlsPort = (settings) =>
+  settings.invalid
+    ? `TLS settings file is invalid: ${settings.invalid}`
+    : `TLS port: ${settings.port}`;
 export const formatTlsCredential = (settings) =>
   `TLS mode: ${tlsModeLabel(settings.mode)}\nCertificate: ${tlsCredentialLabel(settings)}`;
 

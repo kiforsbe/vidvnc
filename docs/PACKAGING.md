@@ -65,8 +65,9 @@ User requirement revised 2026-09-15 (replaces the earlier "self-contained" rule)
 ## Ports and firewall
 
 The server listens on two ports: a plaintext one for enrolment and redirect (default
-`4382`) and a TLS one for everything else (default `4383`), both `VIDVNC_PORT`-relative
-— see [ARCHITECTURE.md](ARCHITECTURE.md#tls-and-trust-provisioning) for the listener and
+`4382`, set by `VIDVNC_PORT`) and a TLS one for everything else (default `4383`,
+independently configurable through TLS settings or the CLI's `tls-port` command) — see
+[ARCHITECTURE.md](ARCHITECTURE.md#tls-and-trust-provisioning) for the listener and
 provisioning detail. This needs no change to firewall onboarding: it is keyed to the
 executable, not to a port, so the existing Private/LAN onboarding already covers both
 ports the same way it covered the one plaintext port before TLS existed (verified and
