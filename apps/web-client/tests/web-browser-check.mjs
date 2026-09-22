@@ -398,6 +398,7 @@ try {
         configuration: {
           display: source,
           profile: { name: 'mobile', width: 1280, height: 720, fps: 15 },
+          encoder: { label: 'NVIDIA NVENC', element: 'nvd3d11h265enc' },
         },
         serverAgeMs: sourceAge,
         clientAgeMs: null,
@@ -412,6 +413,10 @@ try {
     () =>
       document.getElementById('source-display').textContent ===
       'Source display: 2 · Second display · 1920 × 1080',
+  );
+  await diagnosticsPage.waitForFunction(
+    () =>
+      document.getElementById('encoder').textContent === 'Encoder: NVIDIA NVENC · nvd3d11h265enc',
   );
   source = { ...displays[0], number: 1 };
   sourceAge = 5000;

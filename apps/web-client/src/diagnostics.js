@@ -114,6 +114,7 @@ async function refresh() {
     const profile = data.configuration?.profile,
       audio = sessionAudio?.configuration?.audio ?? data.configuration?.audio;
     const display = data.configuration?.display;
+    const encoder = data.configuration?.encoder;
     $('source-display').textContent = display
       ? `${serverFresh ? 'Source display' : 'Last selected source'}: ${display.number ? display.number + ' · ' : ''}${display.name} · ${fmt(display.width, 0)} × ${fmt(display.height, 0)}${display.primary ? ' · Primary' : ''}`
       : 'Source display: unavailable';
@@ -125,6 +126,9 @@ async function refresh() {
     $('profile-settings').textContent = profile
       ? `Targets: ${fmt(profile.width, 0)} × ${fmt(profile.height, 0)} · ${fmt(profile.fps, 0)} fps · ${codecLabel} ${targetBitrateText(profile)} · ${audio?.enabled ? `${audio.codec} ${fmt(audio.bitrateKbps, 0)} kbit/s ${audio.channels === 1 ? 'mono' : 'stereo'}` : 'Audio off'}`
       : '';
+    $('encoder').textContent = encoder
+      ? `Encoder: ${encoder.label ?? encoder.backend ?? 'Unknown'}${encoder.element ? ' · ' + encoder.element : ''}`
+      : 'Encoder: waiting for a worker…';
     $('state').className = serverFresh && clientFresh ? '' : 'stale';
     $('state').textContent =
       `${serverFresh ? 'Server live' : 'Waiting for server frames'} · ${clientFresh ? 'Browser live' : 'Waiting for browser samples'}${data.logError ? ' · Log write error: ' + data.logError : ''}`;

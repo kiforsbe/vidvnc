@@ -676,7 +676,15 @@ static bool capture_adapter_luid(std::int64_t &out) {
     return found;
 }
 
-static bool element_adapter_luid(const std::string &name, std::int64_t &out) {
+static bool element_adapter_luid(const std::string &name, std::int64_t &out,
+                                 bool probe_nvenc = false) {
+    // Instantiating a D3D11-mode NVENC element creates D3D11/CUDA state even while it is in
+    // NULL.  That was introduced for adapter affinity in the multi-backend work, but it means
+    // the later real nvd3d11h265enc can fail to open its NVENC session once a WebRTC peer is
+    // attached.  The NVIDIA-only worker never created this throwaway element.  Keep selection
+    // side-effect free for that family; an explicit `nvenc` choice still selects it directly.
+    if (!probe_nvenc && name.rfind("nvd3d11", 0) == 0)
+        return false;
     auto *element = gst_element_factory_make(name.c_str(), nullptr);
     if (!element)
         return false;
@@ -742,15 +750,39 @@ static bool backend_encodes(const EncoderBackend &backend, const VideoCodec &cod
     }
     if (message)
         gst_message_unref(message);
+    // NVENC frees the hardware session while the pipeline completes its NULL transition.  Do
+    // not merely request that transition and immediately create the live encoder: on NVIDIA
+    // drivers that can make the new H.265 session race the just-finished probe and fail with
+    // "Failed to open session".  v0.5 did not run this probe before each worker, so it never
+    // exposed that race.
     gst_element_set_state(pipe, GST_STATE_NULL);
+    gst_element_get_state(pipe, nullptr, nullptr, 10 * GST_SECOND);
     gst_object_unref(bus);
     gst_object_unref(pipe);
     return ok;
 }
 
-// Memoised per backend and codec, because every self-test is a real encode. Starting a stream
-// then pays only for the codec it is about to use, and usually only until the first backend
-// passes, rather than for the whole matrix.
+static bool backend_elements_present(const EncoderBackend &backend, const VideoCodec &codec) {
+    const auto element = encoder_element(backend, codec.id);
+    if (element.empty())
+        return false;
+    const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
+    auto *encoder_factory = gst_element_factory_find(element.c_str());
+    auto *parser_factory = gst_element_factory_find(parser_name.c_str());
+    auto *payloader_factory = gst_element_factory_find(codec.payloader.c_str());
+    const bool present = encoder_factory && parser_factory && payloader_factory;
+    if (encoder_factory)
+        gst_object_unref(encoder_factory);
+    if (parser_factory)
+        gst_object_unref(parser_factory);
+    if (payloader_factory)
+        gst_object_unref(payloader_factory);
+    return present;
+}
+
+// Memoised per backend and codec, because every self-test is a real encode. This is reserved for
+// --probe: running a temporary NVENC session in every live worker regressed the 0.5 startup path
+// and can make the immediately following live H.265 session fail to open on some drivers.
 static bool backend_supports(const EncoderBackend &backend, const VideoCodec &codec) {
     static std::map<std::string, bool> cache;
     const auto key = backend.id + "/" + codec.id;
@@ -758,22 +790,9 @@ static bool backend_supports(const EncoderBackend &backend, const VideoCodec &co
     if (cached != cache.end())
         return cached->second;
     static const auto adapters = enumerate_adapters();
-    const auto element = encoder_element(backend, codec.id);
     bool supported = false;
-    if (!element.empty()) {
-        const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
-        auto *encoder_factory = gst_element_factory_find(element.c_str());
-        auto *parser_factory = gst_element_factory_find(parser_name.c_str());
-        auto *payloader_factory = gst_element_factory_find(codec.payloader.c_str());
-        const bool present = encoder_factory && parser_factory && payloader_factory;
-        if (encoder_factory)
-            gst_object_unref(encoder_factory);
-        if (parser_factory)
-            gst_object_unref(parser_factory);
-        if (payloader_factory)
-            gst_object_unref(payloader_factory);
-        supported = present && backend_encodes(backend, codec, adapters);
-    }
+    if (backend_elements_present(backend, codec))
+        supported = backend_encodes(backend, codec, adapters);
     cache.emplace(key, supported);
     return supported;
 }
@@ -797,7 +816,7 @@ static std::vector<BackendAvailability> available_backends() {
             entry.codecs.push_back(codec.id);
             std::int64_t luid = 0;
             const auto element = encoder_element(backend, codec.id);
-            if (capture_known && element_adapter_luid(element, luid) && luid == capture_luid)
+            if (capture_known && element_adapter_luid(element, luid, true) && luid == capture_luid)
                 entry.on_capture_adapter = true;
         }
         if (!entry.codecs.empty())
@@ -818,7 +837,9 @@ static Selection encoder_selection_for(const std::string &codec_id) {
     std::int64_t capture_luid = 0;
     const bool capture_known = capture_adapter_luid(capture_luid);
     for (const auto &backend : encoder_backends()) {
-        if (!backend_supports(backend, *codec))
+        // A stream must not open disposable NVENC sessions merely to select its encoder.  The
+        // actual pipeline is the authoritative test and reports its own diagnostics on failure.
+        if (!backend_elements_present(backend, *codec))
             continue;
         const auto element = encoder_element(backend, codec_id);
         std::int64_t luid = 0;
@@ -875,11 +896,11 @@ static void preflight() {
         gst_object_unref(factory);
     }
     // H.264 is the universal fallback throughout the protocol and the one codec a host cannot
-    // disable, so at least one encoder family must deliver it. Which family does not matter.
-    // This stops at the first family that works, so the common case costs one short encode.
+    // disable, so ensure a complete installed path exists.  A live worker must not spend a
+    // temporary NVENC session here: it immediately opens the selected session below.
     const auto *h264 = find_video_codec("h264");
     for (const auto &backend : encoder_backends())
-        if (h264 && backend_supports(backend, *h264))
+        if (h264 && backend_elements_present(backend, *h264))
             return;
     std::string tried;
     for (const auto &backend : encoder_backends())
@@ -978,10 +999,16 @@ static gboolean bus_message(GstBus *, GstMessage *message, gpointer) {
         GError *error = nullptr;
         gchar *debug = nullptr;
         gst_message_parse_error(message, &error, &debug);
+        const std::string detail =
+            "GSTREAMER ERROR source=" + std::string(GST_OBJECT_NAME(message->src)) +
+            " message=" + (error ? error->message : "unknown") +
+            " debug=" + (debug ? debug : "none");
+        // Keep the actionable GStreamer diagnostic on stderr as well as the native-worker log.
+        // The server persists child stderr in server.log for the desktop host, so a transient
+        // encoder/session failure is diagnosable without needing a second log file.
+        std::cerr << detail << std::endl;
         if (error_log.is_open())
-            error_log << "GSTREAMER ERROR source=" << GST_OBJECT_NAME(message->src)
-                      << " message=" << (error ? error->message : "unknown")
-                      << " debug=" << (debug ? debug : "none") << std::endl;
+            error_log << detail << std::endl;
         // A viewer's transport failing must not end the shared capture for everyone else.
         bool attached = false;
         if (const auto peer = peer_of(message->src, attached))

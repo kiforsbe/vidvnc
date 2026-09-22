@@ -157,6 +157,25 @@ test('peer failure, negotiation timeout and removal stay within one peer', async
   assert.equal(media.workers.has('s'), true);
 });
 
+test('peer negotiation failures log the stream configuration without its SDP', async (t) => {
+  const messages = [];
+  const media = new NativeMedia({ launch, log: (message) => messages.push(message) });
+  t.after(() => media.shutdown());
+  await media.start('h265-source', {
+    video: true,
+    profile: { ...profile(30), bitrateMode: 'vbr', quality: 'high' },
+    codec: 'h265',
+    encoderBackend: 'auto',
+  });
+  await assert.rejects(
+    media.addPeer('h265-source', 'iphone-peer', 'fail:private-offer-sdp'),
+    /Invalid SDP/,
+  );
+  assert.match(messages.join(''), /Starting video worker.*codec=h265.*1280x720@30.*vbr\/high/);
+  assert.match(messages.join(''), /Peer negotiation failed.*Invalid SDP/);
+  assert.doesNotMatch(messages.join(''), /private-offer-sdp/);
+});
+
 test('unacknowledged removal stops the source', async (t) => {
   const media = new NativeMedia({ launch, removalTimeoutMs: 100 });
   t.after(() => media.shutdown());

@@ -22,3 +22,19 @@ export const BACKEND_LABELS = Object.freeze({
   amf: 'AMD AMF',
   mediafoundation: 'Media Foundation',
 });
+
+// The startup probe runs in a short-lived worker, where it is safe to discover the GPU that
+// owns the captured display.  Live workers receive this resolved choice instead of recreating
+// an encoder merely to ask the same question; that probe can disturb D3D11 NVENC state.
+export function selectEncoderBackend(backends, setting = DEFAULT_ENCODER_BACKEND) {
+  const available = Array.isArray(backends) ? backends : [];
+  if (setting !== DEFAULT_ENCODER_BACKEND && available.some(({ id }) => id === setting))
+    return setting;
+  return (
+    ENCODER_BACKENDS.find((id) =>
+      available.some((backend) => backend.id === id && backend.onCaptureAdapter),
+    ) ??
+    ENCODER_BACKENDS.find((id) => available.some((backend) => backend.id === id)) ??
+    DEFAULT_ENCODER_BACKEND
+  );
+}

@@ -1,6 +1,4 @@
 import { networkInterfaces, hostname } from 'node:os';
-import { appendFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
 import { createHttpApp } from './http-app.mjs';
@@ -26,6 +24,7 @@ import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
 import { attemptAndAnnounce, connectionAddresses, secureAddressLines } from './tls/addresses.mjs';
 import { tlsDesktopStatus } from './tls/desktop-status.mjs';
+import { createServerLog } from './server-log.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -62,12 +61,14 @@ async function serve() {
     const diagnostics = new Diagnostics({
       directory: logDirectory,
     });
+    const serverLog = createServerLog({ desktop, directory: logDirectory });
     // Eight video sources plus two audio formats, each of which may briefly have a closing
     // predecessor; registry budgets decide what starts.
     const media = new NativeMedia({
       maxWorkers: 12,
       hostControl: true,
       diagnostics,
+      log: serverLog,
     });
     let runtime;
     const policy = new PolicyController(await StreamPolicyStore.open(files.policy), store, {
@@ -93,32 +94,9 @@ async function serve() {
     });
     const port = Number(process.env.VIDVNC_PORT || 4382);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
-    // TLS's sanitized failure sentences tell the reader to check the server log. On the CLI
-    // that is the terminal (stderr), already true. On the desktop product there is otherwise
-    // no persistent log at all — the host only buffers stderr in memory, shown solely if the
-    // process exits non-zero — so for `--desktop` this also appends to a real file in the
-    // same folder the host's "Open logs folder" command already opens. The directory is
-    // created first: nothing else has necessarily made it yet — it otherwise appears on a
-    // media-worker spawn, a diagnostics write or the host's own button — and a TLS failure
-    // during startup on a fresh install, which is exactly the case this exists for, would
-    // otherwise write nothing at all. Fire-and-forget: a logging failure must never affect
-    // TLS itself, which is why errors are swallowed.
-    const tlsLog = (message) => {
-      console.error(message);
-      if (desktop) {
-        mkdir(logDirectory, { recursive: true })
-          .then(() =>
-            appendFile(
-              join(logDirectory, 'server.log'),
-              `${new Date().toISOString()} ${message}\n`,
-            ),
-          )
-          .catch(() => {});
-      }
-    };
     const tlsSettings = await loadTlsSettings(files.tls, {
       plaintextPort: port,
-      log: tlsLog,
+      log: serverLog,
     });
     // The TLS listener shares the plaintext app's request handling, but the app is created
     // below and needs this listener's `status()` as its `tls` option, so the handler is
@@ -127,7 +105,7 @@ async function serve() {
       settings: tlsSettings,
       requestListener: (request, response) => server.requestListener(request, response),
       host: process.env.VIDVNC_HOST || '0.0.0.0',
-      log: tlsLog,
+      log: serverLog,
     });
     const server = createHttpApp({
       runtime,
@@ -212,7 +190,7 @@ async function serve() {
         announce: () => {
           if (!desktop && !stopping) console.log(secureAddressLines(currentAddresses()).join('\n'));
         },
-        log: tlsLog,
+        log: serverLog,
       });
     inventoryTimer = setInterval(async () => {
       if (stopping || refreshing) return;

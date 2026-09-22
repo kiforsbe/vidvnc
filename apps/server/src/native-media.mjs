@@ -40,6 +40,7 @@ export class NativeMedia {
     onMetrics = () => {},
     onPeerFailed = () => {},
     diagnostics = null,
+    log = (message) => process.stderr.write(message),
     maxWorkers = 1,
     hostControl = false,
     negotiationTimeoutMs = 15000,
@@ -57,6 +58,7 @@ export class NativeMedia {
     this.onMetrics = onMetrics;
     this.onPeerFailed = onPeerFailed;
     this.workers = new Map();
+    this.log = log;
     this.maxWorkers = maxWorkers;
     this.launch = launch;
     this.hostControl = hostControl;
@@ -96,6 +98,13 @@ export class NativeMedia {
       permission: null,
       lastKeyframeAt: -Infinity,
     };
+    const bitrateMode = profile.bitrateMode ?? DEFAULT_BITRATE_MODE;
+    const quality = profile.quality ?? DEFAULT_QUALITY;
+    this.#log(
+      video
+        ? `[native-media ${sourceId}] Starting video worker: codec=${codec ?? 'automatic'}, profile=${profile.width ?? '?'}x${profile.height ?? '?'}@${profile.fps ?? '?'} ${bitrateMode}/${quality}, bitrate=${profile.bitrateKbps ?? '?'} kbit/s, encoder=${encoderBackend ?? 'auto'}.`
+        : `[native-media ${sourceId}] Starting audio worker.`,
+    );
     active.closed = new Promise((resolve) => (active.resolveClosed = resolve));
     const ready = new Promise((resolve, reject) => {
       active.resolveReady = resolve;
@@ -107,7 +116,7 @@ export class NativeMedia {
       active.stderr = (active.stderr + text).slice(-4096);
       // Native launch/driver failures are actionable setup diagnostics; keep
       // them visible in the host console instead of reducing them to 503.
-      process.stderr.write(`[native-media ${sourceId}] ${text}`);
+      this.#log(`[native-media ${sourceId}] Worker stderr: ${text.trimEnd()}`);
     });
     child.stdin.on('error', () => {});
     const lines = createInterface({ input: child.stdout });
@@ -121,6 +130,7 @@ export class NativeMedia {
       this.#message(active, message);
     });
     child.on('error', (error) => {
+      this.#log(`[native-media ${sourceId}] Worker launch failed: ${error.message}`);
       active.rejectReady(error);
       for (const entry of active.peers.values())
         if (entry.state === 'negotiating') entry.fail(error);
@@ -133,6 +143,9 @@ export class NativeMedia {
       lines.close();
       if (this.workers.get(sourceId) === active) this.workers.delete(sourceId);
       const error = new Error(active.stderr.trim() || 'Native media worker stopped.');
+      this.#log(
+        `[native-media ${sourceId}] Worker exited${active.stopping ? ' during shutdown' : ' unexpectedly'}: ${error.message}`,
+      );
       active.rejectReady(error);
       for (const entry of active.peers.values()) {
         if (entry.state === 'negotiating') entry.fail(error);
@@ -173,6 +186,13 @@ export class NativeMedia {
     );
     return ready;
   }
+  #log(message) {
+    try {
+      this.log(message.endsWith('\n') ? message : `${message}\n`);
+    } catch {
+      // Logging must not affect media setup or teardown.
+    }
+  }
   #message(active, message) {
     const entry = typeof message.peerId === 'string' ? active.peers.get(message.peerId) : undefined;
     if (
@@ -190,6 +210,9 @@ export class NativeMedia {
           element: message.encoder ?? null,
           reason: message.encoderReason ?? null,
         };
+      this.#log(
+        `[native-media ${active.id}] Worker ready: backend=${active.encoder?.backend ?? 'unreported'}, encoder=${active.encoder?.element ?? 'unreported'}, reason=${active.encoder?.reason ?? 'unreported'}.`,
+      );
       active.resolveReady();
     }
     if (
@@ -200,6 +223,7 @@ export class NativeMedia {
       entry.succeed(message.sdp);
     if (message.type === 'peer-failed') {
       const reason = typeof message.reason === 'string' ? message.reason : 'WebRTC peer failed.';
+      this.#log(`[native-media ${active.id}] Peer negotiation failed: ${reason}`);
       if (entry?.state === 'negotiating') entry.fail(new Error(reason));
       else if (entry?.state === 'live') {
         active.peers.delete(message.peerId);

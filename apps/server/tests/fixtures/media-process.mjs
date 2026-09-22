@@ -2,6 +2,12 @@
 import { createInterface } from 'node:readline';
 const input = createInterface({ input: process.stdin });
 const send = (message) => console.log(JSON.stringify(message));
+const encoders = {
+  nvenc: { label: 'NVIDIA NVENC', element: 'nvd3d11h264enc' },
+  qsv: { label: 'Intel Quick Sync', element: 'qsvh264enc' },
+  amf: { label: 'AMD AMF', element: 'amfh264enc' },
+  mediafoundation: { label: 'Media Foundation', element: 'mfh264enc' },
+};
 let started = null;
 const peers = new Map();
 input.on('line', (line) => {
@@ -10,21 +16,22 @@ input.on('line', (line) => {
   if (message.type === 'start') {
     if (started || message.display?.id === 'fail') return process.exit(2);
     started = message;
-    // Echoes the received codec so tests can observe what NativeMedia forwarded. The encoder
-    // fields mirror the real worker, which reports the backend it actually selected: `nvenc`
-    // stands in for automatic selection so a substitution is visible as a difference.
+    // Echoes the received codec and resolved encoder so tests can observe what NativeMedia
+    // forwarded. Real live workers receive the backend resolved from the startup probe.
+    const backend = message.encoderBackend === 'auto' ? 'nvenc' : message.encoderBackend;
+    const encoder = encoders[backend] ?? encoders.nvenc;
     send({
       type: 'ready',
       codec: message.codec,
-      encoderBackend: message.encoderBackend === 'auto' ? 'nvenc' : message.encoderBackend,
-      encoderLabel: 'NVIDIA NVENC',
-      encoder: 'nvd3d11h264enc',
+      encoderBackend: backend,
+      encoderLabel: encoder.label,
+      encoder: encoder.element,
       encoderReason: message.encoderBackend === 'auto' ? 'capture-adapter' : 'forced',
     });
   }
   if (message.type === 'add-peer') {
     if (message.sdp === 'crash') return process.exit(2);
-    if (!started || peers.has(peerId) || message.sdp === 'fail')
+    if (!started || peers.has(peerId) || message.sdp === 'fail' || message.sdp.startsWith('fail:'))
       return send({ type: 'peer-failed', peerId, reason: 'Invalid SDP' });
     peers.set(peerId, message.sdp);
     if (message.sdp.includes('hang')) return;

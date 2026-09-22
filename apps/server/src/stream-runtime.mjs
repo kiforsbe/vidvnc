@@ -6,6 +6,7 @@ import { Diagnostics } from './diagnostics.mjs';
 import { Recovery } from './recovery.mjs';
 import { peerSample } from './media-sample.mjs';
 import { selectVideoCodec } from './video-codecs.mjs';
+import { selectEncoderBackend } from './encoder-backends.mjs';
 
 export class StreamRuntime {
   constructor({
@@ -310,12 +311,13 @@ export class StreamRuntime {
     } catch (error) {
       throw Object.assign(error, { status: 403 });
     }
+    const encoderBackend = selectEncoderBackend(this.videoBackends, effective.encoderBackend);
     const codec = selectVideoCodec(
       request.sdp,
       policy.videoCodecs,
       this.videoBackends,
       effective.profile,
-      effective.encoderBackend,
+      encoderBackend,
     );
     const plan = {
       profile: effective.profile,
@@ -323,7 +325,7 @@ export class StreamRuntime {
       revision: effective.revision,
       audio: { mode: 'off', enabled: false },
       codec,
-      encoderBackend: effective.encoderBackend,
+      encoderBackend,
     };
     const { stream, answer } = await this.#subscribe(sessionId, plan, request.sdp, {
       start: {
@@ -331,7 +333,7 @@ export class StreamRuntime {
         profile: effective.profile,
         display,
         codec,
-        encoderBackend: effective.encoderBackend,
+        encoderBackend,
       },
       configure: (diagnostics) => diagnostics.startStream(plan.profile, plan.audio, display, codec),
       valid: () => this.valid({ plan }),

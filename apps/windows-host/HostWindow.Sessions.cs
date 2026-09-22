@@ -60,7 +60,7 @@ public sealed partial class HostWindow
         public readonly TextBlock Control = Label("View only", 12);
         public readonly Button Permission = new() { Content = "Grant control", IsEnabled = false };
         public readonly FontIcon Icon = new() { Glyph = "\uE7F4", FontSize = 28 };
-        public readonly StackPanel Actions = new() { Orientation = Orientation.Horizontal, Spacing = 12 };
+        public readonly StackPanel Actions = new() { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         public readonly Expander Card;
         readonly StackPanel streams = new() { Spacing = 12 };
         readonly Dictionary<string, StreamVisual> streamRows = new();
@@ -78,10 +78,12 @@ public sealed partial class HostWindow
             var header = new Grid { ColumnSpacing = 16, Padding = new Thickness(0, 8, 0, 8) };
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.Children.Add(Icon); Grid.SetColumn(identity, 1); header.Children.Add(identity);
             var body = new StackPanel { Spacing = HostSpacing.Row };
-            body.Children.Add(streams); body.Children.Add(Actions);
             Actions.Children.Add(Permission);
+            Grid.SetColumn(Actions, 2); header.Children.Add(Actions);
+            body.Children.Add(streams);
             Permission.Click += async (_, _) => {
                 if (pending) return;
                 pending = true; Permission.IsEnabled = false;
@@ -128,7 +130,7 @@ public sealed partial class HostWindow
     sealed class StreamVisual
     {
         public readonly Grid Root = new() { ColumnSpacing = 20, Padding = new Thickness(0, 8, 0, 8) };
-        readonly TextBlock name = Label("", 16), resolution = Label(""), fps = Label(""), profile = Label(""), codec = Label("");
+        readonly TextBlock name = Label("", 16), resolution = Label(""), fps = Label(""), profile = Label(""), codec = Label(""), encoder = Label("");
         readonly TextBlock shared = new() { FontSize = 12, Visibility = Visibility.Collapsed };
         readonly SessionGraph graph = new();
         public StreamVisual(string? id, Func<string, string?, Task> command)
@@ -145,13 +147,15 @@ public sealed partial class HostWindow
             stop.Click += async (_, _) => { stop.IsEnabled = false; try { await command("stop-stream", id); } finally { stop.IsEnabled = id is not null; } };
             Grid.SetColumn(stop, 1); header.Children.Add(stop); content.Children.Add(header); content.Children.Add(shared);
             var values = new Grid { ColumnSpacing = 12 };
-            foreach (var (label, value) in new[] { ("Resolution", resolution), ("Target FPS", fps), ("Profile", profile), ("Codec", codec) }) {
+            foreach (var (label, value) in new[] { ("Profile", profile), ("Resolution", resolution), ("Target FPS", fps), ("Codec", codec) }) {
                 var cell = new StackPanel { Spacing = HostSpacing.Small };
                 cell.Children.Add(Label(label, 12)); cell.Children.Add(value);
                 Grid.SetColumn(cell, values.ColumnDefinitions.Count);
                 values.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); values.Children.Add(cell);
             }
-            content.Children.Add(values); Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
+            var encoderRow = new StackPanel { Spacing = HostSpacing.Small };
+            encoderRow.Children.Add(Label("Encoder", 12)); encoderRow.Children.Add(encoder);
+            content.Children.Add(values); content.Children.Add(encoderRow); Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
             Root.SizeChanged += (_, _) => {
                 var narrow = Root.ActualWidth < 580;
                 Grid.SetColumn(graph, narrow ? 0 : 1); Grid.SetRow(graph, narrow ? 1 : 0);
@@ -191,6 +195,10 @@ public sealed partial class HostWindow
             fps.Text = $"{row.GetProperty("targetFps")} fps"; profile.Text = row.GetProperty("profile").GetString() + VariableSuffix(row);
             ToolTipService.SetToolTip(profile, ProfileTooltip(row));
             codec.Text = CodecLabel(row.TryGetProperty("codec", out var codecValue) ? codecValue.GetString()! : "h264");
+            var encoderLabel = row.TryGetProperty("encoder", out var encoderValue) && encoderValue.ValueKind == JsonValueKind.Object
+                ? (encoderValue.TryGetProperty("label", out var label) ? label.GetString() : null) ?? "Unknown"
+                : "Waiting for worker";
+            encoder.Text = encoderLabel;
             // One capture/encode serves every device on the same display and profile.
             var viewers = row.TryGetProperty("viewers", out var count) && count.ValueKind == JsonValueKind.Number ? count.GetInt32() : 1;
             shared.Text = viewers > 1 ? $"Shared · {viewers} devices" : "";

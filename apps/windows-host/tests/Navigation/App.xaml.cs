@@ -714,7 +714,7 @@ public partial class App : Application
                             if (name == "Sessions")
                             {
                                 using var connected = JsonDocument.Parse("""
-                                {"sessions":[{"id":"test-session","device":"iPhone","health":"Smooth","address":"127.0.0.1","connectedAt":0,"audio":true,"streams":[{"name":"Primary display","width":1280,"height":720,"targetFps":15,"profile":"test"}]}],"streamCount":1}
+                                {"sessions":[{"id":"test-session","device":"iPhone","health":"Smooth","address":"127.0.0.1","connectedAt":0,"audio":true,"streams":[{"id":"stream-one","name":"Primary display","width":1280,"height":720,"targetFps":15,"profile":"test","encoder":{"label":"NVIDIA NVENC","element":"nvd3d11h265enc"}}]}],"streamCount":1}
                                 """);
                                 update.Invoke(window, new object[] { connected.RootElement });
                                 await Task.Delay(80);
@@ -726,6 +726,34 @@ public partial class App : Application
                                     throw new Exception("Session stability graph missing");
                                 if (!Descendants(list).OfType<TextBlock>().Any(t => t.Text == "Waiting for telemetry"))
                                     throw new Exception("Missing telemetry must not be drawn as a healthy connection");
+                                if (!Descendants(list).OfType<TextBlock>().Any(t => t.Text == "NVIDIA NVENC"))
+                                    throw new Exception("Session card does not show the active encoder");
+                                TextBlock StreamHeader(string text) => Descendants(list).OfType<TextBlock>().Single(t => t.Text == text);
+                                var profileHeader = StreamHeader("Profile");
+                                var resolutionHeader = StreamHeader("Resolution");
+                                var fpsHeader = StreamHeader("Target FPS");
+                                var codecHeader = StreamHeader("Codec");
+                                var encoderHeader = StreamHeader("Encoder");
+                                double X(FrameworkElement element) => element.TransformToVisual(list).TransformPoint(new(0, 0)).X;
+                                double Y(FrameworkElement element) => element.TransformToVisual(list).TransformPoint(new(0, 0)).Y;
+                                if (!(X(profileHeader) < X(resolutionHeader) && X(resolutionHeader) < X(fpsHeader) && X(fpsHeader) < X(codecHeader)))
+                                    throw new Exception("Stream details must lead with Profile, then Resolution, Target FPS and Codec");
+                                if (Y(encoderHeader) <= Y(profileHeader))
+                                    throw new Exception("Encoder must be shown beneath the compact stream detail row");
+                                var encoderValue = Descendants(list).OfType<TextBlock>().Single(t => t.Text == "NVIDIA NVENC");
+                                if (Y(encoderValue) <= Y(encoderHeader))
+                                    throw new Exception("Encoder value must be shown beneath its heading");
+                                var sessionHeader = (Grid)((Expander)list.Children[0]).Header;
+                                var actionGroup = sessionHeader.Children.OfType<StackPanel>().Single(panel => panel.Children.OfType<Button>().Any());
+                                var revokeControl = actionGroup.Children.OfType<Button>().Single(b => b.Content as string is "Grant control" or "Revoke control");
+                                var disconnect = actionGroup.Children.OfType<Button>().Single(b => b.Content as string == "Disconnect");
+                                if (actionGroup.Children.OfType<Button>().Any(b => b.Content as string == "Stop stream"))
+                                    throw new Exception("Stop stream belongs with its individual stream, not the session header");
+                                var stopStream = Descendants(list).OfType<Button>().Single(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(b) == "Stop stream");
+                                if (Y(revokeControl) >= Y(profileHeader) || Y(disconnect) >= Y(profileHeader))
+                                    throw new Exception("Session actions must appear in the device header above stream details");
+                                if (X(revokeControl) <= X(codecHeader))
+                                    throw new Exception("Session actions must be right-aligned in the device header");
                                 var graphFixture = System.Text.Json.Nodes.JsonNode.Parse(connected.RootElement.GetRawText())!;
                                 var streamFixture = graphFixture["sessions"]![0]!["streams"]![0]!;
                                 streamFixture["targetFps"] = 30;
@@ -770,7 +798,10 @@ public partial class App : Application
                                 if (Descendants(list).OfType<Canvas>().Count() != 3) throw new Exception("Each stream needs its own graph");
                                 if (!Descendants(list).OfType<TextBlock>().Any(t => t.Text == "AV1")) throw new Exception("Stream codec value missing for the AV1 stream");
                                 if (!Descendants(list).OfType<TextBlock>().Any(t => t.Text == "H.264")) throw new Exception("Stream codec value missing the default H.264 fallback");
-                                if (Descendants(list).OfType<Button>().Count(b => b.Content as string == "Grant control") != 2)
+                                var headerActions = list.Children.OfType<Expander>()
+                                    .SelectMany(card => ((Grid)card.Header).Children.OfType<StackPanel>())
+                                    .SelectMany(group => group.Children.OfType<Button>()).ToArray();
+                                if (headerActions.Count(b => b.Content as string == "Grant control") != 2)
                                     throw new Exception("Each device needs a host control action");
                                 if (Descendants(list).OfType<Button>().Count(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(b) == "Stop stream") != 3)
                                     throw new Exception("Each stream needs its own stop action");
@@ -799,10 +830,13 @@ public partial class App : Application
                                             typeof(HostWindow).GetMethod("ReceiveSessionResult", flags)!.Invoke(window, new object[] { result.RootElement });
                                             await Task.Delay(40);
                                         }
-                                        await InvokeSession(Descendants(list).OfType<Button>().First(b => b.Content as string == "Grant control"), "grant", null);
+                                        IEnumerable<Button> HeaderButtons() => list.Children.OfType<Expander>()
+                                            .SelectMany(card => ((Grid)card.Header).Children.OfType<StackPanel>())
+                                            .SelectMany(group => group.Children.OfType<Button>());
+                                        await InvokeSession(HeaderButtons().First(b => b.Content as string == "Grant control"), "grant", null);
                                         device["control"] = "Granted";
                                         using var granted = JsonDocument.Parse(multiple.ToJsonString()); update.Invoke(window, new object[] { granted.RootElement });
-                                        await InvokeSession(Descendants(list).OfType<Button>().Single(b => b.Content as string == "Revoke control"), "revoke", null);
+                                        await InvokeSession(HeaderButtons().Single(b => b.Content as string == "Revoke control"), "revoke", null);
                                         await InvokeSession(Descendants(list).OfType<Button>().First(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(b) == "Stop stream"), "stop-stream", "stream-one");
                                     } finally { ownerField.SetValue(window, null); owner.StandardInput.Close(); if (!owner.WaitForExit(5000)) owner.Kill(); }
                                 }

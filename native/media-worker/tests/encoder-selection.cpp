@@ -63,6 +63,17 @@ int main() {
         assert(choice.reason == SelectionReason::Forced);
     }
 
+    // A forced backend does not need adapter probing.  The live worker relies on this for
+    // nvd3d11 encoders: constructing a throwaway element merely to query its adapter can
+    // perturb the D3D11/NVENC state before the real encoder is created.
+    {
+        const std::vector<EncoderCandidate> candidates{agnostic("nvenc", "nvd3d11h265enc")};
+        const auto choice = select_encoder(candidates, true, capture, "nvenc");
+        assert(choice.found);
+        assert(choice.candidate.backend_id == "nvenc");
+        assert(choice.reason == SelectionReason::Forced);
+    }
+
     // Forcing a backend this machine does not have falls back to automatic rather than
     // refusing to stream. A configuration file may have come from another machine.
     {
