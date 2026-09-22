@@ -206,14 +206,23 @@ and monitor removal; keyboard focus, fullscreen and input work together correctl
 Already implemented: password admission, manual Grant and Revoke of input, and a saved
 default for input access on new connections. These are the basis for control
 permissions, not remembered-device trust or host approval of a device's connection.
+
+**HTTPS and trust provisioning are done.** VidVNC now provisions its own certificate
+automatically (preferring an operator-supplied certificate, then mkcert's local CA, then
+a Windows self-signed certificate), serves a device-aware enrolment page and fingerprint
+check at `/trust`, and shows TLS status in both the host UI and the CLI. See
+[ARCHITECTURE.md](ARCHITECTURE.md#tls-and-trust-provisioning) for the detail. `off` mode
+still restores today's plain-HTTP behaviour for anyone who wants it unchanged. This
+unblocks passkeys but does not implement them.
+
 Planned:
 
 - Easy local discovery and a QR connection flow, without putting a durable credential
   in a URL or showing a pairing token to an unauthenticated observer.
 - Host approval, remembered devices, revocation and saved access policy.
-- Design HTTPS and trust provisioning before passkeys: plain HTTP on a local network is
-  not a complete passkey deployment. Evaluate iPhone cross-device authentication as
-  part of that design, not merely as a login button.
+- Passkeys and WebAuthn, now that a secure context is available by default. Evaluate
+  iPhone cross-device authentication as part of that design, not merely as a login
+  button.
 - Rate limiting, bounded messages, audit events and logs with credentials redacted.
   Threat-model local administration, signaling and the worker's input boundary.
 
@@ -308,8 +317,10 @@ the feature.
 
 Only after local identity, authorization and lifecycle work reliably: approved device
 registration, authenticated rendezvous, direct connections where possible, relay or
-tunnel fallback, revocation and operational limits. The current HTTP pairing must
-never be exposed directly to the internet. Local-only use never depends on the hub.
+tunnel fallback, revocation and operational limits. The current pairing flow, HTTPS by
+default though it now is, must never be exposed directly to the internet: it is designed
+and tested for a trusted local network, not for arbitrary internet clients. Local-only
+use never depends on the hub.
 
 ## Proposed configuration and selection contract
 

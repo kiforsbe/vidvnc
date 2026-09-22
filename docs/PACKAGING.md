@@ -62,6 +62,16 @@ User requirement revised 2026-09-15 (replaces the earlier "self-contained" rule)
   screen-recording/accessibility permissions or Windows security prompts. Supported
   OS/hardware remains an explicit prerequisite.
 
+## Ports and firewall
+
+The server listens on two ports: a plaintext one for enrolment and redirect (default
+`4382`) and a TLS one for everything else (default `4383`), both `VIDVNC_PORT`-relative
+— see [ARCHITECTURE.md](ARCHITECTURE.md#tls-and-trust-provisioning) for the listener and
+provisioning detail. This needs no change to firewall onboarding: it is keyed to the
+executable, not to a port, so the existing Private/LAN onboarding already covers both
+ports the same way it covered the one plaintext port before TLS existed (verified and
+documented in `packaging/windows/README.md`).
+
 ## How this fits the repository
 
 Source modules remain independent of distribution products. The complete server

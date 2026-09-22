@@ -398,10 +398,19 @@ no client ever sees it.
 
 Stated plainly, because the scope limit is a design decision rather than an oversight:
 
-- **The control plane is plain HTTP** ([http-app.mjs](../apps/server/src/http-app.mjs)).
-  There is no TLS, so admission keys and session tokens are readable by anything on the
-  path. This is a same-subnet product; exposing the port to an untrusted network is not a
-  supported configuration.
+- **The control plane serves HTTPS by default**
+  ([http-app.mjs](../apps/server/src/http-app.mjs)). On first run VidVNC provisions its
+  own certificate automatically, trying an operator-supplied certificate first, then
+  mkcert's local CA, then a self-signed certificate issued through Windows — see [TLS and
+  trust provisioning](#tls-and-trust-provisioning) below for the exact order and why. A
+  plaintext listener stays up alongside the TLS one solely to serve the enrolment page and
+  redirect everything else to its HTTPS equivalent, so admission keys and session tokens
+  are not readable by anything on the path once a device has enrolled. The one case where
+  the old description — plain HTTP, no TLS, nothing readable-in-transit protection —
+  still holds exactly is **`off` mode**, an explicit opt-out that restores today's
+  single-listener behaviour with no redirect. This is still a same-subnet product either
+  way; exposing a port to an untrusted network is not a supported configuration regardless
+  of scheme.
 - **The media plane is encrypted regardless**, since WebRTC mandates DTLS-SRTP. Pixels
   and audio are not in the clear even though the signaling that set them up is.
 - **Approved-client credentials are stored hashed**, with a per-client salt, scrypt, and
@@ -412,7 +421,122 @@ Stated plainly, because the scope limit is a design decision rather than an over
 - **The worker trusts only its owner pipe.** Everything arriving from a peer — SDP, data
   channel input, telemetry — is validated before use.
 
-TLS, pairing and passkeys are future work; see [ROADMAP.md](ROADMAP.md).
+Pairing and passkeys are future work; see [ROADMAP.md](ROADMAP.md).
+
+## TLS and trust provisioning
+
+### Two listeners
+
+The plaintext listener keeps the product's original port, `4382` by default
+(`VIDVNC_PORT`-overridable, [main.mjs](../apps/server/src/main.mjs)). The TLS listener
+takes a second port, `4383` by default — one above the plaintext default so the pair
+never collides out of the box — independently configurable through TLS settings or the
+CLI's `tls-port` command
+([tls-settings.mjs](../apps/server/src/tls/tls-settings.mjs)). If the two ever end up
+equal (for example `VIDVNC_PORT` moved onto the TLS default), TLS is disabled for that
+run rather than failing to start, and the reason is logged
+([load-settings.mjs](../apps/server/src/tls/load-settings.mjs)).
+
+Once TLS is active, the plaintext listener serves only the enrolment page and its assets
+(`/trust` and everything it loads) plus the two trust API routes
+(`/api/trust/anchor`, `/api/trust/status`) unredirected; every other plaintext request
+gets a `307` redirect (not `308`, so a client that cached it does not keep being sent to
+a TLS port that may later change) to the same path and query on the HTTPS listener,
+preserving the request method. This is deliberate: a device that does not yet trust the
+host has no un-warned way to fetch the trust anchor over the very connection that anchor
+exists to authenticate, so those routes must stay reachable in the clear
+([http-app.mjs](../apps/server/src/http-app.mjs)).
+
+### Strategy order and reissue
+
+Provisioning tries strategies in a fixed order — `provided`, then `mkcert`, then
+`windows-self-signed` — and uses the first one that is available and succeeds
+([ensure-certificate.mjs](../apps/server/src/tls/ensure-certificate.mjs),
+`DEFAULT_STRATEGIES`). In `provided` mode only the `provided` strategy is ever a
+candidate, so a failure there is reported rather than silently replaced by a generated
+certificate. In every other mode all three are tried in that order:
+
+| Strategy | Condition | Anchor a device must trust |
+| --- | --- | --- |
+| `provided` | Operator configured a certificate and key (or PFX) | Whatever their CA chain already is |
+| `mkcert` | `mkcert` resolves on `PATH` | The mkcert local root CA |
+| `windows-self-signed` | Always available on Windows | The leaf certificate itself |
+
+A credential is reissued — at startup, and again on a periodic re-check — whenever any
+of these holds: it is absent or unreadable; its expiry falls inside the renewal window
+(30 days by default); or its subject alternative name no longer covers an address the
+machine currently has, which is what keeps a certificate valid across a DHCP lease change
+or a laptop moving networks
+([certificate-facts.mjs](../apps/server/src/tls/certificate-facts.mjs),
+`renewalStatus`/`checkCoverage`). Each strategy owns this check for its own credential
+type; `ensure-certificate.mjs` only selects a strategy and forwards the result unchanged.
+
+### Enrolment flow
+
+The host offers the current trust anchor at `/trust`, a page served over plaintext (see
+above) that explains what to do with it per platform. `/api/trust/anchor` downloads the
+anchor certificate as DER; `/api/trust/status` reports whether TLS is active, which
+strategy is in effect, and the anchor's SHA-256 fingerprint. The host UI shows the same
+fingerprint and a QR code pointing at `/trust`, so enrolling a device means: open the
+page, compare the fingerprint shown there against the one on the host screen, then
+install the certificate through the OS's own certificate UI. That fingerprint comparison
+is the only integrity check available before trust exists — see Known limitations below.
+
+```mermaid
+sequenceDiagram
+    participant Device as Client device
+    participant Plain as Plaintext listener :4382
+    participant TLS as TLS listener :4383
+    participant Host as Host UI / CLI
+
+    Note over Plain,TLS: Same request handling, only the transport differs
+
+    Device->>Plain: GET /trust
+    Plain-->>Device: enrolment page (unredirected)
+    Device->>Plain: GET /api/trust/anchor
+    Plain-->>Device: trust anchor certificate + fingerprint
+    Note over Device,Host: Device compares fingerprint against Host UI, then installs the anchor
+
+    Device->>Plain: GET /app-route (any other path)
+    Plain-->>Device: 307 redirect to https://host:4383/app-route
+    Device->>TLS: GET /app-route (redirect followed)
+    TLS-->>Device: response, now warning-free
+```
+
+### Known limitations
+
+- **A page loaded over plaintext before TLS comes up can break mid-session.** If a
+  browser tab is open on the plaintext origin when TLS starts or restarts, its next
+  same-origin fetch (a heartbeat, for example) gets redirected cross-origin to HTTPS and
+  fails, because `fetch()` on an already-loaded page cannot silently follow a
+  cross-origin redirect the way a navigation can. The user sees a disconnect and must
+  reload.
+- **Enrolment over plaintext is trust-on-first-use.** Comparing the fingerprint on the
+  page against the one on the host screen detects a mismatched or tampered display, but
+  does not by itself prove the downloaded certificate file is genuine against a
+  fully-controlling on-path attacker on the plaintext LAN segment. The strongest
+  available check is comparing the fingerprint the device's own certificate viewer shows
+  at install time (where the OS offers one) against the host's screen.
+- **The host UI's failure reason is not always specific enough to diagnose.** It can say
+  TLS failed and show a port number, but cannot always distinguish "the port is already
+  in use" from "no provisioning strategy worked" — check the server log for the precise
+  cause.
+- **Self-signed reissue invalidates every enrolled device's trust; mkcert's local CA does
+  not.** Under `windows-self-signed` the certificate is its own trust anchor, so
+  reissuing it — which happens automatically near expiry or when an address changes, or
+  manually via "regenerate" in the host UI — means every device that enrolled must enrol
+  again. Under `mkcert` the anchor is the stable local CA, so a reissued leaf is still
+  trusted without re-enrolling.
+- **Provisioning can freeze the server briefly.** Certificate provisioning shells out to
+  external tools (mkcert, Windows PowerShell certificate cmdlets) synchronously, which
+  can block the server's event loop for up to roughly 150 seconds in the worst case (each
+  tool has its own timeout, and they can stack). This happens after the plaintext
+  listener is already serving, so plaintext access is never blocked by it, but it can
+  happen more than once: at startup, and again on every periodic re-check.
+- **A default install still shows a browser warning on devices that have not enrolled.**
+  This is expected, not a bug — enrolling a device (visiting `/trust` and installing the
+  certificate) is a one-time step per device, not something the server can do for the
+  user.
 
 ## Repository layout and ownership
 

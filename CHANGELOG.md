@@ -5,6 +5,46 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.7.0] - 2026-09-22
+
+### Added
+
+- VidVNC now serves HTTPS by default. On first run it provisions its own certificate
+  automatically: an operator-supplied certificate if one is configured, otherwise
+  mkcert's local certificate authority if `mkcert` is on `PATH` (no browser warning on
+  any device that already trusts that authority), otherwise a self-signed certificate
+  issued through Windows. A plaintext listener stays up on the original port solely to
+  serve the enrolment page and redirect everything else to HTTPS; `off` mode remains
+  available for anyone who wants today's plain-HTTP behaviour unchanged.
+- A new enrolment page at `/trust` walks a device through installing the host's trust
+  anchor, with per-platform instructions (iOS's two-step install-then-trust, Windows,
+  Android, macOS) and a SHA-256 fingerprint to compare against the one shown in the host
+  UI before installing.
+- The VidVNC app's host UI has a new TLS section: current mode, active strategy, port,
+  certificate expiry, fingerprint, a QR code linking to `/trust`, and a "regenerate"
+  action.
+- The command line gets `tls-mode`, `tls-port`, `tls-cert`, `tls-pfx` and `tls` (status)
+  commands, matching the existing configuration command style.
+
+### Known limitations
+
+- **A default install still shows a browser warning on any device that has not
+  enrolled.** This is expected, not a bug: enrolling a device by visiting `/trust` and
+  installing the certificate is a one-time step per device, not something the server can
+  do on the user's behalf.
+- **A device approved before upgrading must re-pair once over HTTPS.** The
+  approved-client credential is stored per browser origin, so a device approved on
+  `http://host:4382` is not automatically approved on `https://host:4383` — it re-pairs
+  the first time it connects over HTTPS.
+- **Regenerating a self-signed certificate invalidates every enrolled device's trust;
+  mkcert does not.** Under the Windows self-signed strategy the certificate is its own
+  trust anchor, so every reissue — automatic near expiry or manual via "regenerate" —
+  means enrolled devices must enrol again. mkcert's anchor is a stable local authority,
+  so its reissues need no re-enrolment. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#tls-and-trust-provisioning) for the rest of the
+  known limitations, including a mid-session disconnect a client can hit if it was
+  loaded over plaintext right as TLS came up.
+
 ## [0.6.0] - 2026-09-21
 
 ### Added
