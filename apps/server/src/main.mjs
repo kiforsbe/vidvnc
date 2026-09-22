@@ -1,5 +1,5 @@
 import { networkInterfaces, hostname } from 'node:os';
-import { appendFile } from 'node:fs/promises';
+import { appendFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
@@ -97,15 +97,23 @@ async function serve() {
     // that is the terminal (stderr), already true. On the desktop product there is otherwise
     // no persistent log at all — the host only buffers stderr in memory, shown solely if the
     // process exits non-zero — so for `--desktop` this also appends to a real file in the
-    // same folder the host's "Open logs folder" command already opens. Fire-and-forget: a
-    // logging failure must never affect TLS itself, which is why errors are swallowed.
+    // same folder the host's "Open logs folder" command already opens. The directory is
+    // created first: nothing else has necessarily made it yet — it otherwise appears on a
+    // media-worker spawn, a diagnostics write or the host's own button — and a TLS failure
+    // during startup on a fresh install, which is exactly the case this exists for, would
+    // otherwise write nothing at all. Fire-and-forget: a logging failure must never affect
+    // TLS itself, which is why errors are swallowed.
     const tlsLog = (message) => {
       console.error(message);
       if (desktop) {
-        appendFile(
-          join(logDirectory, 'server.log'),
-          `${new Date().toISOString()} ${message}\n`,
-        ).catch(() => {});
+        mkdir(logDirectory, { recursive: true })
+          .then(() =>
+            appendFile(
+              join(logDirectory, 'server.log'),
+              `${new Date().toISOString()} ${message}\n`,
+            ),
+          )
+          .catch(() => {});
       }
     };
     const tlsSettings = await loadTlsSettings(files.tls, {
