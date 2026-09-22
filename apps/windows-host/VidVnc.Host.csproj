@@ -31,5 +31,10 @@
     <!-- Renders the enrolment QR code locally. A LAN address must never be sent to a QR web
          service, and this app has no other reason to reach the Internet. MIT licensed. -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
+    <!-- QRCoder pulls this in transitively only for its GDI+-backed QRCode/ArtQRCode/Base64QRCode
+         classes, none of which this app uses (it renders through PngByteQRCode). Excluding it keeps
+         an unused assembly out of the build and out of the packaging pipeline's third-party
+         attribution list. Pinned to the version QRCoder currently resolves to. -->
+    <PackageReference Include="System.Drawing.Common" Version="6.0.0" ExcludeAssets="all" />
   </ItemGroup>
 </Project>

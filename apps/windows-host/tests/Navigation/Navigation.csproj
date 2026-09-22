@@ -24,5 +24,6 @@
     <!-- This project compiles the real host sources by link, so it needs the host's packages
          too; keep the version in step with VidVnc.Host.csproj. -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="System.Drawing.Common" Version="6.0.0" ExcludeAssets="all" />
   </ItemGroup>
 </Project>

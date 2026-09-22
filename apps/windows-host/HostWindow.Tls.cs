@@ -61,7 +61,16 @@ public sealed partial class HostWindow
             tls.TryGetProperty("expired", out var expired) && expired.ValueKind == JsonValueKind.True,
             tls.TryGetProperty("needsRenewal", out var renewal) && renewal.ValueKind == JsonValueKind.True,
             Text(tls, "reason") is { Length: > 0 } reason ? reason : null);
-        var changed = tlsReport != next;
+        // A failed regenerate leaves a message that has to outlive the tick it was set on
+        // (status arrives once a second), but must not outlive the problem. It is cleared
+        // when the server's own report actually *recovers* — an unhealthy report followed by
+        // a healthy one — rather than on any healthy report at all: a refusal raised against
+        // an already-healthy listener (asking to regenerate a supplied certificate, a broken
+        // pipe) would otherwise be wiped within a second of being shown, before it could be
+        // read.
+        var recovered = next.Reason is null && tlsReport is { Reason: not null } && tlsError is not null;
+        if (recovered) tlsError = null;
+        var changed = tlsReport != next || recovered;
         tlsReport = next;
         ApplyTlsAddress();
         if (changed && currentPage == "Settings") RenderPage();
@@ -255,7 +264,17 @@ public sealed partial class HostWindow
             "This PC's certificate is its own trust anchor, so every reissue — including one caused by moving to a new network — means enrolling every device again.",
         "mkcert" =>
             "Your devices trust the mkcert local CA, not this certificate, so reissuing does not require enrolling them again.",
-        _ => "",
+        // No strategy has won: provisioning has not finished yet, or it failed. HTTPS is
+        // still configured, so regenerating remains the way out of a failed provision and
+        // the action stays live — but the server would reissue from whichever strategy wins
+        // next, which may well be the self-signed one whose leaf is its own trust anchor.
+        // The consequence cannot be named precisely here, so it is stated conditionally
+        // rather than omitted: an enabled regenerate button must never be the only thing on
+        // screen. Tied to `TlsRegenerateAllowed` so the note appears exactly when the action
+        // does, and stays absent for `off` and for a certificate the operator supplied.
+        _ => TlsRegenerateAllowed(report)
+            ? "VidVNC has not reported which certificate source is in use. If this PC's certificate turns out to be its own trust anchor, regenerating it means every enrolled device has to trust the new one again."
+            : "",
     };
 
     static Grid TlsRow(string name, string value, string tag)
@@ -345,7 +364,16 @@ public sealed partial class HostWindow
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         body.Children.Add(image);
-        _ = ApplyQrSource(image, url);
+        // Rendering can fail (an image decoder that refuses the stream, a WinRT buffer
+        // error). A blank square with no explanation is indistinguishable from one a camera
+        // simply cannot read, so the failure is shown and the typed address is left as the
+        // way through. ApplyQrSource observes its own faults, so discarding the task here
+        // cannot swallow one.
+        var qrFailure = Secondary("Could not generate the QR code. Open the address below on the device instead.");
+        qrFailure.Tag = "tls-qr-failure";
+        qrFailure.Visibility = Visibility.Collapsed;
+        body.Children.Add(qrFailure);
+        _ = ApplyQrSource(image, url, qrFailure);
         var link = new TextBox { Text = url, IsReadOnly = true, Tag = "tls-enrolment-url" };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(link, "Enrolment address");
         body.Children.Add(link);
@@ -370,20 +398,30 @@ public sealed partial class HostWindow
         return dialog;
     }
 
-    static async Task ApplyQrSource(Image image, string url)
+    // Never throws: its only caller starts it without awaiting, so an escaping exception
+    // would be an unobserved fault and the user would be left looking at an empty square.
+    internal static async Task ApplyQrSource(Image image, string url, TextBlock? failure = null)
     {
-        var bytes = EnrolmentQrPng(url);
-        var stream = new InMemoryRandomAccessStream();
-        var writer = new DataWriter(stream);
-        writer.WriteBytes(bytes);
-        await writer.StoreAsync();
-        await writer.FlushAsync();
-        writer.DetachStream();
-        writer.Dispose();
-        stream.Seek(0);
-        var bitmap = new BitmapImage();
-        await bitmap.SetSourceAsync(stream);
-        image.Source = bitmap;
+        try
+        {
+            var bytes = EnrolmentQrPng(url);
+            var stream = new InMemoryRandomAccessStream();
+            var writer = new DataWriter(stream);
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+            await writer.FlushAsync();
+            writer.DetachStream();
+            writer.Dispose();
+            stream.Seek(0);
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(stream);
+            image.Source = bitmap;
+        }
+        catch (Exception)
+        {
+            image.Visibility = Visibility.Collapsed;
+            if (failure is not null) failure.Visibility = Visibility.Visible;
+        }
     }
 
     // Rendered on this machine, offline. A QR code for a LAN address must never be fetched

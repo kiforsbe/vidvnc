@@ -330,7 +330,8 @@ public partial class App : Application
                                     throw new Exception($"Address must return to plaintext when HTTPS is off: '{addressBox.Text}'");
 
                                 // Provisioning failed: TLS never degrades silently.
-                                await ApplyTls("{\"mode\":\"auto\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"HTTPS could not be started on port 4383, so connections are not encrypted. The server log says why.\"}");
+                                const string failedAuto = "{\"mode\":\"auto\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"HTTPS could not be started on port 4383, so connections are not encrypted. The server log says why.\"}";
+                                await ApplyTls(failedAuto);
                                 if (TlsBar("tls-reason")?.Message?.Contains("could not be started on port 4383") != true)
                                     throw new Exception("A failed HTTPS start must be reported in the host UI, not silently");
 
@@ -360,6 +361,35 @@ public partial class App : Application
                                     for (int i = 0; i < 200 && (bool)typeof(HostWindow).GetField("tlsRegenerating", flags)!.GetValue(window)!; i++) await Task.Delay(10);
                                     if (typeof(HostWindow).GetField("tlsError", flags)!.GetValue(window) is string regenerateError)
                                         throw new Exception("Regenerate reported an error: " + regenerateError);
+
+                                    // Provisioning has failed, so no strategy has won — but HTTPS is
+                                    // still configured and the server is running, so the button is
+                                    // live. Whatever the server would reissue from may well be a
+                                    // self-signed leaf that is its own trust anchor, so the
+                                    // consequence has to be stated even though it cannot be named
+                                    // precisely. This state is only reachable with a running server,
+                                    // which is why the earlier failure case (server == null) misses it.
+                                    await ApplyTls(failedAuto);
+                                    var recoveryRegenerate = TlsButton("tls-regenerate")!;
+                                    if (!recoveryRegenerate.IsEnabled)
+                                        throw new Exception("Regenerate must stay available as the way out of a failed provision");
+                                    if (TlsText("tls-reissue-note")?.Text.Contains("trust the new one again") != true)
+                                        throw new Exception($"Regenerate offered with no reissue consequence stated: '{TlsText("tls-reissue-note")?.Text}'");
+
+                                    // A stale "was not regenerated" banner must not outlive the
+                                    // problem: a report that recovers clears it.
+                                    typeof(HostWindow).GetField("tlsError", flags)!.SetValue(window, "stale regenerate failure");
+                                    await ApplyTls(selfSigned);
+                                    if (typeof(HostWindow).GetField("tlsError", flags)!.GetValue(window) is not null)
+                                        throw new Exception("A recovered HTTPS report must clear the stale regenerate error");
+                                    if (TlsBar("tls-error") is not null)
+                                        throw new Exception("A cleared regenerate error must leave no banner behind");
+
+                                    // The QR really renders, rather than leaving a blank square.
+                                    var qrImage = new Image();
+                                    await HostWindow.ApplyQrSource(qrImage, trustUrl!);
+                                    if (qrImage.Source is not Microsoft.UI.Xaml.Media.Imaging.BitmapImage { PixelWidth: > 0 })
+                                        throw new Exception("Enrolment QR code did not decode into an image source");
                                 }
                                 finally
                                 {
