@@ -1,4 +1,6 @@
 import { networkInterfaces, hostname } from 'node:os';
+import { appendFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
 import { createHttpApp } from './http-app.mjs';
@@ -91,7 +93,25 @@ async function serve() {
     });
     const port = Number(process.env.VIDVNC_PORT || 4382);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
-    const tlsSettings = await loadTlsSettings(files.tls, { plaintextPort: port });
+    // TLS's sanitized failure sentences tell the reader to check the server log. On the CLI
+    // that is the terminal (stderr), already true. On the desktop product there is otherwise
+    // no persistent log at all — the host only buffers stderr in memory, shown solely if the
+    // process exits non-zero — so for `--desktop` this also appends to a real file in the
+    // same folder the host's "Open logs folder" command already opens. Fire-and-forget: a
+    // logging failure must never affect TLS itself, which is why errors are swallowed.
+    const tlsLog = (message) => {
+      console.error(message);
+      if (desktop) {
+        appendFile(
+          join(logDirectory, 'server.log'),
+          `${new Date().toISOString()} ${message}\n`,
+        ).catch(() => {});
+      }
+    };
+    const tlsSettings = await loadTlsSettings(files.tls, {
+      plaintextPort: port,
+      log: tlsLog,
+    });
     // The TLS listener shares the plaintext app's request handling, but the app is created
     // below and needs this listener's `status()` as its `tls` option, so the handler is
     // forwarded lazily. It is only ever invoked for a request, after `server` exists.
@@ -99,6 +119,7 @@ async function serve() {
       settings: tlsSettings,
       requestListener: (request, response) => server.requestListener(request, response),
       host: process.env.VIDVNC_HOST || '0.0.0.0',
+      log: tlsLog,
     });
     const server = createHttpApp({
       runtime,
@@ -183,7 +204,7 @@ async function serve() {
         announce: () => {
           if (!desktop && !stopping) console.log(secureAddressLines(currentAddresses()).join('\n'));
         },
-        log: (message) => console.error(message),
+        log: tlsLog,
       });
     inventoryTimer = setInterval(async () => {
       if (stopping || refreshing) return;
