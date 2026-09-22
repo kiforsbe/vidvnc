@@ -5,6 +5,20 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.7.1] - 2026-09-22
+
+### Fixed
+
+- Automatic encoder selection no longer opens a disposable NVIDIA D3D11 encoder in the live
+  streaming worker. That probe could leave H.265 unable to open an NVENC session after a WebRTC
+  peer connected. Hardware affinity is now detected during the isolated startup probe and the
+  selected backend is passed directly to the live worker.
+- The desktop host now persists native-worker lifecycle and GStreamer errors to `server.log`, so
+  a failed encoder or negotiation can be diagnosed without running the server from a terminal.
+- Sessions and the local Diagnostics page show the encoder actually selected for the stream. The
+  host session layout keeps session actions in the device header and each stream's Stop action
+  with that stream.
+
 ## [0.7.0] - 2026-09-22
 
 ### Added
