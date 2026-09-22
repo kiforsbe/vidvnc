@@ -250,6 +250,124 @@ public partial class App : Application
                                 }
                                 finally { serverField.SetValue(window, null); owner.StandardInput.Close(); if (!owner.WaitForExit(5000)) owner.Kill(); }
                             }
+                            if (name == "Settings" && cycle == 0)
+                            {
+                                // The HTTPS section. Everything asserted here is driven by one
+                                // input — the `tls` object the server puts on its periodic status
+                                // message — so this exercises the same path the running host uses,
+                                // with no certificate tooling anywhere near it.
+                                var updateTls = typeof(HostWindow).GetMethod("UpdateTlsStatus", flags)!;
+                                var renderPage = typeof(HostWindow).GetMethod("RenderPage", flags)!;
+                                var enrolmentUrl = typeof(HostWindow).GetMethod("EnrolmentUrl", flags)!;
+                                var addressBox = (TextBox)typeof(HostWindow).GetField("address", flags)!.GetValue(window)!;
+                                var serverField = typeof(HostWindow).GetField("server", flags)!;
+                                typeof(HostWindow).GetField("plaintextAddress", flags)!.SetValue(window, "http://192.168.50.47:4382");
+
+                                string TlsStatus(string tls) => $"{{\"type\":\"status\",\"sessions\":[],\"streamCount\":0,\"tls\":{tls}}}";
+                                async Task ApplyTls(string tls)
+                                {
+                                    using var document = JsonDocument.Parse(TlsStatus(tls));
+                                    updateTls.Invoke(window, new object[] { document.RootElement });
+                                    renderPage.Invoke(window, null);
+                                    await Task.Delay(80);
+                                }
+                                TextBlock? TlsText(string tag) => Descendants(shell).OfType<TextBlock>().SingleOrDefault(t => t.Tag as string == tag);
+                                Button? TlsButton(string tag) => Descendants(shell).OfType<Button>().SingleOrDefault(b => b.Tag as string == tag);
+                                InfoBar? TlsBar(string tag) => Descendants(shell).OfType<InfoBar>().SingleOrDefault(b => b.Tag as string == tag);
+
+                                const string selfSigned = "{\"mode\":\"auto\",\"active\":true,\"port\":4383,\"strategy\":\"windows-self-signed\",\"enrolmentStatus\":\"required\",\"fingerprint\":\"AA:BB:CC:DD:EE:FF\",\"expiry\":\"2036-09-21T10:00:00.000Z\",\"expired\":false,\"needsRenewal\":false,\"reason\":null}";
+                                await ApplyTls(selfSigned);
+                                if (!Descendants(shell).OfType<Border>().Any(b => b.Tag as string == "tls-section"))
+                                    throw new Exception("Settings page is missing the HTTPS section");
+                                if (TlsText("tls-mode")?.Text != "Automatic")
+                                    throw new Exception($"HTTPS mode not shown: '{TlsText("tls-mode")?.Text}'");
+                                if (TlsText("tls-active")?.Text != "Running on port 4383")
+                                    throw new Exception($"HTTPS listener state not shown: '{TlsText("tls-active")?.Text}'");
+                                if (TlsText("tls-strategy")?.Text.Contains("windows-self-signed") != true)
+                                    throw new Exception($"Active strategy must be named: '{TlsText("tls-strategy")?.Text}'");
+                                if (TlsText("tls-fingerprint")?.Text != "AA:BB:CC:DD:EE:FF")
+                                    throw new Exception($"Certificate fingerprint not shown: '{TlsText("tls-fingerprint")?.Text}'");
+                                if (TlsText("tls-expiry")?.Text.Contains("2036") != true)
+                                    throw new Exception($"Certificate expiry not shown: '{TlsText("tls-expiry")?.Text}'");
+                                if (TlsText("tls-reissue-note")?.Text.Contains("enrolling every device again") != true)
+                                    throw new Exception($"Self-signed reissue must warn that enrolment is invalidated: '{TlsText("tls-reissue-note")?.Text}'");
+                                if (TlsBar("tls-reason") is not null)
+                                    throw new Exception("A healthy listener must not show a failure reason");
+                                // Spec: the address shown encodes HTTPS once TLS is up.
+                                if (addressBox.Text != "https://192.168.50.47:4383")
+                                    throw new Exception($"Connection address did not move to HTTPS: '{addressBox.Text}'");
+                                // The enrolment page stays on the plaintext listener: a device that
+                                // does not trust this PC yet cannot fetch the anchor over HTTPS.
+                                var trustUrl = (string?)enrolmentUrl.Invoke(window, null);
+                                if (trustUrl != "http://192.168.50.47:4382/trust")
+                                    throw new Exception($"Enrolment QR must point at the plaintext trust page: '{trustUrl}'");
+                                var qrPng = HostWindow.EnrolmentQrPng(trustUrl!);
+                                if (qrPng.Length < 100 || qrPng[0] != 0x89 || qrPng[1] != 'P' || qrPng[2] != 'N' || qrPng[3] != 'G')
+                                    throw new Exception($"Enrolment QR code was not rendered locally as a PNG ({qrPng.Length} bytes)");
+                                if (TlsButton("tls-enrolment-qr")?.IsEnabled != true)
+                                    throw new Exception("Show enrolment QR code must be available while HTTPS is running");
+                                if (TlsButton("tls-regenerate") is not { } stoppedRegenerate || stoppedRegenerate.IsEnabled)
+                                    throw new Exception("Regenerate cannot be offered while the server is stopped");
+
+                                // mkcert: the anchor is the CA, which a reissue does not touch, so
+                                // the enrolment warning must not appear.
+                                await ApplyTls("{\"mode\":\"auto\",\"active\":true,\"port\":4383,\"strategy\":\"mkcert\",\"enrolmentStatus\":\"required\",\"fingerprint\":\"11:22:33\",\"expiry\":\"2036-09-21T10:00:00.000Z\",\"expired\":false,\"needsRenewal\":false,\"reason\":null}");
+                                if (TlsText("tls-strategy")?.Text.Contains("mkcert") != true)
+                                    throw new Exception("mkcert strategy must be named");
+                                if (TlsText("tls-reissue-note")?.Text.Contains("enrolling every device again") == true)
+                                    throw new Exception("mkcert reissue must not claim enrolment is invalidated");
+
+                                // provided: the operator's own certificate is never replaced.
+                                await ApplyTls("{\"mode\":\"provided\",\"active\":true,\"port\":4383,\"strategy\":\"provided\",\"enrolmentStatus\":\"unknown\",\"fingerprint\":\"44:55:66\",\"expiry\":\"2036-09-21T10:00:00.000Z\",\"expired\":false,\"needsRenewal\":false,\"reason\":null}");
+                                if (TlsButton("tls-regenerate")?.IsEnabled != false || TlsText("tls-regenerate-blocked") is null)
+                                    throw new Exception("A supplied certificate must not offer a regenerate action, and must say why");
+
+                                // off: nothing to regenerate, and the address goes back to plaintext.
+                                await ApplyTls("{\"mode\":\"off\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":null}");
+                                if (TlsButton("tls-regenerate")?.IsEnabled != false || TlsText("tls-regenerate-blocked") is null)
+                                    throw new Exception("Regenerate must be unavailable and explained while HTTPS is off");
+                                if (addressBox.Text != "http://192.168.50.47:4382")
+                                    throw new Exception($"Address must return to plaintext when HTTPS is off: '{addressBox.Text}'");
+
+                                // Provisioning failed: TLS never degrades silently.
+                                await ApplyTls("{\"mode\":\"auto\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"HTTPS could not be started on port 4383, so connections are not encrypted. The server log says why.\"}");
+                                if (TlsBar("tls-reason")?.Message?.Contains("could not be started on port 4383") != true)
+                                    throw new Exception("A failed HTTPS start must be reported in the host UI, not silently");
+
+                                // An expired certificate must be flagged even though the server
+                                // reports needsRenewal:false for it.
+                                await ApplyTls("{\"mode\":\"auto\",\"active\":true,\"port\":4383,\"strategy\":\"windows-self-signed\",\"enrolmentStatus\":\"required\",\"fingerprint\":\"77:88:99\",\"expiry\":\"2020-01-01T00:00:00.000Z\",\"expired\":true,\"needsRenewal\":false,\"reason\":null}");
+                                if (TlsBar("tls-renewal") is null || TlsText("tls-expiry")?.Text.Contains("expired") != true)
+                                    throw new Exception("An expired certificate must be flagged, not hidden by needsRenewal being false");
+
+                                var tlsStart = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
+                                    RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                                tlsStart.ArgumentList.Add(Path.GetFullPath("apps/windows-host/tests/Navigation/owner-fixture.mjs"));
+                                using var tlsOwner = System.Diagnostics.Process.Start(tlsStart)!;
+                                try
+                                {
+                                    serverField.SetValue(window, tlsOwner);
+                                    await ApplyTls(selfSigned);
+                                    var regenerate = TlsButton("tls-regenerate")!;
+                                    if (!regenerate.IsEnabled) throw new Exception("Regenerate must be available for a generated certificate with a ready owner");
+                                    var regeneratePeer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(regenerate);
+                                    ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)regeneratePeer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                                    var regenerateLine = await tlsOwner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                    using var regenerateResult = JsonDocument.Parse(regenerateLine!);
+                                    if (regenerateResult.RootElement.GetProperty("received").GetProperty("type").GetString() != "tls-regenerate")
+                                        throw new Exception("Regenerate sent the wrong owner-pipe command");
+                                    typeof(HostWindow).GetMethod("ReceiveTlsRegenerateResult", flags)!.Invoke(window, new object[] { regenerateResult.RootElement });
+                                    for (int i = 0; i < 200 && (bool)typeof(HostWindow).GetField("tlsRegenerating", flags)!.GetValue(window)!; i++) await Task.Delay(10);
+                                    if (typeof(HostWindow).GetField("tlsError", flags)!.GetValue(window) is string regenerateError)
+                                        throw new Exception("Regenerate reported an error: " + regenerateError);
+                                }
+                                finally
+                                {
+                                    serverField.SetValue(window, null); tlsOwner.StandardInput.Close();
+                                    if (!tlsOwner.WaitForExit(5000)) tlsOwner.Kill();
+                                    renderPage.Invoke(window, null);
+                                }
+                            }
                             if (name == "Streaming profiles")
                             {
                                 var menu = navigation.MenuItems.OfType<NavigationViewItem>().ToArray();
@@ -675,7 +793,7 @@ public partial class App : Application
                             }
                         }
                     }
-                    File.WriteAllText(Result, "PASS: title bar/themes; seven-page navigation; Clients administration and connection modes; footer/header actions; aligned profile columns; cosmetic reorder persistence without policy changes; profile/options modal cancel; owner-pipe mode/options persistence; display/Overview layout; session lifecycle.");
+                    File.WriteAllText(Result, "PASS: title bar/themes; seven-page navigation; Clients administration and connection modes; footer/header actions; aligned profile columns; cosmetic reorder persistence without policy changes; profile/options modal cancel; owner-pipe mode/options persistence; display/Overview layout; session lifecycle; HTTPS section (mode/port/strategy/expiry/fingerprint, strategy-specific reissue warning, disabled regenerate for provided and off, visible provisioning failure, HTTPS address display, locally rendered enrolment QR, owner-pipe regenerate).");
                     window.Close();
                     Exit();
                 }

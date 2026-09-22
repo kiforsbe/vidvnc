@@ -51,6 +51,19 @@ try {
       }
       continue;
     }
+    if (message.type === 'tls-regenerate') {
+      // No certificate tooling is reached here, ever: the fixture only proves the host sent
+      // the command and can consume the reply. Real reissue behaviour is proven by the
+      // server's own tls tests.
+      console.log(
+        JSON.stringify({
+          type: 'tls-regenerate-result',
+          ok: true,
+          received: { type: message.type },
+        }),
+      );
+      continue;
+    }
     if (message.type === 'session-command') {
       console.log(JSON.stringify({ type: 'session-result', requestId: message.requestId, ok: true,
         received: { action: message.action, sessionId: message.sessionId, streamId: message.streamId } }));

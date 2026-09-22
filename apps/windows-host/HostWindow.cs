@@ -65,7 +65,10 @@ public sealed partial class HostWindow : Window
                 if (ready.GetProperty("type").GetString() == "session-result") { ReceiveSessionResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() is "client-setup-result" or "connection-once-result" or "client-command-result") { ReceiveClientResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "clients") { UpdateClients(ready); continue; }
-                if (ready.GetProperty("type").GetString() == "status") { UpdateSessions(ready); continue; }
+                if (ready.GetProperty("type").GetString() == "tls-regenerate-result") { ReceiveTlsRegenerateResult(ready); continue; }
+                // The status tick carries the TLS report alongside the sessions; both are
+                // views of the same snapshot, so they are read from the same message.
+                if (ready.GetProperty("type").GetString() == "status") { UpdateSessions(ready); UpdateTlsStatus(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "displays") { UpdateDisplays(ready.GetProperty("displays")); continue; }
                 if (ready.GetProperty("type").GetString() != "ready") continue;
                 if (ready.TryGetProperty("codecs", out var readyCodecs) && readyCodecs.ValueKind == JsonValueKind.Array)
@@ -80,7 +83,15 @@ public sealed partial class HostWindow : Window
                 var vendorLabel = hostBackends.Length > 0 ? hostBackends[0].Label : "Hardware";
                 heading.Text = "Your desktop is ready";
                 detail.Text = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}\nConnect from your browser. Keyboard and mouse start off.";
-                address.Text = ready.GetProperty("urls")[0].GetString() ?? "";
+                // The ready line is written before TLS can be up (the server provisions it
+                // afterwards, on purpose), so these are always the plaintext addresses. The
+                // first one is what a user is told to open; it is swapped for the HTTPS
+                // equivalent by ApplyTlsAddress once the secure listener reports itself
+                // bound. The plaintext original is kept for the enrolment page, which is only
+                // ever served unencrypted.
+                plaintextAddress = ready.GetProperty("urls")[0].GetString() ?? "";
+                address.Text = plaintextAddress;
+                ApplyTlsAddress();
                 password.Text = ready.GetProperty("password").GetString() ?? "";
                 displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}";
                 if (ready.TryGetProperty("displays", out var displays)) UpdateDisplays(displays);
