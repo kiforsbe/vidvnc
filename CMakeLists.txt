@@ -1,4 +1,4 @@
 cmake_minimum_required(VERSION 3.24)
-project(VidVNC VERSION 0.6.0 LANGUAGES CXX)
+project(VidVNC VERSION 0.7.0 LANGUAGES CXX)
 include(CTest)
 add_subdirectory(native/media-worker)

@@ -5,7 +5,7 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
-## [Unreleased]
+## [0.7.0] - 2026-09-22
 
 ### Added
 
@@ -25,6 +25,14 @@ may include breaking changes.
   action.
 - The command line gets `tls-mode`, `tls-port`, `tls-cert`, `tls-pfx` and `tls` (status)
   commands, matching the existing configuration command style.
+
+### Fixed
+
+- The web client's sign-in page and the VidVNC app's Overview page both carried a fixed
+  "pairing uses HTTP" note left over from before HTTPS existed. Both now reflect the
+  actual connection: the sign-in page reads it from the page's own scheme, and the
+  Overview page reads it from the live TLS status, repainting if that status changes
+  while the page is open.
 
 ### Known limitations
 
