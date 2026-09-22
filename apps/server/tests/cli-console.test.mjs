@@ -1,7 +1,59 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { X509Certificate } from 'node:crypto';
 import { StreamPolicyStore } from '../src/stream-policy-store.mjs';
+import { createTlsListener } from '../src/tls/listener.mjs';
+import { defaultTlsSettings } from '../src/tls/tls-settings.mjs';
 import { liveConsole as harness } from './fixtures/cli-live-console.mjs';
+
+// Real TLS listener built the same way tests/tls/listener.test.mjs does: a real https.Server
+// bound to an ephemeral loopback port, with the certificate orchestration faked so nothing
+// here ever reaches real mkcert or Windows certificate tooling, and the committed `valid`
+// PEM fixture as the credential so report()'s strategy/fingerprint/expiry are real values.
+const fixture = (relativePath) =>
+  fileURLToPath(new URL(`./fixtures/tls/${relativePath}`, import.meta.url));
+const VALID = {
+  cert: readFileSync(fixture('valid/cert.pem')),
+  key: readFileSync(fixture('valid/key.pem')),
+};
+const validAnchor = new X509Certificate(VALID.cert);
+const validFingerprint = validAnchor.fingerprint256;
+
+async function bindTlsListener(t, { ok = true } = {}) {
+  const listener = createTlsListener({
+    settings: { ...defaultTlsSettings(), port: 0 },
+    requestListener: () => {},
+    host: '127.0.0.1',
+    ensureCertificate: () =>
+      ok
+        ? {
+            ok: true,
+            attempted: true,
+            strategy: 'mkcert',
+            credential: VALID,
+            anchor: validAnchor,
+            warnings: [],
+            reasons: [],
+            reason: null,
+          }
+        : {
+            ok: false,
+            attempted: true,
+            strategy: null,
+            credential: null,
+            anchor: null,
+            reason: 'no strategy available',
+          },
+    log: () => {},
+  });
+  await listener.attempt();
+  t.after(() => listener.close());
+  return listener;
+}
 
 test('live policy changes ask before disconnecting devices; declining keeps settings', async (t) => {
   const h = await harness(t);
@@ -188,4 +240,56 @@ test('exit and quit stop the server, asking first when devices are connected', a
   await h.done;
   assert.equal(h.stops(), 1);
   assert.equal(h.sessionStore.list().length, 1);
+});
+
+test('live tls status reports the real strategy, fingerprint and expiry, with no restart note when the saved port matches', async (t) => {
+  const listener = await bindTlsListener(t);
+  const boundPort = listener.status().port;
+  const h = await harness(t, { tlsListener: listener });
+  await writeFile(
+    join(h.directory, 'tls-settings.json'),
+    JSON.stringify({
+      mode: 'auto',
+      port: boundPort,
+      certificatePath: null,
+      keyPath: null,
+      pfxPath: null,
+      pfxPassphrase: null,
+    }),
+  );
+  const text = await h.send('tls', /Fingerprint:/);
+  assert.match(text, /^TLS mode: Automatic$/m);
+  assert.match(text, new RegExp(`^TLS port: ${boundPort}$`, 'm'));
+  assert.match(text, /^Active: yes, on port \d+$/m);
+  assert.match(text, /^Strategy: mkcert$/m);
+  assert.match(text, new RegExp(`^Fingerprint: ${validFingerprint}$`, 'm'));
+  assert.match(text, /^Certificate expires: 2036-09-21T/m);
+  assert.equal(text.includes('restart'), false);
+});
+
+test('live tls status says a restart is needed when the saved settings differ from what is running', async (t) => {
+  const listener = await bindTlsListener(t);
+  const boundPort = listener.status().port;
+  const h = await harness(t, { tlsListener: listener });
+  await writeFile(
+    join(h.directory, 'tls-settings.json'),
+    JSON.stringify({
+      mode: 'auto',
+      port: boundPort + 1 === 65536 ? boundPort - 1 : boundPort + 1,
+      certificatePath: null,
+      keyPath: null,
+      pfxPath: null,
+      pfxPassphrase: null,
+    }),
+  );
+  const text = await h.send('tls', /restart the server to apply/);
+  assert.match(text, /restart the server to apply any changes\.\n$/);
+});
+
+test('live tls status shows the failure reason when nothing is serving TLS', async (t) => {
+  const listener = await bindTlsListener(t, { ok: false });
+  const h = await harness(t, { tlsListener: listener });
+  const text = await h.send('tls', /Not serving TLS/);
+  assert.match(text, /^Active: no$/m);
+  assert.match(text, /^Not serving TLS: no strategy available$/m);
 });

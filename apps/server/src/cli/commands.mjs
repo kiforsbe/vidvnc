@@ -5,6 +5,7 @@ import { pairs } from './format.mjs';
 import { settingsCommands } from './commands/settings.mjs';
 import { profileCommands } from './commands/profiles.mjs';
 import { sessionCommands } from './commands/sessions.mjs';
+import { tlsCommands } from './commands/tls.mjs';
 
 const generalCommands = [
   {
@@ -40,6 +41,7 @@ const generalCommands = [
 export const commands = [
   ...generalCommands,
   ...settingsCommands,
+  ...tlsCommands,
   ...profileCommands,
   ...sessionCommands,
 ];

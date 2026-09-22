@@ -1,4 +1,5 @@
 import { CODEC_LABELS, VIDEO_CODECS } from '../video-codecs.mjs';
+import { renewalStatus } from '../tls/certificate-facts.mjs';
 
 const ACCESS_LABELS = { approval: 'Require host approval', available: 'Allow when available' };
 const CONNECTION_MODE_LABELS = {
@@ -75,6 +76,81 @@ export const formatConnectionMode = (access) =>
   `Ordinary connections: ${connectionModeLabel(access.connectionMode)}`;
 export const formatMaxSessions = (access) =>
   `Connected devices at the same time: up to ${access.maxSessions}`;
+
+// TLS settings display. Never shown: certificatePath, keyPath, pfxPath, pfxPassphrase — a
+// path or a passphrase never appears in CLI output, matching the rule the trust-status HTTP
+// endpoint (http-app.mjs) already applies to the same underlying settings.
+const TLS_MODE_LABELS = {
+  auto: 'Automatic',
+  provided: 'Your own certificate',
+  off: 'Off (plaintext only)',
+};
+export const tlsModeLabel = (mode) => TLS_MODE_LABELS[mode];
+export const tlsCredentialLabel = (settings) =>
+  settings.pfxPath
+    ? 'PFX file'
+    : settings.certificatePath && settings.keyPath
+      ? 'certificate and key'
+      : 'none';
+export const tlsSummary = (settings) => ({
+  mode: settings.mode,
+  port: settings.port,
+  credential: tlsCredentialLabel(settings),
+});
+export const formatTlsMode = (settings) => `TLS mode: ${tlsModeLabel(settings.mode)}`;
+export const formatTlsPort = (settings) => `TLS port: ${settings.port}`;
+export const formatTlsCredential = (settings) =>
+  `TLS mode: ${tlsModeLabel(settings.mode)}\nCertificate: ${tlsCredentialLabel(settings)}`;
+
+function formatExpiry(anchor) {
+  const { validTo, expired, needsRenewal } = renewalStatus(anchor);
+  const iso = validTo.toISOString();
+  if (expired) return `${iso} (expired)`;
+  if (needsRenewal) return `${iso} (renewal due soon)`;
+  return iso;
+}
+
+// Whether the on-disk TLS settings look like they differ from what the running process
+// actually loaded. There is no way to read back exactly what main.mjs loaded at startup
+// without invasive plumbing (loadTlsSettings runs once, at startup, and its result is not
+// kept anywhere a CLI command can reach), so this is a heuristic over mode/port/strategy:
+// it can say "no drift" when the settings changed in a way that keeps mode/port/strategy
+// the same (e.g. swapping which certificate file `provided` mode points at), and it can
+// say "drift" when TLS is merely failing for an unrelated reason (e.g. a missing mkcert
+// binary) rather than because the settings changed. Documented in task-13-report.md.
+function tlsDrift(disk, { report, status }) {
+  if (disk.mode === 'off') return status.active;
+  if (!status.active) return true;
+  if (disk.port !== status.port) return true;
+  return disk.mode === 'provided' ? report.strategy !== 'provided' : report.strategy === 'provided';
+}
+
+// `live` is `{ report, status }` from the running TLS listener, or omitted when offline.
+export function formatTlsStatus(disk, live) {
+  const lines = [
+    formatTlsMode(disk),
+    formatTlsPort(disk),
+    `Certificate: ${tlsCredentialLabel(disk)}`,
+  ];
+  if (!live) {
+    lines.push('The server is not running; changes take effect the next time it starts.');
+    return lines.join('\n');
+  }
+  const { report, status } = live;
+  lines.push(`Active: ${status.active ? `yes, on port ${status.port}` : 'no'}`);
+  if (report.active) {
+    lines.push(`Strategy: ${report.strategy}`);
+    lines.push(`Fingerprint: ${report.fingerprint}`);
+    lines.push(`Certificate expires: ${formatExpiry(report.anchor)}`);
+  } else if (report.failureReason) {
+    lines.push(`Not serving TLS: ${report.failureReason}`);
+  }
+  if (tlsDrift(disk, live))
+    lines.push(
+      'The saved settings may differ from what is currently running; restart the server to apply any changes.',
+    );
+  return lines.join('\n');
+}
 
 const bitrateLabel = (profile) =>
   profile.bitrateMode === 'vbr'

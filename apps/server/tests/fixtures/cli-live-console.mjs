@@ -17,9 +17,12 @@ const pause = (milliseconds = 5) => new Promise((resolve) => setTimeout(resolve,
 // Real stores and session admission; only the media runtime is faked. With terminal, input
 // is typed into a virtual terminal instead of piped.
 // tls is the live TLS state the addresses follow; a test flips it after the console starts.
+// tlsListener: the running TLS listener (createTlsListener), for the `tls` status command's
+// report()/status(). Distinct from `tls` above, which only feeds connectionAddresses's
+// redirect-target status; most tests need neither.
 export async function liveConsole(
   t,
-  { terminal = false, tls = { active: false, port: null } } = {},
+  { terminal = false, tls = { active: false, port: null }, tlsListener } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'vidvnc-console-'));
   const sessionStore = new SessionStore({ maxSessions: 2 });
@@ -107,6 +110,7 @@ export async function liveConsole(
             tls,
           }),
         confirm,
+        tls: tlsListener,
       }),
   });
   t.after(async () => {
@@ -123,6 +127,7 @@ export async function liveConsole(
     streams,
     sessionStore,
     policyFile,
+    directory,
     terminal: output,
     done: consoleSession.done,
     stops: () => stops,

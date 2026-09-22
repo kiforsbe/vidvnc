@@ -1,12 +1,19 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { AccessSettings } from '../access-settings.mjs';
 import { DisplayInventory } from '../displays.mjs';
 import { isAlive, runningInstances } from '../instances.mjs';
 import { settingsFiles } from '../paths.mjs';
 import { applyProfileOrder, saveProfileOrder } from '../profile-order.mjs';
 import { StreamPolicyStore } from '../stream-policy-store.mjs';
+import { loadTlsSettings } from '../tls/load-settings.mjs';
+import { defaultTlsSettings, validateTlsSettings } from '../tls/tls-settings.mjs';
 import { execute } from './commands.mjs';
 import { withConflictAdvice } from './conflict-advice.mjs';
 import { UsageError } from './usage-error.mjs';
+
+// Matches main.mjs's own rule for the live plaintext port (main.mjs:91-92), so offline
+// validation of a new TLS port enforces exactly what a real startup would.
+const plaintextPort = () => Number(process.env.VIDVNC_PORT) || 4382;
 
 const RETRY = 'Try again.';
 
@@ -73,6 +80,41 @@ export async function createOfflineContext({
       }),
     access: () => access.snapshot(),
     saveAccess: (changes) => saving(() => access.replace(changes, access.snapshot().revision)),
+    // The same on-disk file loadTlsSettings reads at startup, validated with the same
+    // graceful fallback (a missing file reads as the `auto` defaults; a broken or clashing
+    // one reads as `off`, matching what a real startup would actually do next) — silent
+    // here since this is a status read, not the startup log.
+    tlsSettings: () =>
+      loadTlsSettings(files.tls, { plaintextPort: plaintextPort(), log: () => {} }),
+    // Read-merge-validate-write, unlike AccessSettings/StreamPolicyStore: TLS settings have
+    // no revision/conflict-object scheme (see tls-settings.mjs), so the merge base is the
+    // raw file content (or the defaults, if missing) rather than a validated-with-fallback
+    // read — using the fallback here would risk silently discarding a still-valid field
+    // (e.g. a configured certificate path) whenever some unrelated field made the file look
+    // invalid under the *current* plaintext port. A validateTlsSettings failure is
+    // surfaced as a UsageError with its message unchanged, never reworded.
+    saveTls: (changes) =>
+      saving(async () => {
+        let base;
+        try {
+          base = JSON.parse(await readFile(files.tls, 'utf8'));
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+          base = defaultTlsSettings();
+        }
+        let validated;
+        try {
+          validated = validateTlsSettings(
+            { ...base, ...changes },
+            { plaintextPort: plaintextPort() },
+          );
+        } catch (error) {
+          throw new UsageError(error.message);
+        }
+        await mkdir(directory, { recursive: true });
+        await writeFile(files.tls, JSON.stringify(validated));
+        return validated;
+      }),
     orderedProfiles: () => applyProfileOrder(files.profileOrder, store.snapshot().profiles),
     saveProfileOrder: (ids) => saving(() => saveProfileOrder(files.profileOrder, ids)),
     async displays() {

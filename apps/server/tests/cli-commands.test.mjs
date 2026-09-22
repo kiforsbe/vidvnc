@@ -541,6 +541,110 @@ test('show summarizes saved settings and --json returns policy, access and order
   assert.match(text, /^Keyboard and mouse for new connections: Require host approval$/m);
 });
 
+test('tls-mode shows and sets the TLS provisioning mode, persisting to tls-settings.json', async (t) => {
+  const { run, directory } = await offline(t);
+  assert.equal((await run('tls-mode')).text, 'TLS mode: Automatic');
+  const off = await run('tls-mode off --json');
+  assert.equal(off.text, 'TLS mode: Off (plaintext only)');
+  assert.equal(off.data.mode, 'off');
+  assert.deepEqual(
+    JSON.parse(await readFile(join(directory, 'tls-settings.json'), 'utf8')).mode,
+    'off',
+  );
+  assert.equal((await run('tls-mode auto')).text, 'TLS mode: Automatic');
+  await assert.rejects(run('tls-mode bogus'), usage(/^Use auto, provided, or off\./));
+});
+
+test('tls-mode provided with no certificate configured surfaces the validator message unchanged', async (t) => {
+  const { run } = await offline(t);
+  await assert.rejects(
+    run('tls-mode provided'),
+    usage(/^Provided mode requires a certificate and key pair or a PFX file/),
+  );
+});
+
+test('tls-port shows and sets the TLS port, and rejects the plaintext port unchanged', async (t) => {
+  const { run, directory } = await offline(t);
+  assert.equal((await run('tls-port')).text, 'TLS port: 4383');
+  assert.equal((await run('tls-port 5000')).text, 'TLS port: 5000');
+  assert.equal(JSON.parse(await readFile(join(directory, 'tls-settings.json'), 'utf8')).port, 5000);
+  for (const value of ['0', '70000', 'nope'])
+    await assert.rejects(run(`tls-port ${value}`), usage(/^Use a number from 1 to 65535\./));
+  await assert.rejects(
+    run('tls-port 4382'),
+    usage(/^TLS port must not be the same as the plaintext port/),
+  );
+});
+
+test('tls-cert and tls-pfx configure provided mode, clear each other, and never leak paths or passphrases', async (t) => {
+  const { run, directory } = await offline(t);
+  await run('tls-mode off');
+  const cert = await run('tls-cert /very/secret/cert.pem /very/secret/key.pem --json');
+  assert.equal(cert.text, 'TLS mode: Your own certificate\nCertificate: certificate and key');
+  assert.equal(cert.data.mode, 'provided');
+  assert.equal(cert.data.credential, 'certificate and key');
+  assert.equal(cert.text.includes('/very/secret'), false);
+  let saved = JSON.parse(await readFile(join(directory, 'tls-settings.json'), 'utf8'));
+  assert.deepEqual(
+    [saved.mode, saved.certificatePath, saved.keyPath, saved.pfxPath],
+    ['provided', '/very/secret/cert.pem', '/very/secret/key.pem', null],
+  );
+
+  const pfx = await run('tls-pfx /very/secret/cert.pfx hunter2 --json');
+  assert.equal(pfx.text, 'TLS mode: Your own certificate\nCertificate: PFX file');
+  assert.equal(pfx.data.credential, 'PFX file');
+  assert.equal(pfx.text.includes('hunter2'), false);
+  assert.equal(pfx.text.includes('/very/secret'), false);
+  saved = JSON.parse(await readFile(join(directory, 'tls-settings.json'), 'utf8'));
+  assert.deepEqual(
+    [saved.mode, saved.certificatePath, saved.keyPath, saved.pfxPath, saved.pfxPassphrase],
+    ['provided', null, null, '/very/secret/cert.pfx', 'hunter2'],
+  );
+
+  // Passphrase is optional; omitting it means none, not left over from a previous save.
+  const noPass = await run('tls-pfx /very/secret/cert.pfx');
+  assert.equal(noPass.text.includes('hunter2'), false);
+  saved = JSON.parse(await readFile(join(directory, 'tls-settings.json'), 'utf8'));
+  assert.equal(saved.pfxPassphrase, null);
+});
+
+test('tls status (offline) reports mode, port and credential kind without paths, secrets, or a running server', async (t) => {
+  const { run } = await offline(t);
+  assert.equal(
+    (await run('tls')).text,
+    [
+      'TLS mode: Automatic',
+      'TLS port: 4383',
+      'Certificate: none',
+      'The server is not running; changes take effect the next time it starts.',
+    ].join('\n'),
+  );
+  await run('tls-cert /very/secret/cert.pem /very/secret/key.pem');
+  await run('tls-pfx /very/secret/cert.pfx hunter2');
+  const { text, data } = await run('tls --json');
+  assert.equal(text.includes('/very/secret'), false);
+  assert.equal(text.includes('hunter2'), false);
+  assert.match(text, /^TLS mode: Your own certificate$/m);
+  assert.match(text, /^Certificate: PFX file$/m);
+  assert.deepEqual(data, { mode: 'provided', port: 4383, credential: 'PFX file' });
+});
+
+test('tls-mode, tls-port, tls-cert and tls-pfx refuse while the server is running, but tls status still reads', async (t) => {
+  const { run, directory } = await offline(t, { alive: (pid) => pid === 4242 });
+  await mkdir(join(directory, 'instances'));
+  await writeFile(
+    join(directory, 'instances', '4242.json'),
+    JSON.stringify({ pid: 4242, startedAt: 1, mode: 'cli', port: 4382 }),
+  );
+  const running =
+    /VidVNC is running \(PID 4242, .+4242\.json\)\. Type this command in its console instead\. If VidVNC is not running, delete that file and try again\.$/;
+  await assert.rejects(run('tls-mode off'), running);
+  await assert.rejects(run('tls-port 5000'), running);
+  await assert.rejects(run('tls-cert a b'), running);
+  await assert.rejects(run('tls-pfx a'), running);
+  assert.match((await run('tls')).text, /^TLS mode: Automatic$/m);
+});
+
 test('live-only session commands are rejected offline with a hint', async (t) => {
   const { run } = await offline(t);
   await assert.rejects(

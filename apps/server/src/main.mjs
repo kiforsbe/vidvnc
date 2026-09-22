@@ -514,6 +514,7 @@ async function serve() {
             addresses: currentAddresses,
             confirm,
             hostCodecs,
+            tls: tlsListener,
           }),
       });
     });

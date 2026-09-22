@@ -1,5 +1,7 @@
 import { createInterface } from 'node:readline';
 import { applyProfileOrder, saveProfileOrder } from '../profile-order.mjs';
+import { settingsFiles } from '../paths.mjs';
+import { loadTlsSettings } from '../tls/load-settings.mjs';
 import { executeLine } from './commands.mjs';
 import { complete } from './completion.mjs';
 import { withConflictAdvice } from './conflict-advice.mjs';
@@ -9,6 +11,11 @@ import { SessionNumbers } from './resolve.mjs';
 import { createTerminal } from './terminal.mjs';
 
 const RESTART = 'Restart the server to reload settings.';
+
+// Matches main.mjs's own rule for the live plaintext port (main.mjs:91-92) and
+// offline.mjs's identical constant, so the `tls` status command reads the on-disk settings
+// the same way in both modes.
+const plaintextPort = () => Number(process.env.VIDVNC_PORT) || 4382;
 
 // Same objects and save path as the host's owner pipe.
 export function createLiveContext({
@@ -23,6 +30,7 @@ export function createLiveContext({
   addresses,
   confirm,
   hostCodecs = [],
+  tls,
 }) {
   const saving = async (write) => {
     try {
@@ -83,6 +91,17 @@ export function createLiveContext({
     saveProfileOrder: (ids) => saveProfileOrder(profileOrderFile, ids),
     displays: async () => inventory.rows,
     hostCodecs: async () => hostCodecs,
+    // The running TLS listener itself (its `report()`/`status()`), for the `tls` status
+    // command — the same object passed to createHttpApp as `tls:` (Task 7/11). `tlsSettings`
+    // reads the on-disk file the console did NOT load live (settings are read once, at
+    // startup); it exists here only so the `tls` command can compare the two and say
+    // whether a restart is needed, never to feed a hot reload.
+    tlsListener: tls,
+    tlsSettings: () =>
+      loadTlsSettings(settingsFiles(directory).tls, {
+        plaintextPort: plaintextPort(),
+        log: () => {},
+      }),
     async info() {
       // Read now, not when the console was created: HTTPS can come up after startup.
       const { urls, diagnostics } = addresses();
