@@ -129,15 +129,30 @@ function collect(response, resolve) {
   });
 }
 // `rejectUnauthorized: false`: the fixture certificate is self-signed.
-function httpsCall(port, requestPath) {
+function httpsCall(port, requestPath, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolvePromise, reject) => {
     const request = httpsRequest(
-      { host: '127.0.0.1', port, path: requestPath, method: 'GET', rejectUnauthorized: false },
+      { host: '127.0.0.1', port, path: requestPath, method, headers, rejectUnauthorized: false },
       (response) => collect(response, resolvePromise),
     );
     request.on('error', reject);
+    if (body) request.write(body);
     request.end();
   });
+}
+
+// A path outside PLAINTEXT_ALLOWED_PATHS redirects to the TLS port the instant TLS is
+// active — correct behaviour, not a bug — so a plaintext content check must not assume
+// which state it will observe. Ask directly: on a manual-redirect fetch, a 307 back to the
+// TLS port means the redirect fired correctly, so verify the real content over TLS via
+// httpsCall (which explicitly trusts the fixture); relying on default fetch() to follow
+// the redirect would instead depend on whatever this machine's certificate store happens
+// to trust, which a clean machine will not.
+async function fetchAcrossRedirect(url, tlsPort, init = {}) {
+  const response = await fetch(url, { ...init, redirect: 'manual' });
+  if (response.status !== 307) return { status: response.status, text: await response.text() };
+  const { pathname } = new URL(url);
+  return httpsCall(tlsPort, pathname, init);
 }
 
 // Closes the host window the way a user does, then checks its server and worker are gone.
@@ -318,16 +333,19 @@ try {
   started.push(host.pid);
   const hostExit = new Promise((resolve) => host.once('exit', resolve));
   await Promise.race([
+    // Probed on an allow-listed path: this gate can fire at any point in the startup
+    // sequence, including after TLS binds, and /api/trust/status never redirects, so
+    // readiness is never confused with a redirect `responds()` cannot follow.
     waitFor(
-      () => responds(`http://127.0.0.1:${port}/api/info`),
+      () => responds(`http://127.0.0.1:${port}/api/trust/status`),
       'the server (worker probe passed)',
     ),
     hostExit.then((code) => {
       throw new Error(`The host exited (${code}) before its server was ready`);
     }),
   ]);
-  const page = await fetch(`http://127.0.0.1:${port}/`);
-  assert.match(await page.text(), /<html/i);
+  const page = await fetchAcrossRedirect(`http://127.0.0.1:${port}/`, tlsPort);
+  assert.match(page.text, /<html/i);
 
   // The second (TLS) port, wired the same way the first one is: poll until the listener the
   // server started on its own reports itself live, then prove the enrolment page and the
@@ -420,7 +438,9 @@ try {
     );
     started.push(hostProcess.ProcessId);
     await waitFor(
-      () => responds('http://127.0.0.1:4382/api/info'),
+      // Allow-listed, for the same reason as the gate above: the registered package runs
+      // against the real user profile, so this machine may well have TLS configured.
+      () => responds('http://127.0.0.1:4382/api/trust/status'),
       'the registered server (worker probe passed)',
     );
     const [registeredServer] = processes(

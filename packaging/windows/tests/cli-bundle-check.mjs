@@ -106,15 +106,30 @@ function collect(response, resolve) {
   });
 }
 // `rejectUnauthorized: false`: the fixture certificate is self-signed.
-function httpsCall(port, requestPath) {
+function httpsCall(port, requestPath, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolvePromise, reject) => {
     const request = httpsRequest(
-      { host: '127.0.0.1', port, path: requestPath, method: 'GET', rejectUnauthorized: false },
+      { host: '127.0.0.1', port, path: requestPath, method, headers, rejectUnauthorized: false },
       (response) => collect(response, resolvePromise),
     );
     request.on('error', reject);
+    if (body) request.write(body);
     request.end();
   });
+}
+
+// A path outside PLAINTEXT_ALLOWED_PATHS redirects to the TLS port the instant TLS is
+// active — correct behaviour, not a bug — so a plaintext content check must not assume
+// which state it will observe. Ask directly: on a manual-redirect fetch, a 307 back to the
+// TLS port means the redirect fired correctly, so verify the real content over TLS via
+// httpsCall (which explicitly trusts the fixture); relying on default fetch() to follow
+// the redirect would instead depend on whatever this machine's certificate store happens
+// to trust, which a clean machine will not.
+async function fetchAcrossRedirect(url, tlsPort, init = {}) {
+  const response = await fetch(url, { ...init, redirect: 'manual' });
+  if (response.status !== 307) return { status: response.status, text: await response.text() };
+  const { pathname } = new URL(url);
+  return httpsCall(tlsPort, pathname, init);
 }
 async function waitFor(check, what, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -203,15 +218,15 @@ try {
     });
     server.once('close', (code) => reject(new Error(`Server exited (${code}): ${stderr}`)));
   });
-  const page = await fetch(`http://127.0.0.1:${port}/`);
+  const page = await fetchAcrossRedirect(`http://127.0.0.1:${port}/`, tlsPort);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /<html/i);
-  const connect = await fetch(`http://127.0.0.1:${port}/api/connect`, {
+  assert.match(page.text, /<html/i);
+  const connect = await fetchAcrossRedirect(`http://127.0.0.1:${port}/api/connect`, tlsPort, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ password: ready.password }),
   });
-  assert.ok(connect.ok, `connect returned ${connect.status}`);
+  assert.ok(connect.status < 400, `connect returned ${connect.status}`);
 
   // The second (TLS) port, wired the same way the first one is: poll until the listener the
   // server started on its own reports itself live, then prove the enrolment page and the
