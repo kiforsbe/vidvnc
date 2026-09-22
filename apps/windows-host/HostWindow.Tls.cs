@@ -73,7 +73,10 @@ public sealed partial class HostWindow
         var changed = tlsReport != next || recovered;
         tlsReport = next;
         ApplyTlsAddress();
-        if (changed && currentPage == "Settings") RenderPage();
+        // Settings shows the full TLS section; Overview's "Connection security" note also
+        // reads `tlsReport` (ConnectionSecurityNote), so a transition while looking at either
+        // page must repaint it rather than leave a stale encrypted/unencrypted claim on screen.
+        if (changed && currentPage is "Settings" or "Overview") RenderPage();
     }
 
     void ReceiveTlsRegenerateResult(JsonElement value) => tlsReply?.TrySetResult(value.Clone());
@@ -102,6 +105,15 @@ public sealed partial class HostWindow
     // unredirected for exactly this reason).
     string? EnrolmentUrl() =>
         Uri.TryCreate(plaintextAddress, UriKind.Absolute, out var uri) ? new Uri(uri, "/trust").AbsoluteUri : null;
+
+    // The Overview page's "Connection security" note. It used to be a fixed string written
+    // before HTTPS existed, claiming pairing was always unencrypted HTTP — which the Settings
+    // page's own HTTPS section could already be contradicting by the time a user read it.
+    // `tlsReport` is null only in the brief window before the first status tick, where the
+    // conservative (pre-HTTPS) wording is still the honest default.
+    string ConnectionSecurityNote() => tlsReport is { Active: true }
+        ? "This preview uses HTTPS pairing, which is encrypted. Devices must install this PC's certificate once before connecting without a browser warning — see the HTTPS section below. Allow private-network firewall access only. Never forward its port to the Internet."
+        : "This preview uses HTTP pairing, which is not encrypted. Allow private-network firewall access only. Never forward its port to the Internet.";
 
     static string TlsModeLabel(string mode) => mode switch
     {

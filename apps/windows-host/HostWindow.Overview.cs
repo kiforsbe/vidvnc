@@ -114,6 +114,6 @@ public sealed partial class HostWindow
         if (displayInventory.Length == 0) displays.Children.Add(Secondary("Display information appears when sharing starts."));
         page.Children.Add(Card(displays));
 
-        page.Children.Add(new Expander { Header = "Connection security", Content = Label(notice.Message), HorizontalAlignment = HorizontalAlignment.Stretch });
+        page.Children.Add(new Expander { Header = "Connection security", Content = Label(ConnectionSecurityNote()), HorizontalAlignment = HorizontalAlignment.Stretch });
     }
 }

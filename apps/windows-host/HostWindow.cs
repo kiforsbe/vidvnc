@@ -13,7 +13,6 @@ public sealed partial class HostWindow : Window
     readonly TextBlock detail = new() { Text = "Checking your display and graphics hardware…", TextWrapping = TextWrapping.Wrap };
     readonly TextBox address = new() { Header = "Open this address on your other device", IsReadOnly = true };
     readonly TextBox password = new() { IsReadOnly = true, FontFamily = new FontFamily("Cascadia Mono"), FontSize = 24 };
-    readonly InfoBar notice = new() { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Informational, Title = "Only on your trusted network", Message = "This preview uses HTTP pairing. Allow private-network firewall access only. Never forward its port to the Internet." };
     readonly Button action = new() { Content = "Stop sharing", IsEnabled = false };
     Process? server;
     bool closing;
