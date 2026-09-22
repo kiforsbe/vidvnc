@@ -5,7 +5,7 @@ import { isAlive, runningInstances } from '../instances.mjs';
 import { settingsFiles } from '../paths.mjs';
 import { applyProfileOrder, saveProfileOrder } from '../profile-order.mjs';
 import { StreamPolicyStore } from '../stream-policy-store.mjs';
-import { loadTlsSettings } from '../tls/load-settings.mjs';
+import { readTlsSettingsStatus } from '../tls/load-settings.mjs';
 import { defaultTlsSettings, validateTlsSettings } from '../tls/tls-settings.mjs';
 import { execute } from './commands.mjs';
 import { withConflictAdvice } from './conflict-advice.mjs';
@@ -80,12 +80,11 @@ export async function createOfflineContext({
       }),
     access: () => access.snapshot(),
     saveAccess: (changes) => saving(() => access.replace(changes, access.snapshot().revision)),
-    // The same on-disk file loadTlsSettings reads at startup, validated with the same
-    // graceful fallback (a missing file reads as the `auto` defaults; a broken or clashing
-    // one reads as `off`, matching what a real startup would actually do next) — silent
-    // here since this is a status read, not the startup log.
-    tlsSettings: () =>
-      loadTlsSettings(files.tls, { plaintextPort: plaintextPort(), log: () => {} }),
+    // Reports what is actually on disk, never masking a broken file as `off`: see
+    // readTlsSettingsStatus's own doc comment for why this is deliberately NOT
+    // loadTlsSettings (startup's graceful "fall back to off" reader would hide exactly the
+    // problem this status command exists to diagnose).
+    tlsSettings: () => readTlsSettingsStatus(files.tls, { plaintextPort: plaintextPort() }),
     // Read-merge-validate-write, unlike AccessSettings/StreamPolicyStore: TLS settings have
     // no revision/conflict-object scheme (see tls-settings.mjs), so the merge base is the
     // raw file content (or the defaults, if missing) rather than a validated-with-fallback
@@ -99,8 +98,12 @@ export async function createOfflineContext({
         try {
           base = JSON.parse(await readFile(files.tls, 'utf8'));
         } catch (error) {
-          if (error.code !== 'ENOENT') throw error;
-          base = defaultTlsSettings();
+          if (error.code === 'ENOENT') base = defaultTlsSettings();
+          else if (error instanceof SyntaxError)
+            throw new UsageError(
+              'The TLS settings file is not valid JSON; fix or delete it and try again.',
+            );
+          else throw error;
         }
         let validated;
         try {

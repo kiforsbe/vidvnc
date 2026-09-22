@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import { applyProfileOrder, saveProfileOrder } from '../profile-order.mjs';
 import { settingsFiles } from '../paths.mjs';
-import { loadTlsSettings } from '../tls/load-settings.mjs';
+import { readTlsSettingsStatus } from '../tls/load-settings.mjs';
 import { executeLine } from './commands.mjs';
 import { complete } from './completion.mjs';
 import { withConflictAdvice } from './conflict-advice.mjs';
@@ -95,13 +95,12 @@ export function createLiveContext({
     // command — the same object passed to createHttpApp as `tls:` (Task 7/11). `tlsSettings`
     // reads the on-disk file the console did NOT load live (settings are read once, at
     // startup); it exists here only so the `tls` command can compare the two and say
-    // whether a restart is needed, never to feed a hot reload.
+    // whether a restart is needed, never to feed a hot reload. It uses
+    // readTlsSettingsStatus, not loadTlsSettings: a broken file must be reported as broken,
+    // not masked as `off` (see that function's doc comment in load-settings.mjs).
     tlsListener: tls,
     tlsSettings: () =>
-      loadTlsSettings(settingsFiles(directory).tls, {
-        plaintextPort: plaintextPort(),
-        log: () => {},
-      }),
+      readTlsSettingsStatus(settingsFiles(directory).tls, { plaintextPort: plaintextPort() }),
     async info() {
       // Read now, not when the console was created: HTTPS can come up after startup.
       const { urls, diagnostics } = addresses();

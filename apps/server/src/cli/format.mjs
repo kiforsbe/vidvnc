@@ -92,11 +92,12 @@ export const tlsCredentialLabel = (settings) =>
     : settings.certificatePath && settings.keyPath
       ? 'certificate and key'
       : 'none';
-export const tlsSummary = (settings) => ({
-  mode: settings.mode,
-  port: settings.port,
-  credential: tlsCredentialLabel(settings),
-});
+// `settings.invalid` (set by readTlsSettingsStatus, load-settings.mjs) means the on-disk
+// file could not be read as real TLS settings; report that distinctly, never as a mode.
+export const tlsSummary = (settings) =>
+  settings.invalid
+    ? { invalid: settings.invalid }
+    : { mode: settings.mode, port: settings.port, credential: tlsCredentialLabel(settings) };
 export const formatTlsMode = (settings) => `TLS mode: ${tlsModeLabel(settings.mode)}`;
 export const formatTlsPort = (settings) => `TLS port: ${settings.port}`;
 export const formatTlsCredential = (settings) =>
@@ -125,8 +126,41 @@ function tlsDrift(disk, { report, status }) {
   return disk.mode === 'provided' ? report.strategy !== 'provided' : report.strategy === 'provided';
 }
 
+// The "Active"/"Strategy"/"Fingerprint"/"Certificate expires" (or "Not serving TLS") block,
+// shared between a normal report and an invalid-settings-file report — the running listener
+// is described the same way in both cases; only the settings summary above it, and whether
+// a drift note makes sense, differs.
+function liveStatusLines({ report, status }) {
+  const lines = [`Active: ${status.active ? `yes, on port ${status.port}` : 'no'}`];
+  if (report.active) {
+    lines.push(`Strategy: ${report.strategy}`);
+    lines.push(`Fingerprint: ${report.fingerprint}`);
+    lines.push(`Certificate expires: ${formatExpiry(report.anchor)}`);
+  } else if (report.failureReason) {
+    lines.push(`Not serving TLS: ${report.failureReason}`);
+  }
+  return lines;
+}
+
 // `live` is `{ report, status }` from the running TLS listener, or omitted when offline.
+// `disk.invalid` (readTlsSettingsStatus, load-settings.mjs) means the on-disk file could
+// not be read as real settings — reported as its own distinct state, never as "TLS mode:
+// Off", which would read as a deliberate, healthy configuration instead of a broken one.
 export function formatTlsStatus(disk, live) {
+  if (disk.invalid) {
+    const lines = [`TLS settings file is invalid: ${disk.invalid}`];
+    if (live) {
+      lines.push(...liveStatusLines(live));
+      lines.push(
+        'Fix the settings file and restart the server to apply a corrected configuration.',
+      );
+    } else {
+      lines.push(
+        'The server is not running; fix or delete the file (it will use the automatic defaults until then).',
+      );
+    }
+    return lines.join('\n');
+  }
   const lines = [
     formatTlsMode(disk),
     formatTlsPort(disk),
@@ -136,15 +170,7 @@ export function formatTlsStatus(disk, live) {
     lines.push('The server is not running; changes take effect the next time it starts.');
     return lines.join('\n');
   }
-  const { report, status } = live;
-  lines.push(`Active: ${status.active ? `yes, on port ${status.port}` : 'no'}`);
-  if (report.active) {
-    lines.push(`Strategy: ${report.strategy}`);
-    lines.push(`Fingerprint: ${report.fingerprint}`);
-    lines.push(`Certificate expires: ${formatExpiry(report.anchor)}`);
-  } else if (report.failureReason) {
-    lines.push(`Not serving TLS: ${report.failureReason}`);
-  }
+  lines.push(...liveStatusLines(live));
   if (tlsDrift(disk, live))
     lines.push(
       'The saved settings may differ from what is currently running; restart the server to apply any changes.',

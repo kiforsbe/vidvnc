@@ -293,3 +293,13 @@ test('live tls status shows the failure reason when nothing is serving TLS', asy
   assert.match(text, /^Active: no$/m);
   assert.match(text, /^Not serving TLS: no strategy available$/m);
 });
+
+test('live tls status reports a corrupt on-disk file as invalid, not as Off, alongside what is actually running', async (t) => {
+  const listener = await bindTlsListener(t);
+  const h = await harness(t, { tlsListener: listener });
+  await writeFile(join(h.directory, 'tls-settings.json'), '{ not json');
+  const text = await h.send('tls', /TLS settings file is invalid/);
+  assert.equal(text.includes('TLS mode: Off'), false);
+  assert.match(text, /^Strategy: mkcert$/m);
+  assert.match(text, /^Fix the settings file and restart the server/m);
+});

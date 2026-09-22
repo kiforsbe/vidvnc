@@ -645,6 +645,61 @@ test('tls-mode, tls-port, tls-cert and tls-pfx refuse while the server is runnin
   assert.match((await run('tls')).text, /^TLS mode: Automatic$/m);
 });
 
+test('tls status reports a corrupt or invalid on-disk file as invalid, not as Off, while a genuinely missing file still shows the auto defaults', async (t) => {
+  const { run, directory } = await offline(t);
+  const file = join(directory, 'tls-settings.json');
+
+  // No file at all: unchanged from before, the auto defaults.
+  assert.match((await run('tls')).text, /^TLS mode: Automatic$/m);
+
+  // Corrupt JSON.
+  await writeFile(file, '{ not json');
+  let text = (await run('tls')).text;
+  assert.match(text, /^TLS settings file is invalid: the TLS settings file is not valid JSON/m);
+  assert.equal(text.includes('TLS mode: Off'), false);
+
+  // Valid JSON, but a shape validateTlsSettings rejects.
+  await writeFile(file, JSON.stringify({ mode: 'nonsense' }));
+  text = (await run('tls')).text;
+  assert.match(text, /^TLS settings file is invalid: TLS mode must be auto, provided or off$/m);
+  assert.equal(text.includes('TLS mode: Off'), false);
+
+  // Valid shape, but the configured port collides with the live plaintext port.
+  await writeFile(
+    file,
+    JSON.stringify({
+      mode: 'auto',
+      port: 4382,
+      certificatePath: null,
+      keyPath: null,
+      pfxPath: null,
+      pfxPassphrase: null,
+    }),
+  );
+  const clash = await run('tls --json');
+  assert.match(
+    clash.text,
+    /^TLS settings file is invalid: TLS port must not be the same as the plaintext port$/m,
+  );
+  assert.equal(clash.text.includes('TLS mode: Off'), false);
+  assert.deepEqual(clash.data, {
+    invalid: 'TLS port must not be the same as the plaintext port',
+  });
+});
+
+test('a set command against a corrupt settings file reports a friendly message instead of a raw JSON error', async (t) => {
+  const { run, directory } = await offline(t);
+  await writeFile(join(directory, 'tls-settings.json'), '{ not json');
+  await assert.rejects(
+    run('tls-mode off'),
+    usage(/^The TLS settings file is not valid JSON; fix or delete it and try again\./),
+  );
+  await assert.rejects(
+    run('tls-port 5000'),
+    usage(/^The TLS settings file is not valid JSON; fix or delete it and try again\./),
+  );
+});
+
 test('live-only session commands are rejected offline with a hint', async (t) => {
   const { run } = await offline(t);
   await assert.rejects(
