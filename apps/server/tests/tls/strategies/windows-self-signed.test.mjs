@@ -328,6 +328,10 @@ test('on success, the export produces a credential the loader accepts, and the t
   assert.equal(removeCallCount, 1);
   assert.ok(removeScript.includes('C0FFEE1234567890'));
   assert.ok(removeScript.includes('-DeleteKey'));
+  // New-SelfSignedCertificate also leaves a copy of a self-signed leaf in the user's
+  // Intermediate CA store, which accumulates forever unless it is removed too — in this
+  // same script, so cleanup stays a single PowerShell call.
+  assert.ok(removeScript.includes('Cert:\\CurrentUser\\CA'));
 });
 
 test('when the issued PFX cannot actually be read back after a claimed-successful export, provision fails cleanly', (t) => {

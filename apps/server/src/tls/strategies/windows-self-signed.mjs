@@ -203,15 +203,25 @@ function exportToPfx({ spawnSync, thumbprint, pfxPath, passphrase }) {
   return runPowerShell(spawnSync, script);
 }
 
-// Removes the certificate named by `thumbprint` from the store, including its key
-// container (`-DeleteKey`), so repeated startups never accumulate certificates there.
+// Removes the certificate named by `thumbprint` from both stores New-SelfSignedCertificate
+// puts it in — the personal store, including its key container (`-DeleteKey`), and the copy
+// described below — so repeated startups never accumulate certificates in either.
 // Best-effort: this is always called from a `finally` block around the export step, and
 // its own failure is not surfaced as the overall provisioning reason (the export's own
 // success/failure already is) — there is nothing more useful this module can do with a
 // cleanup failure than have tried.
 function removeFromStore({ spawnSync, thumbprint }) {
   const certPath = `${STORE_LOCATION}\\${thumbprint}`;
-  const script = `Remove-Item -Path ${powerShellSingleQuoted(certPath)} -DeleteKey -Force`;
+  // New-SelfSignedCertificate also deposits a copy of a self-signed leaf into the user's
+  // Intermediate CA store. That copy has no key of its own but is never otherwise cleaned
+  // up, so every reissue left one behind. Removed here too, in the same script, so cleanup
+  // stays one PowerShell call rather than adding a fourth timeout-bound step. Best-effort
+  // like the rest of this function — SilentlyContinue because older Windows versions or an
+  // already-removed copy must not turn a successful primary removal into a reported failure.
+  const caPath = `Cert:\\CurrentUser\\CA\\${thumbprint}`;
+  const script =
+    `Remove-Item -Path ${powerShellSingleQuoted(certPath)} -DeleteKey -Force; ` +
+    `Remove-Item -Path ${powerShellSingleQuoted(caPath)} -Force -ErrorAction SilentlyContinue`;
   return runPowerShell(spawnSync, script);
 }
 

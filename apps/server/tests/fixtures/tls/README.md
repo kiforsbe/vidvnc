@@ -52,7 +52,8 @@ there is no PEM conversion step anywhere in the loading path that reads it.
 - **Passphrase: `vidvnc-test-pfx-passphrase`** — recorded here deliberately; this is a
   test fixture and the secret is intentionally public, same as the private keys above.
 - Thumbprint at creation (removed from `Cert:\CurrentUser\My`, including its key
-  container, with `-DeleteKey`, and confirmed empty afterward):
+  container, with `-DeleteKey`; `Cert:\CurrentUser\My` was the store confirmed clear
+  of this thumbprint afterward, and is the only one that claim covers):
   `1ECA22ADF0387AA3C99EDF4FD83F2F692C6DE3C8`
 
 Never load this PFX outside the test suite, never reuse the passphrase for anything
