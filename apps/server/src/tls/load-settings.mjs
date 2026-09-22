@@ -23,7 +23,11 @@ export async function loadTlsSettings(
   path,
   { plaintextPort, readFile = nodeReadFile, log = (message) => console.error(message) },
 ) {
-  const off = () => ({ ...defaultTlsSettings(), mode: 'off' });
+  // `invalid` marks this as "off because the settings could not be used", never a deliberate
+  // `off`: a validated file saying `mode: off` returns from validateTlsSettings below without
+  // ever passing through here. desktop-status.mjs reads the flag to avoid telling an operator
+  // with a broken file that HTTPS is deliberately disabled.
+  const off = () => ({ ...defaultTlsSettings(), mode: 'off', invalid: true });
   const clash = (port) =>
     `TLS port ${port} is the same as the plaintext port ${plaintextPort}. TLS is disabled for this run and the server is plaintext only; ` +
     `change the TLS port in "${path}" or VIDVNC_PORT.`;

@@ -151,3 +151,20 @@ test('mode off is a configuration, not a failure', () => {
   assert.equal(field.active, false);
   assert.equal(field.reason, null);
 });
+
+// load-settings.mjs falls back to `mode: 'off'` whenever the on-disk settings cannot be used,
+// and marks those with `invalid: true`. Rendering that identically to a deliberate `off` would
+// tell an operator with a broken file that they had turned HTTPS off themselves.
+test('mode off because the settings were invalid is not a deliberate configuration, and says so', () => {
+  const field = tlsDesktopStatus({
+    settings: settings({ mode: 'off', invalid: true }),
+    status: { active: false, port: null },
+    report: report(null),
+  });
+  assert.equal(field.mode, 'off');
+  assert.equal(field.active, false);
+  assert.equal(
+    field.reason,
+    'The TLS settings could not be used, so HTTPS is off. Nothing was changed; the server log says why.',
+  );
+});

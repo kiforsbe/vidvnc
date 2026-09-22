@@ -328,6 +328,17 @@ public partial class App : Application
                                     throw new Exception("Regenerate must be unavailable and explained while HTTPS is off");
                                 if (addressBox.Text != "http://192.168.50.47:4382")
                                     throw new Exception($"Address must return to plaintext when HTTPS is off: '{addressBox.Text}'");
+                                if (TlsBar("tls-reason") is not null)
+                                    throw new Exception("A deliberate off must not be reported as a failure");
+
+                                // off with a reason: the settings file could not be used, so TLS is
+                                // off without anyone asking for it. That must not read as a clean,
+                                // deliberate "Off" — the sanitized sentence has to reach the UI.
+                                await ApplyTls("{\"mode\":\"off\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"The TLS settings could not be used, so HTTPS is off. Nothing was changed; the server log says why.\"}");
+                                if (TlsBar("tls-reason")?.Message?.Contains("TLS settings could not be used") != true)
+                                    throw new Exception($"An unusable TLS settings file must be reported, not shown as a deliberate off: '{TlsBar("tls-reason")?.Message}'");
+                                if (TlsButton("tls-regenerate")?.IsEnabled != false || TlsText("tls-regenerate-blocked") is null)
+                                    throw new Exception("Regenerate must stay unavailable and explained while HTTPS is off for any reason");
 
                                 // Provisioning failed: TLS never degrades silently.
                                 const string failedAuto = "{\"mode\":\"auto\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"HTTPS could not be started on port 4383, so connections are not encrypted. The server log says why.\"}";

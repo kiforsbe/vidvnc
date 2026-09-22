@@ -46,6 +46,12 @@ const REASONS = {
   // which is deliberately before TLS has been provisioned (main.mjs), so this is the honest
   // state for the first moments of every run, not an error.
   pending: 'HTTPS has not started yet.',
+  // The configured mode is 'off' only because the on-disk settings could not be used
+  // (load-settings.mjs's `off()`), never because anyone asked for TLS to be off.
+  // Distinguishing this from a deliberate `off` (which returns null below) is the point:
+  // an operator whose config is broken must not be told HTTPS is deliberately disabled.
+  invalidSettings:
+    'The TLS settings could not be used, so HTTPS is off. Nothing was changed; the server log says why.',
 };
 
 // `settings` is the validated TLS settings this process loaded at startup (tls-settings.mjs).
@@ -92,12 +98,15 @@ export function tlsDesktopStatus({ settings, status, report, now } = {}) {
       listening,
       configuredPort,
       failed: Boolean(report?.failureReason),
+      invalidSettings: Boolean(settings?.invalid),
     }),
   };
 }
 
-function sanitizedReason({ mode, listening, configuredPort, failed }) {
-  if (mode === 'off') return null; // Off is a configuration, not a failure.
+function sanitizedReason({ mode, listening, configuredPort, failed, invalidSettings }) {
+  // Off is a configuration, not a failure — unless it is only off because the settings
+  // could not be read or validated, which is a failure the operator has to be told about.
+  if (mode === 'off') return invalidSettings ? REASONS.invalidSettings : null;
   if (listening) return failed ? REASONS.staleCheck : null;
   if (!failed) return REASONS.pending;
   return mode === 'provided' ? REASONS.provided(configuredPort) : REASONS.failed(configuredPort);
