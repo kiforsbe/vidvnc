@@ -9,7 +9,10 @@ import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip } from './profile-labels.js';
+import { connectionKeyFromFragment } from './connection-link.js';
 const $ = (id) => document.getElementById(id);
+const scannedConnectionKey = connectionKeyFromFragment(location.hash);
+if (scannedConnectionKey) history.replaceState(null, '', `${location.pathname}${location.search}`);
 // The page can be reached over either listener, so the note about pairing's transport
 // says whichever one is actually true rather than staying fixed at the plaintext-only
 // wording that predates HTTPS support.
@@ -1032,12 +1035,20 @@ Promise.all([
     approvedCredential = credential;
     showPreferredAuthentication();
 
-    status('Ready to connect.');
     if (info.media.state !== 'ready') {
       $('connect').disabled = true;
       $('signIn').disabled = true;
       status('The server’s native media worker is not available.');
+      return;
     }
+    if (scannedConnectionKey) {
+      // Scanning only saves typing: the person explicitly chooses whether to use
+      // the key, preserving the browser gesture that starts the stream.
+      showAuthentication('connectForm');
+      $('password').value = scannedConnectionKey;
+      $('password').dispatchEvent(new Event('input', { bubbles: true }));
+      status('Connection key is ready. Select Connect to continue.');
+    } else status('Ready to connect.');
   })
   .catch(() => {
     $('connect').disabled = true;

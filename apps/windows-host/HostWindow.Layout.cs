@@ -213,6 +213,15 @@ public sealed partial class HostWindow
     bool HasCurrentOneTimeKey() => !string.IsNullOrWhiteSpace(oneTimeConnectionKey) && oneTimeConnectionExpiresAt is long expires &&
         expires > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
+    // The secret stays after '#': browsers do not put fragments in HTTP requests,
+    // and the web client removes it before it calls any API endpoint.
+    static string ConnectionQrUrl(string address, string key)
+    {
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            throw new ArgumentException("The connection address must be an HTTP or HTTPS URL.", nameof(address));
+        return new UriBuilder(uri) { Path = "/", Query = "", Fragment = $"key={Uri.EscapeDataString(key)}" }.Uri.AbsoluteUri;
+    }
+
     ContentDialog CreateConnectionDialog(string initialMode)
     {
         var body = new StackPanel { Spacing = HostSpacing.Row };
@@ -246,6 +255,31 @@ public sealed partial class HostWindow
             mode.Children.Add(row);
         }
 
+        void AddConnectionQr(string key, string description)
+        {
+            string url;
+            try { url = ConnectionQrUrl(address.Text, key); }
+            catch (ArgumentException)
+            {
+                mode.Children.Add(Secondary("Could not generate a QR code because the connection address is unavailable."));
+                return;
+            }
+            mode.Children.Add(Secondary(description));
+            var image = new Image
+            {
+                Width = 236,
+                Height = 236,
+                Tag = "connection-qr-image",
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            mode.Children.Add(image);
+            var qrFailure = Secondary("Could not generate the QR code. Open the address above and enter the key instead.");
+            qrFailure.Tag = "connection-qr-failure";
+            qrFailure.Visibility = Visibility.Collapsed;
+            mode.Children.Add(qrFailure);
+            _ = ApplyQrSource(image, url, qrFailure);
+        }
+
         void RenderMode()
         {
             mode.Children.Clear(); AddCopyField("Connection address", address.Text);
@@ -254,11 +288,14 @@ public sealed partial class HostWindow
             {
                 AddCopyField("Session password", password.Text, true);
                 mode.Children.Add(Secondary("Use this password for an ordinary connection. It remains valid while this sharing instance runs."));
+                AddConnectionQr(password.Text, "Scan this with the device to open VidVNC and enter this password automatically.");
             }
             else if (selectedMode == "one-time-key")
             {
                 AddCopyField("One-time connection key", oneTimeConnectionKey ?? "Unavailable", true);
                 mode.Children.Add(Secondary("This key expires in 10 minutes and is removed after one successful connection."));
+                if (HasCurrentOneTimeKey())
+                    AddConnectionQr(oneTimeConnectionKey!, "Scan this with the device to open VidVNC and connect with this one-time key.");
             }
             else
             {
@@ -266,6 +303,7 @@ public sealed partial class HostWindow
                 {
                     AddCopyField("Client setup key", clientSetupKey ?? "Unavailable", true);
                     mode.Children.Add(Secondary("This key expires in 10 minutes and can be used once. The client still needs your approval."));
+                    AddConnectionQr(clientSetupKey!, "Scan this with the device to open VidVNC and start client approval with this key.");
                 }
                 else
                 {
@@ -273,7 +311,7 @@ public sealed partial class HostWindow
                         Message = clientError ?? "A client setup key could not be created. Start sharing and try again." });
                 }
             }
-            mode.Children.Add(Secondary("Trusted networks only: connections currently use HTTP."));
+            mode.Children.Add(Secondary(ConnectionSecurityNote()));
         }
 
         type.SelectionChanged += async (_, _) =>

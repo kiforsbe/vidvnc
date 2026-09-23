@@ -26,6 +26,7 @@ test('serves every browser entry asset through workspace resolution', () =>
     for (const asset of [
       '/',
       '/app.js',
+      '/connection-link.js',
       '/password-entry.js',
       '/receiver-stats.js',
       '/style.css',

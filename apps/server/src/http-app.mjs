@@ -274,6 +274,7 @@ export function createHttpApp({
           '/',
           '/app.js',
           '/approved-client.js',
+          '/connection-link.js',
           '/password-entry.js',
           '/receiver-stats.js',
           '/stream-subscriptions.js',

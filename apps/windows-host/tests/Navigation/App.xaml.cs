@@ -62,6 +62,8 @@ public partial class App : Application
                     if (updateClients is null) throw new Exception("Approved clients administration view is missing");
                     var createConnectionDialog = typeof(HostWindow).GetMethod("CreateConnectionDialog", flags);
                     if (createConnectionDialog is null) throw new Exception("Shared connection dialog modes are missing");
+                    var connectionQrUrl = typeof(HostWindow).GetMethod("ConnectionQrUrl", BindingFlags.Static | BindingFlags.NonPublic);
+                    if (connectionQrUrl is null) throw new Exception("Connection QR links are missing");
                     var requestClientSetup = typeof(HostWindow).GetMethod("RequestClientSetupKey", flags);
                     var receiveClientResult = typeof(HostWindow).GetMethod("ReceiveClientResult", flags);
                     if (requestClientSetup is null || receiveClientResult is null)
@@ -130,6 +132,9 @@ public partial class App : Application
 
                                 ((TextBox)typeof(HostWindow).GetField("address", flags)!.GetValue(window)!).Text = "http://192.168.50.47:4382";
                                 ((TextBox)typeof(HostWindow).GetField("password", flags)!.GetValue(window)!).Text = "NLYJ-LGFN";
+                                if ((string)connectionQrUrl.Invoke(null, new object[] { "http://192.168.50.47:4382", "NLYJ-LGFN" })! !=
+                                    "http://192.168.50.47:4382/#key=NLYJ-LGFN")
+                                    throw new Exception("Connection QR links must keep the secret out of the request URL");
                                 var onceDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "connect-once" })!;
                                 var onceBody = (StackPanel)onceDialog.Content;
                                 var onceSelector = onceBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
@@ -139,6 +144,8 @@ public partial class App : Application
                                     !Descendants(oncePanel).OfType<TextBox>().Any(control => control.Tag as string == "Connection address" && control.Text == "http://192.168.50.47:4382") ||
                                     !Descendants(oncePanel).OfType<TextBox>().Any(control => control.Tag as string == "Session password" && control.Text == "NLYJ-LGFN"))
                                     throw new Exception("Connect-once mode lost the current address or Session password");
+                                if (!Descendants(oncePanel).OfType<Image>().Any(image => image.Tag as string == "connection-qr-image"))
+                                    throw new Exception("Connect-once mode must offer a scannable connection QR code");
                                 if (Descendants(oncePanel).OfType<Button>().Count(button =>
                                     Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button)?.StartsWith("Copy ") == true && button.Content is FontIcon) != 2)
                                     throw new Exception("Copy actions must be compact accessible icon buttons beside their fields");
@@ -166,7 +173,8 @@ public partial class App : Application
                                 if (((approvalSelector.SelectedItem as ComboBoxItem)?.Tag as string) != "approved-client" || setupKey is null || !setupKey.IsReadOnly ||
                                     !System.Text.RegularExpressions.Regex.IsMatch(setupKey.Text, "^[A-Z]{4}-[A-Z]{4}$") ||
                                     Descendants(approvalPanel).OfType<TextBox>().Any(control => control.Text == "NLYJ-LGFN") ||
-                                    !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("used once")))
+                                    !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("used once")) ||
+                                    !Descendants(approvalPanel).OfType<Image>().Any(image => image.Tag as string == "connection-qr-image"))
                                     throw new Exception("Approved-client mode must hide the Session password and show its server-issued single-use key");
                                 clientServerField.SetValue(window, null);
                                 clientOwner.StandardInput.Close();
