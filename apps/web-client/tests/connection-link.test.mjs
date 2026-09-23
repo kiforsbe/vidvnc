@@ -8,6 +8,7 @@ import {
 test('reads and normalizes a connection key from a QR URL fragment', () => {
   assert.equal(connectionKeyFromFragment('#key=abcd-efgh'), 'ABCD-EFGH');
   assert.equal(connectionKeyFromFragment('key= ABCDEFGH '), 'ABCD-EFGH');
+  assert.equal(connectionKeyFromFragment('#key=2a3b-4c5d'), '2A3B-4C5D');
 });
 
 test('rejects malformed or absent QR connection keys', () => {

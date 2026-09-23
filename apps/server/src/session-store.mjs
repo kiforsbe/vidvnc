@@ -5,7 +5,10 @@ import { CONNECTION_KEY_PURPOSES, ConnectionKeyRegistry } from './connection-key
 const MEDIA_STATUS = Object.freeze({ state: 'unavailable' });
 
 export function isValidPasswordFormat(value) {
-  return typeof value === 'string' && /^[A-Z]{4}-[A-Z]{4}$/.test(value);
+  return (
+    typeof value === 'string' &&
+    /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/.test(value)
+  );
 }
 
 export class SessionStore {

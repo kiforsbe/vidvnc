@@ -122,11 +122,12 @@ test('connection mode allows only its ordinary key type while approved-client se
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
   try {
-    const once = sessionStore.keys.createOneTimeConnection({ ttlMs: 60_000 });
     const setup = sessionStore.keys.createSetup({ ttlMs: 60_000 });
     assert.equal((await post(url, 'connect', { password: sessionStore.password })).status, 401);
     assert.equal((await post(url, 'connection-key', { key: sessionStore.password })).status, 401);
     assert.equal((await post(url, 'connection-key', { key: setup.key })).status, 200);
+    const once = sessionStore.keys.createOneTimeConnection({ ttlMs: 60_000 });
+    assert.equal(sessionStore.keys.inspect(setup.key), null);
     assert.equal((await post(url, 'connect', { password: once.key })).status, 201);
 
     setting.connectionMode = 'approved-only';
@@ -134,7 +135,8 @@ test('connection mode allows only its ordinary key type while approved-client se
     assert.equal((await post(url, 'connection-key', { key: another.key })).status, 401);
     assert.equal((await post(url, 'connect', { password: another.key })).status, 401);
     assert.equal(sessionStore.keys.inspect(another.key).purpose, 'one-time-connection');
-    assert.equal((await post(url, 'connection-key', { key: setup.key })).status, 200);
+    const allowedSetup = sessionStore.keys.createSetup({ ttlMs: 60_000 });
+    assert.equal((await post(url, 'connection-key', { key: allowedSetup.key })).status, 200);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

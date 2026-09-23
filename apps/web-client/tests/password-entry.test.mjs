@@ -13,7 +13,15 @@ test('accepts lowercase, optional dash and surrounding pasted whitespace', () =>
     assert.equal(normalizePassword(text), null);
 });
 
-test('segmented entry preserves selection and discards characters other than letters', () => {
+test('accepts reduced-ambiguity letters and digits without changing forbidden symbols', () => {
+  assert.equal(normalizePassword('2a3b-4c5d'), '2A3B-4C5D');
+  for (const value of ['0ABC-DEFG', '1ABC-DEFG', 'IABC-DEFG', 'LABC-DEFG', 'OABC-DEFG'])
+    assert.equal(normalizePassword(value), null, value);
+  assert.deepEqual(formatPasswordEntry('2a3b4c5d', 8), { value: '2A3B-4C5D', caret: 9 });
+  assert.deepEqual(formatPasswordEntry('2A0B-4C5D', 9), { value: '2A0B-4C5D', caret: 9 });
+});
+
+test('segmented entry preserves selection and keeps eligible digits', () => {
   assert.deepEqual(formatSegmentedPasswordEntry(' abcd-efgh ', 3, 8), {
     value: 'ABCD-EFGH',
     start: 2,
@@ -30,9 +38,9 @@ test('segmented entry preserves selection and discards characters other than let
     end: 2,
   });
   assert.deepEqual(formatSegmentedPasswordEntry('AB12CDÅE_FG', 11, 11), {
-    value: 'ABCD-EFG',
-    start: 8,
-    end: 8,
+    value: 'AB12-CDEF',
+    start: 9,
+    end: 9,
   });
 });
 test('formats only after entering the second group and preserves the editing caret', () => {

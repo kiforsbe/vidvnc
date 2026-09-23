@@ -145,7 +145,10 @@ test('session commands use console numbers and stream IDs and never print sessio
   await h.send('disconnect #2', /^Disconnected device #2\.\n$/);
   await h.send('disconnect #2', /^No connected device matches #2\. Use sessions to list them\.\n$/);
   await h.send('show', /^show is only available as config show\. Type help show\.\n$/);
-  await h.send('info', /Password\s+[A-Z]{4}-[A-Z]{4}\n/);
+  await h.send(
+    'info',
+    /Password\s+[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}\n/,
+  );
   assert.deepEqual(h.calls, [
     ['command', { action: 'grant', sessionId: phone }],
     ['command', { action: 'stop-stream', sessionId: phone, streamId: 'stream-a' }],

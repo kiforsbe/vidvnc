@@ -2,22 +2,24 @@
 export function normalizePassword(value) {
   if (typeof value !== 'string') return null;
   const text = value.trim().toUpperCase();
-  if (!/^[A-Z]{4}-?[A-Z]{4}$/.test(text)) return null;
-  const letters = text.replace('-', '');
-  return `${letters.slice(0, 4)}-${letters.slice(4)}`;
+  if (!/^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}-?[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/.test(text))
+    return null;
+  const symbols = text.replace('-', '');
+  return `${symbols.slice(0, 4)}-${symbols.slice(4)}`;
 }
-const MAX_LETTERS = 8;
-const lettersIn = (text) => text.replace(/[^a-zA-Z]/g, '').toUpperCase();
-// Only letters are accepted, at most 8; the separator is inserted automatically
-// and anything else typed or pasted is discarded. Typed or pasted text ends at
-// `anchor` (the caret), so excess letters are dropped there: letters already
+const MAX_SYMBOLS = 8;
+// Keep ambiguous alphanumerics visible so they fail validation; never silently
+// remove one and turn a pasted code into a different, apparently valid code.
+const symbolsIn = (text) => text.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+// At most 8 symbols are displayed; the separator is inserted automatically.
+// Typed or pasted text ends at `anchor` (the caret), so excess symbols are dropped there: symbols already
 // entered are never pushed out, and an over-long paste is cut short.
-function acceptLetters(value, anchor) {
-  const letters = lettersIn(value);
-  const count = (index) => lettersIn(value.slice(0, index)).length;
+function acceptSymbols(value, anchor) {
+  const symbols = symbolsIn(value);
+  const count = (index) => symbolsIn(value.slice(0, index)).length;
   const end = count(anchor);
-  const cut = Math.min(Math.max(0, letters.length - MAX_LETTERS), end);
-  const kept = (letters.slice(0, end - cut) + letters.slice(end)).slice(0, MAX_LETTERS);
+  const cut = Math.min(Math.max(0, symbols.length - MAX_SYMBOLS), end);
+  const kept = (symbols.slice(0, end - cut) + symbols.slice(end)).slice(0, MAX_SYMBOLS);
   return {
     value: kept.length > 4 ? `${kept.slice(0, 4)}-${kept.slice(4)}` : kept,
     caret(index) {
@@ -28,11 +30,11 @@ function acceptLetters(value, anchor) {
   };
 }
 export function formatPasswordEntry(value, caret = value.length) {
-  const entry = acceptLetters(value, caret);
+  const entry = acceptSymbols(value, caret);
   return { value: entry.value, caret: entry.caret(caret) };
 }
 export function formatSegmentedPasswordEntry(value, start = value.length, end = start) {
-  const entry = acceptLetters(value, end);
+  const entry = acceptSymbols(value, end);
   return { value: entry.value, start: entry.caret(start), end: entry.caret(end) };
 }
 export function bindPasswordEntry(input) {
@@ -46,14 +48,14 @@ export function bindPasswordEntry(input) {
       const focused = document.activeElement === input;
       const start = input.selectionStart ?? 0;
       const end = input.selectionEnd ?? start;
-      const letters = input.value.replace('-', '');
+      const symbols = input.value.replace('-', '');
       const caret = Math.min(7, input.value.slice(0, start).replace('-', '').length);
       cells.forEach((cell, index) => {
         const offset = index + (index >= 4 ? 1 : 0);
-        cell.textContent = letters[index] || '';
+        cell.textContent = symbols[index] || '';
         cell.classList.toggle(
           'selected',
-          focused && start < end && offset >= start && offset < end && Boolean(letters[index]),
+          focused && start < end && offset >= start && offset < end && Boolean(symbols[index]),
         );
         cell.classList.toggle('active', focused && start === end && index === caret);
       });
@@ -70,7 +72,9 @@ export function bindPasswordEntry(input) {
       input.setSelectionRange(formatted.start, formatted.end);
       wrapper.classList.toggle(
         'invalid-format',
-        !/^(?:[A-Z]{0,4}|[A-Z]{4}-[A-Z]{1,4})$/.test(input.value),
+        !/^(?:[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{0,4}|[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{1,4})$/.test(
+          input.value,
+        ),
       );
       input.setCustomValidity('');
       input.removeAttribute('aria-invalid');
@@ -111,7 +115,7 @@ export function bindPasswordEntry(input) {
     input.setSelectionRange(formatted.caret, formatted.caret);
     input.setCustomValidity('');
   });
-  // Backspace directly after the automatic separator should delete a letter,
+  // Backspace directly after the automatic separator should delete a symbol,
   // not repeatedly remove and reinsert the same separator.
   input.addEventListener('beforeinput', (event) => {
     if (

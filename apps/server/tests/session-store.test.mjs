@@ -5,8 +5,13 @@ import { SessionStore, isValidPasswordFormat } from '../src/session-store.mjs';
 test('generates a readable password in the documented format', () => {
   const store = new SessionStore();
 
-  assert.match(store.password, /^[A-Z]{4}-[A-Z]{4}$/);
+  assert.match(
+    store.password,
+    /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/,
+  );
   assert.equal(isValidPasswordFormat(store.password), true);
+  assert.equal(isValidPasswordFormat('2ABC-DEF3'), true);
+  assert.equal(isValidPasswordFormat('0ABC-DEFG'), false);
   assert.equal(isValidPasswordFormat('abcd-efgh'), false);
   assert.equal(isValidPasswordFormat('ABCDE-FGHI'), false);
 });
