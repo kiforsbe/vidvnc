@@ -1,8 +1,16 @@
+import { isIP } from 'node:net';
+
 const MINUTE = 60_000;
 const MAX_SCRYPT = 4;
 
 function recent(times, now, windowMs) {
   return times.filter((time) => now - time < windowMs);
+}
+
+function sourceKey(source) {
+  const value = String(source);
+  const mapped = /^::ffff:(.+)$/i.exec(value);
+  return mapped && isIP(mapped[1]) === 4 ? mapped[1] : value;
 }
 
 export class AdmissionBudget {
@@ -56,7 +64,8 @@ export class AdmissionBudget {
       this.#classes.set(kind, state);
     }
     if (state.failures + state.pending >= globalLimit) return null;
-    const row = this.#boundedRow(state.sources, String(source), () => ({
+    const sourceId = sourceKey(source);
+    const row = this.#boundedRow(state.sources, sourceId, () => ({
       failures: 0,
       pending: 0,
     }));
@@ -76,13 +85,13 @@ export class AdmissionBudget {
         row.pending--;
         if (outcome === false) {
           state.failures++;
-          if (state.sources.get(String(source)) === row) row.failures++;
+          if (state.sources.get(sourceId) === row) row.failures++;
         }
       },
     };
   }
 
-  #reserveRolling(kind, source, globalLimit, sourceLimit, windowMs, identity, identityLimit) {
+  #reserveRolling(kind, source, globalLimit, sourceLimit, windowMs) {
     const now = this.#now();
     let state = this.#rolling.get(kind);
     if (!state) {
@@ -91,20 +100,21 @@ export class AdmissionBudget {
     }
     state.global = recent(state.global, now, windowMs);
     if (state.global.length >= globalLimit) return false;
-    const sourceTimes = this.#boundedRow(state.sources, String(source), () => []);
+    const sourceTimes = this.#boundedRow(state.sources, sourceKey(source), () => []);
     const sourceRecent = recent(sourceTimes, now, windowMs);
     sourceTimes.splice(0, sourceTimes.length, ...sourceRecent);
     if (sourceTimes.length >= sourceLimit) return false;
-    let identityTimes = null;
-    if (identity !== undefined) {
-      identityTimes = this.#boundedRow(state.identities, String(identity).slice(0, 128), () => []);
-      const identityRecent = recent(identityTimes, now, windowMs);
-      identityTimes.splice(0, identityTimes.length, ...identityRecent);
-      if (identityTimes.length >= identityLimit) return false;
-    }
     state.global.push(now);
     sourceTimes.push(now);
-    identityTimes?.push(now);
+    return true;
+  }
+
+  #reserveIdentity(kind, identity, limit, windowMs) {
+    const state = this.#rolling.get(kind);
+    const times = this.#boundedRow(state.identities, String(identity).slice(0, 128), () => []);
+    times.splice(0, times.length, ...recent(times, this.#now(), windowMs));
+    if (times.length >= limit) return false;
+    times.push(this.#now());
     return true;
   }
 
@@ -127,12 +137,25 @@ export class AdmissionBudget {
         for (const item of reserved)
           item.finish(accepted ? (item.accepts(purpose) ? true : null) : false);
       },
+      cancel: () => {
+        if (finished) return;
+        finished = true;
+        for (const item of reserved) item.finish(null);
+      },
     };
   }
 
   beginSignIn(source, clientId) {
+    const allowed = this.#reserveRolling('credentials', source, 120, 10, MINUTE);
+    let assigned = false;
+    const assignIdentity = (identity) => {
+      if (!allowed || assigned) return false;
+      assigned = true;
+      return this.#reserveIdentity('credentials', identity ?? 'unknown', 10, MINUTE);
+    };
     return {
-      ok: this.#reserveRolling('credentials', source, 120, 10, MINUTE, clientId ?? 'unknown', 10),
+      ok: allowed && (clientId === undefined || assignIdentity(clientId)),
+      assignIdentity,
       finish() {},
     };
   }

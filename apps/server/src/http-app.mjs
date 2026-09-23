@@ -15,6 +15,8 @@ import {
 } from './tls/anchor.mjs';
 import { applyServerLimits } from './server-limits.mjs';
 import { createLocalSessionScope } from './local-session-scope.mjs';
+import { AdmissionBudget } from './admission-budget.mjs';
+import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 
 function send(response, status, body) {
   response.writeHead(status, {
@@ -135,6 +137,8 @@ export function createHttpApp({
   access = null,
   listenerScope = 'local',
   localSessionScope = createLocalSessionScope(),
+  admission = null,
+  log = console.error,
   // Injectable TLS status: `{ status() }` returning `{ active, port }`, read on every
   // request. Omitted, the app behaves as if TLS is inactive, which keeps every existing
   // caller (this app is constructed in dozens of tests with no `tls` option) byte-identical
@@ -145,6 +149,8 @@ export function createHttpApp({
   tls = null,
 } = {}) {
   if (!['local', 'public'].includes(listenerScope)) throw new Error('Invalid listener scope');
+  admission ??= approvedClients?.admission ?? new AdmissionBudget();
+  if (approvedClients && !approvedClients.admission) approvedClients.admission = admission;
   const reconnecting = new Set();
   const telemetryTimes = new Map();
   const connectionMode = () => access?.snapshot().connectionMode ?? 'session-key';
@@ -207,6 +213,7 @@ export function createHttpApp({
     });
   }
   const requestListener = async (request, response) => {
+    let keyAttempt = null;
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
     response.setHeader(
@@ -375,6 +382,7 @@ export function createHttpApp({
         request.method !== 'POST' ||
         ![
           '/api/connect',
+          '/api/key-start',
           '/api/connection-key',
           '/api/approved-clients/register',
           '/api/approved-clients/status',
@@ -395,13 +403,89 @@ export function createHttpApp({
         ].includes(route)
       )
         return send(response, 404, { error: 'Not found' });
+      const peer = request.socket.remoteAddress;
+      const keyRoute = ['/api/key-start', '/api/connect', '/api/connection-key'].includes(route);
+      keyAttempt = keyRoute
+        ? admission.beginKeyStart(peer, {
+            ephemeral: sessionStore.keys.activeEphemeral(),
+            session: sessionStore.keys.activeSession(),
+          })
+        : null;
+      const rollingAttempt =
+        route === '/api/approved-clients/sign-in'
+          ? admission.beginSignIn(peer)
+          : route === '/api/approved-clients/register'
+            ? admission.beginRegistration(peer)
+            : route === '/api/approved-clients/status'
+              ? admission.beginStatus(peer)
+              : null;
+      if ((keyAttempt && !keyAttempt.ok) || (rollingAttempt && !rollingAttempt.ok))
+        return send(response, 429, { error: 'Try again later or request a new host code.' });
       if (!request.headers['content-type']?.startsWith('application/json'))
-        return send(response, 415, { error: 'JSON required' });
+        return (keyAttempt?.finish(null, false), send(response, 415, { error: 'JSON required' }));
       if (Number(request.headers['content-length']) > 128 * 1024) {
         request.resume();
+        keyAttempt?.finish(null, false);
         return send(response, 413, { error: 'Request too large' });
       }
-      const body = await readJson(request);
+      let body;
+      try {
+        body = await readJson(request);
+      } catch (error) {
+        keyAttempt?.finish(null, false);
+        throw error;
+      }
+      if (
+        route === '/api/approved-clients/sign-in' &&
+        !rollingAttempt.assignIdentity(body.clientId)
+      )
+        return send(response, 429, { error: 'Try again later.' });
+      if (route === '/api/key-start') {
+        if (policy?.busy) {
+          keyAttempt.cancel();
+          return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
+        }
+        const record = sessionStore.keys.inspect(body.key);
+        if (
+          !record ||
+          !keyAttempt.allowsPurpose(record.purpose) ||
+          (record.purpose === CONNECTION_KEY_PURPOSES.session &&
+            !localSessionScope.allows(peer, listenerScope))
+        ) {
+          keyAttempt.finish(null, false);
+          return send(response, 401, { error: 'Unable to authenticate.' });
+        }
+        if (record.purpose === CONNECTION_KEY_PURPOSES.setup) {
+          if (!approvedClients) {
+            keyAttempt.cancel();
+            return send(response, 503, { error: 'Approved-client setup is unavailable.' });
+          }
+          let ticket;
+          try {
+            ticket = approvedClients.issueRegistrationTicket();
+          } catch (error) {
+            keyAttempt.cancel();
+            return send(response, 503, { error: 'Client registration is busy.' });
+          }
+          sessionStore.keys.use(body.key, record.purpose);
+          keyAttempt.finish(record.purpose, true);
+          return send(response, 202, ticket);
+        }
+        if (!ordinaryKeyAllowed(record.purpose)) {
+          keyAttempt.finish(null, false);
+          return send(response, 401, { error: 'Unable to authenticate.' });
+        }
+        let plan;
+        try {
+          plan = connectionPlan(body, request);
+        } catch (error) {
+          keyAttempt.finish(null, false);
+          return send(response, 403, { error: error.message });
+        }
+        const result = sessionStore.connect(body.key, peer, request.headers['user-agent'] || '');
+        keyAttempt.finish(record.purpose, result.ok || result.reason === 'busy');
+        return sendAdmission(response, result, plan);
+      }
       if (route === '/api/connection-key') {
         const record =
           typeof body.key === 'string' && body.key.length <= 64
@@ -409,9 +493,15 @@ export function createHttpApp({
             : null;
         if (
           !record ||
-          (record.purpose !== 'approved-client-setup' && !ordinaryKeyAllowed(record.purpose))
-        )
+          !keyAttempt.allowsPurpose(record.purpose) ||
+          (record.purpose !== 'approved-client-setup' && !ordinaryKeyAllowed(record.purpose)) ||
+          (record.purpose === CONNECTION_KEY_PURPOSES.session &&
+            !localSessionScope.allows(peer, listenerScope))
+        ) {
+          keyAttempt.finish(null, false);
           return send(response, 401, { error: 'Connection key is invalid or expired.' });
+        }
+        keyAttempt.finish(record.purpose, true);
         return send(response, 200, {
           purpose: record.purpose,
           usage: record.usage,
@@ -421,24 +511,41 @@ export function createHttpApp({
       if (route === '/api/approved-clients/register') {
         if (!approvedClients)
           return send(response, 503, { error: 'Approved-client setup is unavailable.' });
-        const record = sessionStore.keys.inspect(body.key);
-        if (record?.purpose !== 'approved-client-setup')
-          return send(response, 401, { error: 'Connection key is invalid or expired.' });
+        let legacyAttempt = null;
+        if (body.registrationTicket === undefined) {
+          legacyAttempt = admission.beginKeyStart(peer, {
+            ephemeral: sessionStore.keys.activeEphemeral(),
+            session: sessionStore.keys.activeSession(),
+          });
+          if (!legacyAttempt.ok)
+            return send(response, 429, { error: 'Try again later or request a new host code.' });
+          const record = sessionStore.keys.inspect(body.key);
+          if (
+            record?.purpose !== 'approved-client-setup' ||
+            !legacyAttempt.allowsPurpose(record.purpose)
+          ) {
+            legacyAttempt.finish(null, false);
+            return send(response, 401, { error: 'Connection key is invalid or expired.' });
+          }
+        }
         try {
+          const result = await approvedClients.submit({
+            ...body,
+            network: listenerScope === 'public' ? 'Remote network' : 'Local network',
+          });
+          legacyAttempt?.finish(CONNECTION_KEY_PURPOSES.setup, true);
+          return send(response, 202, result);
+        } catch (error) {
+          legacyAttempt?.finish(null, false);
           return send(
             response,
-            202,
-            await approvedClients.submit({
-              ...body,
-              network: 'Local network',
-            }),
+            /setup key|ticket/i.test(error.message) ? 401 : error.status || 400,
+            {
+              error: /setup key|ticket/i.test(error.message)
+                ? 'Connection key is invalid or expired.'
+                : error.message,
+            },
           );
-        } catch (error) {
-          return send(response, /setup key/i.test(error.message) ? 401 : 400, {
-            error: /setup key/i.test(error.message)
-              ? 'Connection key is invalid or expired.'
-              : error.message,
-          });
         }
       }
       if (route === '/api/approved-clients/status') {
@@ -479,33 +586,41 @@ export function createHttpApp({
         return sendAdmission(response, admission, plan);
       }
       if (route === '/api/connect') {
-        if (policy?.busy)
+        if (policy?.busy) {
+          keyAttempt.cancel();
           return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
+        }
         if (typeof body.password !== 'string' || body.password.length > 64)
-          return send(response, 400, { error: 'Password is required' });
+          return (
+            keyAttempt.finish(null, false),
+            send(response, 400, { error: 'Password is required' })
+          );
         const key = sessionStore.keys.inspect(body.password);
-        if (!key || !ordinaryKeyAllowed(key.purpose))
+        if (!key || !keyAttempt.allowsPurpose(key.purpose) || !ordinaryKeyAllowed(key.purpose)) {
+          keyAttempt.finish(null, false);
           return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
+        }
         if (
           key.purpose === 'session' &&
           !localSessionScope.allows(request.socket.remoteAddress, listenerScope)
-        )
+        ) {
+          keyAttempt.finish(null, false);
           return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
+        }
         let plan;
         try {
           plan = connectionPlan(body, request);
         } catch (error) {
+          keyAttempt.finish(null, false);
           return send(response, 403, { error: error.message });
         }
-        return sendAdmission(
-          response,
-          sessionStore.connect(
-            body.password.trim().toUpperCase(),
-            request.socket.remoteAddress,
-            request.headers['user-agent'] || '',
-          ),
-          plan,
+        const result = sessionStore.connect(
+          body.password.trim().toUpperCase(),
+          request.socket.remoteAddress,
+          request.headers['user-agent'] || '',
         );
+        keyAttempt.finish(key.purpose, result.ok || result.reason === 'busy');
+        return sendAdmission(response, result, plan);
       }
       const token = request.headers.authorization?.match(/^Bearer ([a-f0-9-]{36})$/)?.[1];
       const session = sessionStore.get(token);
@@ -699,6 +814,7 @@ export function createHttpApp({
         });
       }
     } catch (error) {
+      keyAttempt?.finish(null, false);
       if (!response.headersSent && !response.destroyed)
         send(response, error.status || 500, {
           error: error.status ? error.message : 'Server error',
@@ -713,8 +829,16 @@ export function createHttpApp({
     media?.stop(id);
   };
   const sweep = setInterval(() => sessionStore.sweep(), 1000).unref();
+  const claimSweep =
+    approvedClients &&
+    setInterval(() => {
+      approvedClients
+        .sweepExpired()
+        .catch((error) => log(`Approved-client expiry cleanup failed: ${error.message}`));
+    }, 60_000).unref();
   server.on('close', () => {
     clearInterval(sweep);
+    clearInterval(claimSweep);
     sessionStore.stop();
   });
   applyServerLimits(server);

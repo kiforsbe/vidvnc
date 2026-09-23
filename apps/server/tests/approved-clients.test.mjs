@@ -200,3 +200,141 @@ test('approved clients follow the Access default until given an override', async
     'approval',
   );
 });
+
+test('registration ticket is one-use, expires in ten minutes, and does not spend itself on invalid fields', async () => {
+  let now = 1_000;
+  const keys = new ConnectionKeyRegistry({ clock: () => now });
+  const store = await ApprovedClientStore.open(null, { keys, clock: () => now });
+  const ticket = store.issueRegistrationTicket();
+  assert.equal(typeof ticket.registrationTicket, 'string');
+  const input = {
+    registrationTicket: ticket.registrationTicket,
+    deviceName: 'Phone',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-1',
+    client: 'Safari',
+  };
+  await assert.rejects(store.submit({ ...input, username: '' }), /username/i);
+  const registration = await store.submit(input);
+  assert.equal(registration.requestId.length > 0, true);
+  await assert.rejects(store.submit(input), /ticket/i);
+  const lateTicket = store.issueRegistrationTicket();
+  now += 600_000;
+  await assert.rejects(
+    store.submit({ ...input, registrationTicket: lateTicket.registrationTicket }),
+    /ticket/i,
+  );
+});
+
+test('invalid legacy setup code is rejected before password derivation', async () => {
+  let derivations = 0;
+  const store = await ApprovedClientStore.open(null, {
+    keys: new ConnectionKeyRegistry(),
+    admission: {
+      withScrypt: async (work) => {
+        derivations++;
+        return work();
+      },
+    },
+  });
+  await assert.rejects(
+    store.submit({
+      key: 'AAAA-AAAA',
+      deviceName: 'Phone',
+      username: 'kim',
+      password: 'correct horse battery staple',
+      installationId: 'browser-1',
+      client: 'Safari',
+    }),
+    /setup key/i,
+  );
+  assert.equal(derivations, 0);
+});
+
+test('a ticket that expires during password derivation is not accepted', async () => {
+  let now = 1_000;
+  const store = await ApprovedClientStore.open(null, {
+    keys: new ConnectionKeyRegistry(),
+    clock: () => now,
+    admission: {
+      withScrypt: async (work) => {
+        const result = await work();
+        now += 600_000;
+        return result;
+      },
+    },
+  });
+  const { registrationTicket } = store.issueRegistrationTicket();
+  await assert.rejects(
+    store.submit({
+      registrationTicket,
+      deviceName: 'Phone',
+      username: 'kim',
+      password: 'correct horse battery staple',
+      installationId: 'browser-1',
+      client: 'Safari',
+    }),
+    /ticket/i,
+  );
+  assert.equal(store.status().pending.length, 0);
+});
+
+test('pending claims cap at 64, expire after ten minutes, and unclaimed approval is durably removed', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vidvnc-approved-expiry-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filename = join(directory, 'clients.json');
+  let now = 1_000;
+  const keys = new ConnectionKeyRegistry({ clock: () => now });
+  const store = await ApprovedClientStore.open(filename, { keys, clock: () => now });
+  const register = async (n) =>
+    store.submit({
+      key: keys.createSetup().key,
+      deviceName: `Phone ${n}`,
+      username: 'kim',
+      password: 'correct horse battery staple',
+      installationId: `browser-${n}`,
+      client: 'Safari',
+    });
+  const first = await register(0);
+  await store.approve(first.requestId);
+  for (let i = 1; i < 64; i++) await register(i);
+  await assert.rejects(register(64), /limit|too many/i);
+  assert.equal(store.status().pending.length, 63);
+  now += 600_000;
+  assert.deepEqual(store.registrationStatus(first.requestId, first.claimToken), {
+    state: 'invalid',
+  });
+  assert.equal(store.status().pending.length, 0);
+  await store.sweepExpired();
+  assert.equal(store.status().approved.length, 0);
+  assert.deepEqual(JSON.parse(await readFile(filename, 'utf8')).clients, []);
+});
+
+test('expiry removes only old claims and also clears rejected requests', async () => {
+  let now = 1_000;
+  const keys = new ConnectionKeyRegistry({ clock: () => now });
+  const store = await ApprovedClientStore.open(null, { keys, clock: () => now });
+  const register = async (n) =>
+    store.submit({
+      key: keys.createSetup().key,
+      deviceName: `Phone ${n}`,
+      username: 'kim',
+      password: 'correct horse battery staple',
+      installationId: `browser-${n}`,
+      client: 'Safari',
+    });
+  const oldest = await register(1);
+  store.reject(oldest.requestId);
+  now += 300_000;
+  const newest = await register(2);
+  now += 300_000;
+  await store.sweepExpired();
+  assert.deepEqual(store.registrationStatus(oldest.requestId, oldest.claimToken), {
+    state: 'invalid',
+  });
+  assert.deepEqual(store.registrationStatus(newest.requestId, newest.claimToken), {
+    state: 'pending',
+  });
+  assert.equal(store.status().pending.length, 1);
+});

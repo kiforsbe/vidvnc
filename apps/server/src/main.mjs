@@ -27,6 +27,7 @@ import { tlsDesktopStatus } from './tls/desktop-status.mjs';
 import { createServerLog } from './server-log.mjs';
 import { createLocalSessionScopeController } from './local-session-scope.mjs';
 import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
+import { AdmissionBudget } from './admission-budget.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -59,6 +60,7 @@ async function serve() {
     const directory = dataDirectory();
     const files = settingsFiles(directory);
     const access = await AccessSettings.open(files.access);
+    const admission = new AdmissionBudget();
     const store = new SessionStore({ maxSessions: () => access.snapshot().maxSessions });
     const diagnostics = new Diagnostics({
       directory: logDirectory,
@@ -89,6 +91,7 @@ async function serve() {
     }
     const approvedClients = await ApprovedClientStore.open(files.approvedClients, {
       keys: store.keys,
+      admission,
     });
     runtime = new StreamRuntime({
       sessions: store,
@@ -98,6 +101,8 @@ async function serve() {
       access,
       listenerScope: 'local',
       localSessionScope: localSession.scope,
+      admission,
+      log: serverLog,
       approvedClients,
       videoCodecs: hostCodecs,
       videoBackends: info.backends,

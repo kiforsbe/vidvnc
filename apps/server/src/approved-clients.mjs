@@ -12,6 +12,8 @@ import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 
 const scrypt = promisify(scryptCallback);
 const EMPTY = Object.freeze({ version: 1, clients: [] });
+const CLAIM_TTL_MS = 600_000;
+const MAX_PENDING = 64;
 // 'default' follows the Access page's keyboard-and-mouse setting; the others override it per client.
 export const CLIENT_PERMISSIONS = Object.freeze(['default', 'approval', 'available', 'view-only']);
 const LEGACY_PERMISSIONS = { 'request-control': 'approval' };
@@ -77,6 +79,8 @@ async function read(filename) {
 export class ApprovedClientStore {
   #value;
   #pending = new Map();
+  #tickets = new Map();
+  #submitting = 0;
   #attempts = new Map();
   #queue = Promise.resolve();
   constructor(filename, value, { keys, clock, maxAttempts, windowMs, admission }) {
@@ -101,39 +105,78 @@ export class ApprovedClientStore {
       admission,
     });
   }
+  #expired(row) {
+    return this.clock() >= row.requestedAt + CLAIM_TTL_MS;
+  }
+  #expiredUnclaimed(clientId) {
+    return [...this.#pending.values()].some(
+      (row) => row.clientId === clientId && !row.claimed && this.#expired(row),
+    );
+  }
+  issueRegistrationTicket() {
+    const now = this.clock();
+    for (const [key, row] of this.#tickets) if (now >= row.expiresAt) this.#tickets.delete(key);
+    if (this.#tickets.size >= MAX_PENDING) throw new Error('Registration ticket limit reached');
+    const registrationTicket = randomBytes(32).toString('base64url');
+    const expiresAt = now + CLAIM_TTL_MS;
+    this.#tickets.set(hash(registrationTicket), { expiresAt, inUse: false });
+    return { registrationTicket, expiresAt };
+  }
   async submit(input) {
-    const deviceName = text(input.deviceName, 'device name', { max: 120 });
-    const username = text(input.username, 'username', { max: 64 });
-    const installationId = text(input.installationId, 'installation ID', { max: 128 });
-    const client = text(input.client, 'client', { max: 120 });
-    const network =
-      typeof input.network === 'string' ? text(input.network, 'network', { min: 0, max: 120 }) : '';
-    const password = this.admission
-      ? await this.admission.withScrypt(() => passwordVerifier(input.password))
-      : await passwordVerifier(input.password);
-    if (!this.keys.use(input.key, CONNECTION_KEY_PURPOSES.setup))
+    await this.sweepExpired();
+    const live = [...this.#pending.values()].filter((row) => !this.#expired(row)).length;
+    if (live + this.#submitting >= MAX_PENDING) throw new Error('Too many pending client requests');
+    const ticketKey =
+      input.registrationTicket === undefined ? null : hash(String(input.registrationTicket));
+    const ticket = ticketKey && this.#tickets.get(ticketKey);
+    if (ticketKey && (!ticket || this.clock() >= ticket.expiresAt || ticket.inUse))
+      throw new Error('Invalid registration ticket');
+    if (!ticketKey && this.keys.inspect(input.key)?.purpose !== CONNECTION_KEY_PURPOSES.setup)
       throw new Error('Invalid client setup key');
-    const requestId = randomUUID();
-    const claimToken = randomBytes(32).toString('base64url');
-    this.#pending.set(requestId, {
-      requestId,
-      deviceName,
-      username,
-      installationId,
-      client,
-      network,
-      password,
-      claimHash: hash(claimToken),
-      requestedAt: this.clock(),
-      state: 'pending',
-    });
-    return { requestId, claimToken };
+    if (ticket) ticket.inUse = true;
+    this.#submitting++;
+    try {
+      const deviceName = text(input.deviceName, 'device name', { max: 120 });
+      const username = text(input.username, 'username', { max: 64 });
+      const installationId = text(input.installationId, 'installation ID', { max: 128 });
+      const client = text(input.client, 'client', { max: 120 });
+      const network =
+        typeof input.network === 'string'
+          ? text(input.network, 'network', { min: 0, max: 120 })
+          : '';
+      const password = this.admission
+        ? await this.admission.withScrypt(() => passwordVerifier(input.password))
+        : await passwordVerifier(input.password);
+      if (ticket && this.clock() >= ticket.expiresAt)
+        throw new Error('Invalid registration ticket');
+      if (ticket) this.#tickets.delete(ticketKey);
+      else if (!this.keys.use(input.key, CONNECTION_KEY_PURPOSES.setup))
+        throw new Error('Invalid client setup key');
+      const requestId = randomUUID();
+      const claimToken = randomBytes(32).toString('base64url');
+      this.#pending.set(requestId, {
+        requestId,
+        deviceName,
+        username,
+        installationId,
+        client,
+        network,
+        password,
+        claimHash: hash(claimToken),
+        requestedAt: this.clock(),
+        state: 'pending',
+      });
+      return { requestId, claimToken };
+    } finally {
+      if (ticket) ticket.inUse = false;
+      this.#submitting--;
+    }
   }
   status(sessions = []) {
     const connected = new Set(sessions.map((row) => row.approvedClientId).filter(Boolean));
     return {
       pending: [...this.#pending.values()]
-        .filter((row) => row.state === 'pending')
+        .filter((row) => row.state === 'pending' && !this.#expired(row))
         .map((row) => ({
           id: row.requestId,
           deviceName: row.deviceName,
@@ -142,21 +185,24 @@ export class ApprovedClientStore {
           network: row.network,
           requestedAt: row.requestedAt,
         })),
-      approved: this.#value.clients.map((row) => ({
-        id: row.id,
-        deviceName: row.deviceName,
-        username: row.username,
-        client: row.client,
-        network: row.network,
-        connected: connected.has(row.id),
-        permission: row.permission,
-        lastConnectedAt: row.lastConnectedAt,
-      })),
+      approved: this.#value.clients
+        .filter((row) => !this.#expiredUnclaimed(row.id))
+        .map((row) => ({
+          id: row.id,
+          deviceName: row.deviceName,
+          username: row.username,
+          client: row.client,
+          network: row.network,
+          connected: connected.has(row.id),
+          permission: row.permission,
+          lastConnectedAt: row.lastConnectedAt,
+        })),
     };
   }
   registrationStatus(requestId, claimToken) {
     const row = this.#pending.get(requestId);
-    if (!row || !safeEqual(row.claimHash, hash(String(claimToken)))) return { state: 'invalid' };
+    if (!row || this.#expired(row) || !safeEqual(row.claimHash, hash(String(claimToken))))
+      return { state: 'invalid' };
     if (row.state === 'pending') return { state: 'pending' };
     if (row.state === 'rejected') return { state: 'rejected' };
     if (row.claimed) return { state: 'approved', claimed: true };
@@ -172,6 +218,7 @@ export class ApprovedClientStore {
   }
   approve(requestId) {
     const operation = this.#queue.then(async () => {
+      await this.#sweepExpiredInner();
       const row = this.#pending.get(requestId);
       if (!row || row.state !== 'pending') throw new Error('Unknown pending client');
       const clientSecret = randomBytes(32).toString('base64url');
@@ -197,11 +244,13 @@ export class ApprovedClientStore {
   }
   reject(requestId) {
     const row = this.#pending.get(requestId);
-    if (!row || row.state !== 'pending') throw new Error('Unknown pending client');
+    if (!row || this.#expired(row) || row.state !== 'pending')
+      throw new Error('Unknown pending client');
     row.state = 'rejected';
     row.password = null;
   }
   async authenticate(input, clientKey = 'unknown') {
+    if (this.#expiredUnclaimed(input.clientId)) return null;
     const attemptKey = `${String(input.clientId).slice(0, 128)}:${clientKey}`;
     const now = this.clock();
     if (this.#attempts.size >= 1024 && !this.#attempts.has(attemptKey))
@@ -245,6 +294,7 @@ export class ApprovedClientStore {
   }
   markConnected(clientId) {
     const operation = this.#queue.then(async () => {
+      await this.#sweepExpiredInner();
       const row = this.#value.clients.find((candidate) => candidate.id === clientId);
       if (!row) throw new Error('Unknown approved client');
       row.lastConnectedAt = this.clock();
@@ -255,25 +305,50 @@ export class ApprovedClientStore {
   }
   remove(clientId) {
     const operation = this.#queue.then(async () => {
+      await this.#sweepExpiredInner();
       const length = this.#value.clients.length;
       this.#value.clients = this.#value.clients.filter((row) => row.id !== clientId);
       if (this.#value.clients.length === length) throw new Error('Unknown approved client');
       await this.#write();
+      for (const [id, row] of this.#pending)
+        if (row.clientId === clientId) this.#pending.delete(id);
     });
     this.#queue = operation.catch(() => {});
     return operation;
   }
   permission(clientId) {
+    if (this.#expiredUnclaimed(clientId)) return null;
     return this.#value.clients.find((candidate) => candidate.id === clientId)?.permission ?? null;
   }
   setPermission(clientId, permission) {
     const operation = this.#queue.then(async () => {
+      await this.#sweepExpiredInner();
       if (!CLIENT_PERMISSIONS.includes(permission)) throw new Error('Invalid client permission');
       const row = this.#value.clients.find((candidate) => candidate.id === clientId);
       if (!row) throw new Error('Unknown approved client');
       row.permission = permission;
       await this.#write();
     });
+    this.#queue = operation.catch(() => {});
+    return operation;
+  }
+  async #sweepExpiredInner() {
+    const expired = [...this.#pending].filter(([, row]) => this.#expired(row));
+    const unclaimed = new Set(
+      expired
+        .filter(([, row]) => row.state === 'approved' && !row.claimed)
+        .map(([, row]) => row.clientId),
+    );
+    if (unclaimed.size) {
+      this.#value.clients = this.#value.clients.filter((row) => !unclaimed.has(row.id));
+      await this.#write();
+    }
+    for (const [id] of expired) this.#pending.delete(id);
+    for (const [key, row] of this.#tickets)
+      if (this.clock() >= row.expiresAt) this.#tickets.delete(key);
+  }
+  sweepExpired() {
+    const operation = this.#queue.then(() => this.#sweepExpiredInner());
     this.#queue = operation.catch(() => {});
     return operation;
   }

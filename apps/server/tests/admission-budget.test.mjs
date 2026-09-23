@@ -87,6 +87,44 @@ test('sign-in, registration and status have finite rolling budgets and recover a
   assert.equal(budget.beginStatus('192.0.2.3').ok, true);
 });
 
+test('a sign-in pre-reservation binds the parsed client ID to a cross-source identity cap', async () => {
+  const AdmissionBudget = await budgetClass();
+  const budget = new AdmissionBudget();
+  for (let i = 0; i < 10; i++) {
+    const attempt = budget.beginSignIn(`192.0.2.${i}`);
+    assert.equal(attempt.ok, true);
+    assert.equal(attempt.assignIdentity('one-client'), true);
+  }
+  const rotated = budget.beginSignIn('192.0.2.20');
+  assert.equal(rotated.ok, true);
+  assert.equal(rotated.assignIdentity('one-client'), false);
+  assert.equal(rotated.assignIdentity('another-client'), false);
+});
+
+test('a host-busy key attempt can release its pending reservation without charging a failure', async () => {
+  const AdmissionBudget = await budgetClass();
+  const budget = new AdmissionBudget();
+  const policy = {
+    ephemeral: { generation: 'busy-code', globalLimit: 20, sourceLimit: 5 },
+    session: null,
+  };
+  const attempt = budget.beginKeyStart('192.0.2.1', policy);
+  attempt.cancel();
+  assert.equal(budget.stats().ephemeral.pending, 0);
+  assert.equal(budget.stats().ephemeral.failures, 0);
+});
+
+test('IPv4 and IPv4-mapped socket sources share the same per-source budget', async () => {
+  const AdmissionBudget = await budgetClass();
+  const budget = new AdmissionBudget();
+  const policy = {
+    ephemeral: { generation: 'mapped', globalLimit: 20, sourceLimit: 5 },
+    session: null,
+  };
+  for (let i = 0; i < 5; i++) budget.beginKeyStart('192.0.2.8', policy).finish(null, false);
+  assert.equal(budget.beginKeyStart('::ffff:192.0.2.8', policy).ok, false);
+});
+
 test('a backwards clock adjustment cannot age out recent attempts early', async () => {
   const AdmissionBudget = await budgetClass();
   let now = 1_000;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHttpApp } from '../src/http-app.mjs';
 import { ApprovedClientStore } from '../src/approved-clients.mjs';
 import { SessionStore } from '../src/session-store.mjs';
+import { AdmissionBudget } from '../src/admission-budget.mjs';
 
 const post = (url, route, body, token) =>
   fetch(`${url}/api/${route}`, {
@@ -14,7 +15,7 @@ const post = (url, route, body, token) =>
     body: JSON.stringify(body),
   });
 
-async function withServer(run, { connectionMode = 'session-key' } = {}) {
+async function withServer(run, { connectionMode = 'session-key', listenerScope = 'local' } = {}) {
   const sessionStore = new SessionStore();
   const approvedClients = await ApprovedClientStore.open(null, {
     keys: sessionStore.keys,
@@ -24,6 +25,7 @@ async function withServer(run, { connectionMode = 'session-key' } = {}) {
     approvedClients,
     serverName: 'Thor',
     access: { snapshot: () => ({ connectionMode }) },
+    listenerScope,
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -32,6 +34,147 @@ async function withServer(run, { connectionMode = 'session-key' } = {}) {
     await new Promise((resolve) => server.close(resolve));
   }
 }
+
+test('metered key start returns a one-use ticket for client registration', () =>
+  withServer(async (url, server, approvedClients) => {
+    const setup = server.sessionStore.keys.createSetup();
+    const start = await post(url, 'key-start', { key: setup.key });
+    assert.equal(start.status, 202);
+    const ticket = await start.json();
+    assert.match(ticket.registrationTicket, /^[A-Za-z0-9_-]{40,}$/);
+    assert.equal(server.sessionStore.keys.inspect(setup.key), null);
+    const input = {
+      registrationTicket: ticket.registrationTicket,
+      deviceName: 'Phone',
+      username: 'kim',
+      password: 'correct horse battery staple',
+      installationId: 'browser-1',
+      client: 'Safari',
+    };
+    const response = await post(url, 'approved-clients/register', input);
+    assert.equal(response.status, 202);
+    assert.equal((await post(url, 'approved-clients/register', input)).status, 401);
+    assert.equal(approvedClients.status().pending.length, 1);
+  }));
+
+test('key start rejects a standing password on a public handler but admits a one-time code', () =>
+  withServer(
+    async (url, server) => {
+      assert.equal(
+        (await post(url, 'key-start', { key: server.sessionStore.password })).status,
+        401,
+      );
+      const once = server.sessionStore.keys.createOneTimeConnection();
+      assert.equal((await post(url, 'key-start', { key: once.key })).status, 201);
+    },
+    { listenerScope: 'public' },
+  ));
+
+test('metered key start keeps an occupied one-time code for retry', () =>
+  withServer(
+    async (url, server) => {
+      const once = server.sessionStore.keys.createOneTimeConnection();
+      const occupied = server.sessionStore.connectApproved({ id: 'occupier' });
+      assert.equal((await post(url, 'key-start', { key: once.key })).status, 409);
+      assert.ok(server.sessionStore.keys.inspect(once.key));
+      server.sessionStore.disconnect(occupied.sessionId);
+      assert.equal((await post(url, 'key-start', { key: once.key })).status, 201);
+    },
+    { connectionMode: 'one-time-keys' },
+  ));
+
+test('compatibility key oracle is capped by the same admission budget', async () => {
+  const sessionStore = new SessionStore();
+  const admission = new AdmissionBudget();
+  const server = createHttpApp({ sessionStore, admission });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    for (let i = 0; i < 5; i++)
+      assert.equal((await post(url, 'connection-key', { key: `AAAA-AAA${i}` })).status, 401);
+    assert.equal((await post(url, 'connection-key', { key: sessionStore.password })).status, 429);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('malformed key-start bodies consume the short-code attempt budget before parsing', () =>
+  withServer(async (url, server) => {
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`${url}/api/key-start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      });
+      assert.equal(response.status, 400);
+    }
+    assert.equal((await post(url, 'key-start', { key: server.sessionStore.password })).status, 429);
+  }));
+
+test('expired registration ticket cannot enroll a client', async () => {
+  let now = 1_000;
+  const sessionStore = new SessionStore({ clock: () => now });
+  const approvedClients = await ApprovedClientStore.open(null, {
+    keys: sessionStore.keys,
+    clock: () => now,
+  });
+  const server = createHttpApp({ sessionStore, approvedClients });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const setup = sessionStore.keys.createSetup();
+    const start = await post(url, 'key-start', { key: setup.key });
+    const { registrationTicket } = await start.json();
+    now += 600_000;
+    assert.equal(
+      (
+        await post(url, 'approved-clients/register', {
+          registrationTicket,
+          deviceName: 'Phone',
+          username: 'kim',
+          password: 'correct horse battery staple',
+          installationId: 'browser-1',
+          client: 'Safari',
+        })
+      ).status,
+      401,
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('sign-in and status endpoints enforce their rolling budgets', () =>
+  withServer(async (url) => {
+    for (let i = 0; i < 10; i++)
+      assert.equal(
+        (await post(url, 'approved-clients/sign-in', { clientId: `unknown-${i}` })).status,
+        401,
+      );
+    assert.equal((await post(url, 'approved-clients/sign-in', { clientId: 'known' })).status, 429);
+    for (let i = 0; i < 60; i++)
+      assert.equal(
+        (await post(url, 'approved-clients/status', { requestId: 'unknown' })).status,
+        401,
+      );
+    assert.equal(
+      (await post(url, 'approved-clients/status', { requestId: 'unknown' })).status,
+      429,
+    );
+  }));
+
+test('registration endpoint enforces its rolling budget before ticket lookup', () =>
+  withServer(async (url) => {
+    for (let i = 0; i < 10; i++)
+      assert.equal(
+        (await post(url, 'approved-clients/register', { registrationTicket: `bad-${i}` })).status,
+        401,
+      );
+    assert.equal(
+      (await post(url, 'approved-clients/register', { registrationTicket: 'bad-final' })).status,
+      429,
+    );
+  }));
 
 test('HTTP registration waits for host approval and releases the credential only to its claimant', () =>
   withServer(async (url, server, approvedClients) => {
