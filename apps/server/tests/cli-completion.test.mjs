@@ -49,6 +49,8 @@ test('arguments complete from displays, profiles and fixed words', async () => {
   assert.deepEqual(await matches('profile disable m'), ['mobile ']);
   assert.deepEqual(await matches('profile move mobile '), ['up', 'down']);
   assert.deepEqual(await matches('access a'), ['approval', 'available']);
+  assert.deepEqual(await matches('code-alphabet '), ['letters-digits', 'letters']);
+  assert.deepEqual(await matches('local-session-networks '), ['auto ']);
   assert.deepEqual(await matches('client-mode '), ['profiles', 'options']);
   assert.deepEqual(await matches('options remove '), ['size', 'framerate', 'bitrate']);
   assert.deepEqual(await matches('options remove framerate '), ['30', '60']);

@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 
 // Each connected device may run two video encoders; eight devices already exceed the host stream budget.
 export const MAX_SESSIONS_LIMIT = 8;
@@ -9,7 +10,25 @@ const DEFAULTS = Object.freeze({
   defaultControl: 'approval',
   connectionMode: 'session-key',
   maxSessions: 4,
+  shortCodeTtlSeconds: 300,
+  shortCodeMaxFailures: 20,
+  shortCodePerSourceMaxFailures: 5,
+  sessionPasswordMaxFailures: 20,
+  defaultCodeAlphabet: 'letters-digits',
+  localSessionNetworks: 'auto',
 });
+
+function bounded(value, minimum, maximum) {
+  return Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+export function validNetworkCidr(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^(.+)\/(\d{1,3})$/.exec(value);
+  if (!match) return false;
+  const family = isIP(match[1]);
+  return family !== 0 && Number(match[2]) <= (family === 4 ? 32 : 128);
+}
 
 function validate(value) {
   const next = { ...DEFAULTS, ...value };
@@ -23,6 +42,17 @@ function validate(value) {
     !Number.isSafeInteger(next.maxSessions) ||
     next.maxSessions < 1 ||
     next.maxSessions > MAX_SESSIONS_LIMIT ||
+    !bounded(next.shortCodeTtlSeconds, 60, 600) ||
+    !bounded(next.shortCodeMaxFailures, 1, 20) ||
+    !bounded(next.shortCodePerSourceMaxFailures, 1, 5) ||
+    next.shortCodePerSourceMaxFailures > next.shortCodeMaxFailures ||
+    !bounded(next.sessionPasswordMaxFailures, 1, 20) ||
+    !['letters-digits', 'letters'].includes(next.defaultCodeAlphabet) ||
+    (next.localSessionNetworks !== 'auto' &&
+      (!Array.isArray(next.localSessionNetworks) ||
+        next.localSessionNetworks.length < 1 ||
+        next.localSessionNetworks.length > 16 ||
+        !next.localSessionNetworks.every(validNetworkCidr))) ||
     Object.keys(value).some((key) => !Object.hasOwn(DEFAULTS, key))
   )
     throw new Error('Invalid access settings');
@@ -50,7 +80,7 @@ export class AccessSettings {
     return new AccessSettings(filename, await read(filename));
   }
   snapshot() {
-    return { ...this.#value };
+    return structuredClone(this.#value);
   }
   // Changes are merged over the current settings, so callers send only the fields they edit.
   replace(changes, revision) {

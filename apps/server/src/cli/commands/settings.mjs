@@ -10,7 +10,7 @@ import {
   formatDisplays,
   formatMaxSessions,
 } from '../format.mjs';
-import { MAX_SESSIONS_LIMIT } from '../../access-settings.mjs';
+import { MAX_SESSIONS_LIMIT, validNetworkCidr } from '../../access-settings.mjs';
 import { CODEC_LABELS, VIDEO_CODECS } from '../../video-codecs.mjs';
 import { BACKEND_LABELS, ENCODER_BACKEND_CHOICES } from '../../encoder-backends.mjs';
 import { resolveDisplay, resolveProfile } from '../resolve.mjs';
@@ -18,7 +18,93 @@ import * as edits from '../policy-edits.mjs';
 
 const CODEC_ALIASES = { 'h.264': 'h264', 'h.265': 'h265' };
 
+function numberSetting(name, field, label, minimum, maximum) {
+  return {
+    name,
+    usage: `${name} [${minimum}-${maximum}]`,
+    summary: `Show or set ${label.toLowerCase()}.`,
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      const value = Number(positionals[0]);
+      if (
+        positionals.length &&
+        (!/^\d+$/.test(positionals[0]) || value < minimum || value > maximum)
+      )
+        throw new UsageError(`Use a number from ${minimum} to ${maximum}.`);
+      const access = positionals.length
+        ? await context.saveAccess({ [field]: value })
+        : context.access();
+      return { text: `${label}: ${access[field]}`, data: access };
+    },
+  };
+}
+
+const securitySettingsCommands = [
+  numberSetting('code-ttl', 'shortCodeTtlSeconds', 'Short-code lifetime in seconds', 60, 600),
+  numberSetting('code-attempts', 'shortCodeMaxFailures', 'Short-code global failures', 1, 20),
+  numberSetting(
+    'code-source-attempts',
+    'shortCodePerSourceMaxFailures',
+    'Short-code failures per source',
+    1,
+    5,
+  ),
+  numberSetting(
+    'session-password-attempts',
+    'sessionPasswordMaxFailures',
+    'Local session-password failures',
+    1,
+    20,
+  ),
+  {
+    name: 'code-alphabet',
+    usage: 'code-alphabet [letters-digits|letters]',
+    summary: 'Show or set the default characters for newly issued codes.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      if (positionals.length && !['letters-digits', 'letters'].includes(positionals[0]))
+        throw new UsageError('Use letters-digits or letters.');
+      const access = positionals.length
+        ? await context.saveAccess({ defaultCodeAlphabet: positionals[0] })
+        : context.access();
+      return { text: `Default code characters: ${access.defaultCodeAlphabet}`, data: access };
+    },
+  },
+  {
+    name: 'local-session-networks',
+    usage: 'local-session-networks [auto|CIDR,CIDR,…]',
+    summary: 'Show or restrict the detected local networks for the standing password.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      let networks;
+      if (positionals.length) {
+        networks = positionals[0] === 'auto' ? 'auto' : positionals[0].split(',');
+        if (
+          networks !== 'auto' &&
+          (!networks.length || networks.length > 16 || !networks.every(validNetworkCidr))
+        )
+          throw new UsageError('Use auto or up to 16 comma-separated CIDRs.');
+      }
+      const access = positionals.length
+        ? await context.saveAccess({ localSessionNetworks: networks })
+        : context.access();
+      const shown =
+        access.localSessionNetworks === 'auto'
+          ? 'auto (eligible detected LANs)'
+          : access.localSessionNetworks.join(', ');
+      return { text: `Local session-password networks: ${shown}`, data: access };
+    },
+  },
+];
+
 export const settingsCommands = [
+  ...securitySettingsCommands,
   {
     name: 'displays',
     usage: 'displays',

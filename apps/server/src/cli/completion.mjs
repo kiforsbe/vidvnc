@@ -55,6 +55,8 @@ const ARGUMENTS = {
   'encoder-backend': [() => [...ENCODER_BACKEND_CHOICES]],
   access: [() => ['approval', 'available']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
+  'code-alphabet': [() => ['letters-digits', 'letters']],
+  'local-session-networks': [() => ['auto']],
   'max-devices': [
     () => Array.from({ length: MAX_SESSIONS_LIMIT }, (_, index) => String(index + 1)),
   ],

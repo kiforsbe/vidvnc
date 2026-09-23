@@ -196,6 +196,12 @@ test('access shows and saves the default for new connections', async (t) => {
     defaultControl: 'available',
     connectionMode: 'session-key',
     maxSessions: 4,
+    shortCodeTtlSeconds: 300,
+    shortCodeMaxFailures: 20,
+    shortCodePerSourceMaxFailures: 5,
+    sessionPasswordMaxFailures: 20,
+    defaultCodeAlphabet: 'letters-digits',
+    localSessionNetworks: 'auto',
   });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
 });
@@ -221,6 +227,28 @@ test('connection-mode shows and saves the ordinary admission policy', async (t) 
     run('connection-mode anything'),
     usage(/^Use session-key, one-time-keys, or approved-only\./),
   );
+});
+
+test('security settings CLI reads and saves bounded code policy', async (t) => {
+  const { run, context } = await offline(t);
+  assert.equal((await run('code-ttl --json')).data.shortCodeTtlSeconds, 300);
+  assert.equal((await run('code-attempts --json')).data.shortCodeMaxFailures, 20);
+  assert.equal((await run('code-source-attempts --json')).data.shortCodePerSourceMaxFailures, 5);
+  assert.equal((await run('session-password-attempts --json')).data.sessionPasswordMaxFailures, 20);
+  assert.equal((await run('code-alphabet --json')).data.defaultCodeAlphabet, 'letters-digits');
+  assert.equal((await run('local-session-networks --json')).data.localSessionNetworks, 'auto');
+  await run('code-source-attempts 2');
+  await run('code-attempts 3');
+  await run('code-ttl 60');
+  await run('session-password-attempts 1');
+  await run('code-alphabet letters');
+  await run('local-session-networks 192.168.50.0/24,fd12::/64');
+  assert.deepEqual(context.access().localSessionNetworks, ['192.168.50.0/24', 'fd12::/64']);
+  assert.equal(context.access().defaultCodeAlphabet, 'letters');
+  assert.equal(context.access().shortCodeTtlSeconds, 60);
+  await assert.rejects(run('code-ttl 601'), usage(/60.*600/));
+  await assert.rejects(run('code-source-attempts 6'), usage(/1.*5/));
+  await assert.rejects(run('code-attempts 1'), /invalid|exceeds/i);
 });
 
 test('codecs shows support and order, and set changes the saved order', async (t) => {
