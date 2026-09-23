@@ -7,3 +7,9 @@ export function connectionKeyFromFragment(fragment) {
   const parameters = new URLSearchParams(fragment.startsWith('#') ? fragment.slice(1) : fragment);
   return normalizePassword(parameters.get('key') ?? '');
 }
+
+export function consumeConnectionKeyFromLocation(location, history) {
+  const key = connectionKeyFromFragment(location.hash);
+  if (key) history.replaceState(null, '', `${location.pathname}${location.search}`);
+  return key;
+}
