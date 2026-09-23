@@ -25,6 +25,8 @@ import { createTlsListener } from './tls/listener.mjs';
 import { attemptAndAnnounce, connectionAddresses, secureAddressLines } from './tls/addresses.mjs';
 import { tlsDesktopStatus } from './tls/desktop-status.mjs';
 import { createServerLog } from './server-log.mjs';
+import { createLocalSessionScopeController } from './local-session-scope.mjs';
+import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -62,6 +64,12 @@ async function serve() {
       directory: logDirectory,
     });
     const serverLog = createServerLog({ desktop, directory: logDirectory });
+    const localSession = createLocalSessionScopeController({
+      access,
+      detect: detectWindowsLanAdapters,
+      log: serverLog,
+    });
+    await localSession.refresh();
     // Eight video sources plus two audio formats, each of which may briefly have a closing
     // predecessor; registry budgets decide what starts.
     const media = new NativeMedia({
@@ -88,6 +96,8 @@ async function serve() {
       inventory,
       policy,
       access,
+      listenerScope: 'local',
+      localSessionScope: localSession.scope,
       approvedClients,
       videoCodecs: hostCodecs,
       videoBackends: info.backends,
@@ -150,6 +160,7 @@ async function serve() {
     let inventoryTimer;
     let controlTimer;
     let tlsRecheckTimer;
+    let lanRefreshTimer;
     let refreshing = false;
     const inventoryAbort = new AbortController();
     let stopping = false;
@@ -160,6 +171,7 @@ async function serve() {
       clearInterval(inventoryTimer);
       clearInterval(controlTimer);
       clearInterval(tlsRecheckTimer);
+      clearInterval(lanRefreshTimer);
       inventoryAbort.abort();
       store.stop();
       owner?.close();
@@ -221,6 +233,14 @@ async function serve() {
           .renew()
           .catch((error) => console.error('Control renewal failed:', error.message));
     }, 2000).unref();
+    lanRefreshTimer = setInterval(() => {
+      if (!stopping)
+        localSession
+          .refresh()
+          .catch((error) =>
+            serverLog(`Warning: LAN password eligibility refresh failed: ${error.message}`),
+          );
+    }, 15_000).unref();
     if (desktop) {
       // The TLS report rides along on the status message the host already reads every
       // second, rather than as a message of its own: the host's TLS section is a view of

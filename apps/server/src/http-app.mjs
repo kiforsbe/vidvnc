@@ -14,6 +14,7 @@ import {
   ENROLMENT_UNKNOWN,
 } from './tls/anchor.mjs';
 import { applyServerLimits } from './server-limits.mjs';
+import { createLocalSessionScope } from './local-session-scope.mjs';
 
 function send(response, status, body) {
   response.writeHead(status, {
@@ -132,6 +133,8 @@ export function createHttpApp({
   sessionStore = new SessionStore(),
   approvedClients = null,
   access = null,
+  listenerScope = 'local',
+  localSessionScope = createLocalSessionScope(),
   // Injectable TLS status: `{ status() }` returning `{ active, port }`, read on every
   // request. Omitted, the app behaves as if TLS is inactive, which keeps every existing
   // caller (this app is constructed in dozens of tests with no `tls` option) byte-identical
@@ -141,6 +144,7 @@ export function createHttpApp({
   // only reads whatever status it is handed.
   tls = null,
 } = {}) {
+  if (!['local', 'public'].includes(listenerScope)) throw new Error('Invalid listener scope');
   const reconnecting = new Set();
   const telemetryTimes = new Map();
   const connectionMode = () => access?.snapshot().connectionMode ?? 'session-key';
@@ -481,6 +485,11 @@ export function createHttpApp({
           return send(response, 400, { error: 'Password is required' });
         const key = sessionStore.keys.inspect(body.password);
         if (!key || !ordinaryKeyAllowed(key.purpose))
+          return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
+        if (
+          key.purpose === 'session' &&
+          !localSessionScope.allows(request.socket.remoteAddress, listenerScope)
+        )
           return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
         let plan;
         try {

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHttpApp } from '../src/http-app.mjs';
-async function withServer(run) {
-  const server = createHttpApp({ serverName: 'Test PC' });
+async function withServer(run, options = {}) {
+  const server = createHttpApp({ serverName: 'Test PC', ...options });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     await run(`http://127.0.0.1:${server.address().port}`, server);
@@ -52,6 +52,21 @@ test('accepts a dashless lowercase password through the real HTTP endpoint', () 
     const password = server.sessionStore.password.replace('-', '').toLowerCase();
     assert.equal((await post(url + '/api/connect', { password })).status, 201);
   }));
+test('public listener rejects a standing password even from loopback with localhost and forwarded LAN headers', () =>
+  withServer(
+    async (url, server) => {
+      const denied = await post(
+        url + '/api/connect',
+        { password: server.sessionStore.password },
+        null,
+        { host: 'localhost', 'x-forwarded-for': '192.168.10.44' },
+      );
+      assert.equal(denied.status, 401);
+      const once = server.sessionStore.keys.createOneTimeConnection();
+      assert.equal((await post(url + '/api/connect', { password: once.key })).status, 201);
+    },
+    { listenerScope: 'public' },
+  ));
 test('returns the selected stream profile without exposing the password', () =>
   withServer(async (url, server) => {
     const response = await post(
