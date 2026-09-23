@@ -36,6 +36,12 @@ test('rejects a wrong password without revealing the valid password', () => {
   assert.deepEqual(result, { ok: false, reason: 'invalid-password' });
 });
 
+test('rotating unknown sources cannot permanently lock out a later valid source', () => {
+  const store = new SessionStore({ maxAttempts: 1 });
+  for (let i = 0; i < 1024; i++) assert.equal(store.connect('BAD', `192.0.2.${i}`).ok, false);
+  assert.equal(store.connect(store.password, 'fresh-source').ok, true);
+});
+
 test('allows an active session to explicitly toggle control', () => {
   const store = new SessionStore();
   const session = store.connect(store.password, '192.168.1.20');

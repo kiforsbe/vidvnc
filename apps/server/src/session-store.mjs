@@ -69,7 +69,7 @@ export class SessionStore {
     this.sweep();
     const now = this.clock();
     if (this._failedAttempts.size >= 1024 && !this._failedAttempts.has(clientKey))
-      return { ok: false, reason: 'rate-limited' };
+      this._failedAttempts.delete(this._failedAttempts.keys().next().value);
     const attempts = (this._failedAttempts.get(clientKey) ?? []).filter(
       (time) => now - time < this.windowMs,
     );

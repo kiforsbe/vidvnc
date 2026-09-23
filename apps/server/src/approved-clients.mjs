@@ -79,17 +79,18 @@ export class ApprovedClientStore {
   #pending = new Map();
   #attempts = new Map();
   #queue = Promise.resolve();
-  constructor(filename, value, { keys, clock, maxAttempts, windowMs }) {
+  constructor(filename, value, { keys, clock, maxAttempts, windowMs, admission }) {
     this.filename = filename;
     this.#value = value;
     this.keys = keys;
     this.clock = clock;
     this.maxAttempts = maxAttempts;
     this.windowMs = windowMs;
+    this.admission = admission;
   }
   static async open(
     filename,
-    { keys, clock = () => Date.now(), maxAttempts = 5, windowMs = 60_000 } = {},
+    { keys, clock = () => Date.now(), maxAttempts = 5, windowMs = 60_000, admission = null } = {},
   ) {
     if (!keys) throw new Error('Connection-key registry is required');
     return new ApprovedClientStore(filename, await read(filename), {
@@ -97,6 +98,7 @@ export class ApprovedClientStore {
       clock,
       maxAttempts,
       windowMs,
+      admission,
     });
   }
   async submit(input) {
@@ -106,7 +108,9 @@ export class ApprovedClientStore {
     const client = text(input.client, 'client', { max: 120 });
     const network =
       typeof input.network === 'string' ? text(input.network, 'network', { min: 0, max: 120 }) : '';
-    const password = await passwordVerifier(input.password);
+    const password = this.admission
+      ? await this.admission.withScrypt(() => passwordVerifier(input.password))
+      : await passwordVerifier(input.password);
     if (!this.keys.use(input.key, CONNECTION_KEY_PURPOSES.setup))
       throw new Error('Invalid client setup key');
     const requestId = randomUUID();
@@ -200,7 +204,8 @@ export class ApprovedClientStore {
   async authenticate(input, clientKey = 'unknown') {
     const attemptKey = `${String(input.clientId).slice(0, 128)}:${clientKey}`;
     const now = this.clock();
-    if (this.#attempts.size >= 1024 && !this.#attempts.has(attemptKey)) return null;
+    if (this.#attempts.size >= 1024 && !this.#attempts.has(attemptKey))
+      this.#attempts.delete(this.#attempts.keys().next().value);
     const attempts = (this.#attempts.get(attemptKey) ?? []).filter(
       (time) => now - time < this.windowMs,
     );
@@ -216,7 +221,15 @@ export class ApprovedClientStore {
       this.#attempts.set(attemptKey, attempts);
       return null;
     }
-    const candidate = await passwordVerifier(input.password, row.password.salt).catch(() => null);
+    let candidate;
+    try {
+      candidate = this.admission
+        ? await this.admission.withScrypt(() => passwordVerifier(input.password, row.password.salt))
+        : await passwordVerifier(input.password, row.password.salt);
+    } catch (error) {
+      if (error.status === 503) throw error;
+      candidate = null;
+    }
     if (!candidate || !safeEqual(row.password.hash, candidate.hash)) {
       attempts.push(now);
       this.#attempts.set(attemptKey, attempts);

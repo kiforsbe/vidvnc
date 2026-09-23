@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ApprovedClientStore } from '../src/approved-clients.mjs';
 import { ConnectionKeyRegistry } from '../src/connection-keys.mjs';
+import { AdmissionBudget } from '../src/admission-budget.mjs';
 
 test('setup claim is isolated, single-use, and approval persists only verifiers', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vidvnc-approved-'));
@@ -116,6 +117,55 @@ test('approved-client password attempts are rate limited per client and source',
   assert.equal((await store.authenticate(input, 'source-b')).username, 'kim');
   now += 5_001;
   assert.equal((await store.authenticate(input, 'source-a')).username, 'kim');
+});
+
+test('rotating unknown client IDs cannot block a valid approved client at the map cap', async () => {
+  const keys = new ConnectionKeyRegistry();
+  const store = await ApprovedClientStore.open(null, { keys });
+  const registration = await store.submit({
+    key: keys.createSetup({ ttlMs: 60_000 }).key,
+    deviceName: 'Browser',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-installation-5',
+    client: 'Browser',
+  });
+  await store.approve(registration.requestId);
+  const credential = store.registrationStatus(registration.requestId, registration.claimToken);
+  for (let i = 0; i < 1024; i++)
+    assert.equal(await store.authenticate({ clientId: `unknown-${i}` }, `source-${i}`), null);
+  assert.equal(
+    (
+      await store.authenticate(
+        { ...credential, password: 'correct horse battery staple' },
+        'fresh-source',
+      )
+    ).username,
+    'kim',
+  );
+});
+
+test('approved-client sign-in refuses a fifth concurrent password derivation', async () => {
+  const keys = new ConnectionKeyRegistry();
+  const admission = new AdmissionBudget();
+  const store = await ApprovedClientStore.open(null, { keys, admission });
+  const registration = await store.submit({
+    key: keys.createSetup({ ttlMs: 60_000 }).key,
+    deviceName: 'Browser',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-installation-6',
+    client: 'Browser',
+  });
+  await store.approve(registration.requestId);
+  const credential = store.registrationStatus(registration.requestId, registration.claimToken);
+  const input = { ...credential, password: 'correct horse battery staple' };
+  const firstFour = Array.from({ length: 4 }, (_, i) => store.authenticate(input, `source-${i}`));
+  await assert.rejects(store.authenticate(input, 'source-4'), /busy/i);
+  assert.equal(
+    (await Promise.all(firstFour)).every((row) => row?.username === 'kim'),
+    true,
+  );
 });
 
 test('approved clients follow the Access default until given an override', async (t) => {
