@@ -5,6 +5,21 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [0.8.0] - 2026-09-23
+
+### Added
+
+- The **Connect a device** dialog now provides a locally generated QR code for the selected
+  session password, one-time connection key, or client setup key. Scanning it opens VidVNC on
+  the device and pre-fills the connection form, so the person can explicitly choose Connect or
+  continue with client registration.
+
+### Fixed
+
+- QR connection links keep their key in the URL fragment rather than an HTTP request, and clear
+  it from the address bar before any API call. When iPhone Safari reuses an already-open VidVNC
+  page, a fragment change now still pre-fills the connection form without requiring a reload.
+
 ## [0.7.1] - 2026-09-22
 
 ### Fixed
