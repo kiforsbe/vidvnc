@@ -136,6 +136,31 @@ public sealed partial class HostWindow
         { clientError = error.Message; if (currentPage == "Clients") RenderPage(); }
     }
 
+    async Task DisconnectOrdinarySessions()
+    {
+        try
+        {
+            await SendClientOwnerCommand(new() { ["type"] = "ordinary-sessions-disconnect" });
+            clientError = null;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException)
+        { clientError = error.Message; if (currentPage == "Clients") RenderPage(); }
+    }
+
+    async Task ConfirmOrdinaryDisconnect()
+    {
+        var confirm = new ContentDialog
+        {
+            Title = "Disconnect ordinary sessions now?",
+            Content = "This ends connections made with a session password or one-time code. Approved-client sessions stay connected. Changing the connection method alone only affects new sign-ins.",
+            PrimaryButtonText = "Disconnect ordinary sessions",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = navigation.XamlRoot,
+        };
+        if (await confirm.ShowAsync() == ContentDialogResult.Primary) await DisconnectOrdinarySessions();
+    }
+
     void RenderClients()
     {
         var connect = new Button { Content = "Connect a device", Tag = "approved-client", IsEnabled = sharing };
@@ -152,6 +177,14 @@ public sealed partial class HostWindow
         summaryContent.Children.Add(Secondary("New devices must be verified before they can connect."));
         page.Children.Add(Card(IconRow("\uE716", summaryContent)));
 
+        var lockdown = new StackPanel { Spacing = HostSpacing.Row };
+        lockdown.Children.Add(Label("Emergency ordinary-session disconnect"));
+        lockdown.Children.Add(Secondary("Changing to approved clients only blocks new ordinary sign-ins. Use this separate action to end ordinary sessions already connected."));
+        var disconnectOrdinary = new Button { Content = "Disconnect ordinary sessions now", Tag = "disconnect-ordinary", IsEnabled = server is not null };
+        disconnectOrdinary.Click += async (_, _) => await ConfirmOrdinaryDisconnect();
+        lockdown.Children.Add(disconnectOrdinary);
+        page.Children.Add(Card(lockdown));
+
         page.Children.Add(Label("Needs your approval", 22));
         if (pendingClients.Length == 0)
             page.Children.Add(Card(Secondary("No clients are waiting for approval.")));
@@ -164,7 +197,7 @@ public sealed partial class HostWindow
         else
             foreach (var client in approvedClients) page.Children.Add(Card(ApprovedClientRow(client), HostSpacing.Row));
 
-        page.Children.Add(Secondary("Approved clients can sign in without a connection key."));
+        page.Children.Add(Secondary("An approved browser credential is copyable. Protect it and its password; removal revokes its active session."));
     }
 
     static string Plural(int count) => count == 1 ? "" : "s";

@@ -185,6 +185,19 @@ test('live CLI issues codes only on explicit commands and rotates the local pass
   await h.send('one-time-code unsafe', /Choose letters-digits or letters/);
 });
 
+test('explicit ordinary-session lockdown confirms and leaves approved sessions connected', async (t) => {
+  const h = await harness(t);
+  const ordinary = h.connect('192.168.1.20', 'Mozilla/5.0 (iPhone)');
+  const approved = h.sessionStore.connectApproved({ id: 'approved-1', generation: 0 }).sessionId;
+  await h.send('disconnect-ordinary', /Disconnect 1 ordinary session now\? \[y\/N\] $/);
+  await h.send('n', /Ordinary sessions remain connected\./);
+  assert.ok(h.sessionStore.get(ordinary));
+  await h.send('disconnect-ordinary --yes', /Disconnected 1 ordinary session\./);
+  assert.equal(h.sessionStore.get(ordinary), null);
+  assert.ok(h.sessionStore.get(approved));
+  assert.ok(h.calls.some(([action, id]) => action === 'stopSession' && id === ordinary));
+});
+
 test('a settings file changed elsewhere asks for a restart', async (t) => {
   const h = await harness(t);
   const other = await StreamPolicyStore.open(h.policyFile);

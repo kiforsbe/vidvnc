@@ -126,6 +126,10 @@ public partial class App : Application
                                     throw new Exception("Inactive approved client needs last-connected status");
                                 if (visibleText.Contains("Active sessions"))
                                     throw new Exception("Session detail leaked onto the Clients page");
+                                var lockdownButton = Descendants(shell).OfType<Button>().SingleOrDefault(button => button.Tag as string == "disconnect-ordinary");
+                                if (lockdownButton?.Content as string != "Disconnect ordinary sessions now" ||
+                                    !visibleText.Any(text => text.Contains("only blocks new ordinary sign-ins")))
+                                    throw new Exception("The separate emergency ordinary-session disconnect action is missing");
                                 var visibleInput = Descendants(shell).OfType<TextBox>().Select(input => input.Text);
                                 if (visibleText.Concat(visibleInput).Any(text => text is "must-not-render"))
                                     throw new Exception("Password or client secret leaked into the Clients page");
@@ -199,6 +203,16 @@ public partial class App : Application
                                     !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("Single use")) ||
                                     !Descendants(approvalPanel).OfType<Image>().Any(image => image.Tag as string == "connection-qr-image"))
                                     throw new Exception("Approved-client mode must hide the Session password and show its server-issued single-use key");
+                                var disconnectOrdinary = typeof(HostWindow).GetMethod("DisconnectOrdinarySessions", flags)!;
+                                var disconnectTask = (Task)disconnectOrdinary.Invoke(window, null)!;
+                                var disconnectLine = await clientOwner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                using (var disconnectResult = JsonDocument.Parse(disconnectLine!))
+                                {
+                                    if (disconnectResult.RootElement.GetProperty("received").GetProperty("type").GetString() != "ordinary-sessions-disconnect")
+                                        throw new Exception("Host did not send its explicit ordinary-session disconnect command");
+                                    receiveClientResult.Invoke(window, new object[] { disconnectResult.RootElement });
+                                }
+                                await disconnectTask;
                                 clientServerField.SetValue(window, null);
                                 clientOwner.StandardInput.Close();
                                 if (!clientOwner.WaitForExit(5000)) clientOwner.Kill();

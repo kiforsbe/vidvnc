@@ -10,6 +10,7 @@ import { CONNECTION_KEY_PURPOSES } from '../connection-keys.mjs';
 import { SessionNumbers } from './resolve.mjs';
 import { createTerminal } from './terminal.mjs';
 import { createCodeIssuer } from '../code-issuance.mjs';
+import { createOwnerSecurityCommands } from '../owner-security-commands.mjs';
 
 const RESTART = 'Restart the server to reload settings.';
 
@@ -33,8 +34,10 @@ export function createLiveContext({
   hostCodecs = [],
   tls,
   codeIssuer = null,
+  ownerSecurity = null,
 }) {
   const issuer = codeIssuer ?? createCodeIssuer({ access, sessionStore });
+  const security = ownerSecurity ?? createOwnerSecurityCommands({ store: sessionStore, runtime });
   const saving = async (write) => {
     try {
       return await write();
@@ -45,6 +48,19 @@ export function createLiveContext({
   return {
     mode: 'live',
     codeIssuer: issuer,
+    async disconnectOrdinary({ yes = false } = {}) {
+      const count = sessionStore.list().filter((row) => row.approvedClientId === null).length;
+      if (!count) return { text: 'No ordinary sessions are connected.' };
+      if (
+        !yes &&
+        !(await confirm(`Disconnect ${count} ordinary session${count === 1 ? '' : 's'} now?`))
+      )
+        return { text: 'Ordinary sessions remain connected.' };
+      const { disconnected } = await security.disconnectOrdinary();
+      return {
+        text: `Disconnected ${disconnected} ordinary session${disconnected === 1 ? '' : 's'}.`,
+      };
+    },
     policy: () => policy.snapshot(),
     async updatePolicy(summary, edit, { yes = false } = {}) {
       // Dry run before counting sessions or asking anything: a validation error surfaces

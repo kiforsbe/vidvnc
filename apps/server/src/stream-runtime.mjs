@@ -468,7 +468,10 @@ export class StreamRuntime {
   }
   async shutdown() {
     this.stopping = true;
-    await this.stopAll();
-    await this.media.shutdown();
+    try {
+      await this.stopAll();
+    } finally {
+      await this.media.shutdown();
+    }
   }
 }

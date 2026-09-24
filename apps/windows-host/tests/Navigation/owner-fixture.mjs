@@ -40,7 +40,7 @@ try {
         received: { type: message.type, alphabet: message.alphabet } }));
       continue;
     }
-    if (message.type === 'client-request-command' || message.type === 'approved-client-command') {
+    if (message.type === 'client-request-command' || message.type === 'approved-client-command' || message.type === 'ordinary-sessions-disconnect') {
       console.log(JSON.stringify({ type: 'client-command-result', requestId: message.requestId,
         ok: true, received: { type: message.type, action: message.action, id: message.id,
           permission: message.permission } }));

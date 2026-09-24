@@ -130,6 +130,15 @@ try {
     (message) => message.type === 'session-result' && message.requestId === 'check',
   );
   assert.equal(reply.ok, false, 'a device without a video stream cannot acquire input');
+  child.stdin.write(
+    JSON.stringify({ type: 'ordinary-sessions-disconnect', requestId: 'lockdown-check' }) + '\n',
+  );
+  const lockdown = await until(
+    (message) => message.type === 'client-command-result' && message.requestId === 'lockdown-check',
+  );
+  assert.equal(lockdown.ok, true);
+  assert.equal(lockdown.disconnected, 3);
+  assert.equal((await post('heartbeat', {}, first.sessionId)).status, 401);
   child.stdin.end('{"type":"stop"}\n');
   assert.equal(await exited, 0);
   await assert.rejects(readFile(instanceFile), { code: 'ENOENT' });

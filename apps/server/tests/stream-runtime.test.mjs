@@ -267,6 +267,25 @@ test('renewal rejects a client whose current authorization was revoked', async (
   assert.equal(runtime.control.owner, null);
 });
 
+test('shutdown kills the native media worker even when stream teardown fails', async () => {
+  const { StreamRuntime } = await import('../src/stream-runtime.mjs');
+  let workerShutdown = false;
+  const runtime = {
+    stopping: false,
+    async stopAll() {
+      throw new Error('teardown failed');
+    },
+    media: {
+      async shutdown() {
+        workerShutdown = true;
+      },
+    },
+  };
+  await assert.rejects(StreamRuntime.prototype.shutdown.call(runtime), /teardown failed/);
+  assert.equal(runtime.stopping, true);
+  assert.equal(workerShutdown, true);
+});
+
 test('simultaneous automatic clients cannot transfer control from the first grantee', async (t) => {
   const { runtime, a, b, offer } = await setup(t, 'available');
   const first = await offer(a);

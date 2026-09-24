@@ -66,6 +66,18 @@ const generalCommands = [
       };
     },
   },
+  {
+    name: 'disconnect-ordinary',
+    usage: 'disconnect-ordinary [--yes]',
+    summary:
+      'Disconnect existing ordinary sessions now; changing connection mode only affects new sign-ins.',
+    where: 'live',
+    mayDisconnect: true,
+    run: (context, { positionals, flags }) => {
+      expectArguments(positionals, 0);
+      return context.disconnectOrdinary({ yes: flags.yes === true });
+    },
+  },
   ...['exit', 'quit'].map((name) => ({
     name,
     usage: name,

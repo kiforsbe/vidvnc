@@ -29,6 +29,7 @@ import { createLocalSessionScopeController } from './local-session-scope.mjs';
 import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { createCodeIssuer } from './code-issuance.mjs';
+import { createOwnerSecurityCommands } from './owner-security-commands.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -109,6 +110,7 @@ async function serve() {
       videoCodecs: hostCodecs,
       videoBackends: info.backends,
     });
+    const ownerSecurity = createOwnerSecurityCommands({ store, approvedClients, runtime });
     const port = Number(process.env.VIDVNC_PORT || 4382);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
     const tlsSettings = await loadTlsSettings(files.tls, {
@@ -405,16 +407,7 @@ async function serve() {
               typeof command.id === 'string' &&
               !stopping
             ) {
-              const operation =
-                command.action === 'remove'
-                  ? approvedClients.remove(command.id).then(() => {
-                      for (const session of store.list())
-                        if (session.approvedClientId === command.id)
-                          store.disconnect(session.sessionId);
-                    })
-                  : command.action === 'permission'
-                    ? approvedClients.setPermission(command.id, command.permission)
-                    : Promise.reject(new Error('Invalid approved-client action'));
+              const operation = ownerSecurity.approved(command);
               operation.then(
                 () => {
                   console.log(
@@ -428,6 +421,33 @@ async function serve() {
                     JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }),
                   );
                 },
+                (error) =>
+                  console.log(
+                    JSON.stringify({
+                      type: 'client-command-result',
+                      requestId: command.requestId,
+                      ok: false,
+                      error: error.message,
+                    }),
+                  ),
+              );
+            }
+            if (
+              command.type === 'ordinary-sessions-disconnect' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              !stopping
+            ) {
+              ownerSecurity.disconnectOrdinary().then(
+                ({ disconnected }) =>
+                  console.log(
+                    JSON.stringify({
+                      type: 'client-command-result',
+                      requestId: command.requestId,
+                      ok: true,
+                      disconnected,
+                    }),
+                  ),
                 (error) =>
                   console.log(
                     JSON.stringify({
@@ -624,6 +644,7 @@ async function serve() {
             hostCodecs,
             tls: tlsListener,
             codeIssuer,
+            ownerSecurity,
           }),
       });
     });
