@@ -15,6 +15,29 @@ const privateWifi = {
   prefixLength: 24,
 };
 
+test('bind addresses follow eligible adapters, not a narrower peer CIDR', () => {
+  const scope = createLocalSessionScope({
+    adapters: [privateWifi, { ...privateWifi, address: '10.2.3.4', profile: 'Public' }],
+    override: ['192.168.10.32/27'],
+  });
+  assert.deepEqual(scope.bindAddresses, ['192.168.10.12']);
+  assert.equal(scope.allows('192.168.10.44', 'local'), true);
+  assert.equal(scope.allows('192.168.10.90', 'local'), false);
+  scope.update({ error: new Error('adapter query failed') });
+  assert.deepEqual(scope.bindAddresses, []);
+});
+
+test('bind addresses include unique ULA host IPs and cannot be changed through the getter', () => {
+  const ula = { ...privateWifi, address: 'fd12:3456:789a::42', prefixLength: 64 };
+  const scope = createLocalSessionScope({ adapters: [privateWifi, ula, ula], override: 'auto' });
+  assert.deepEqual(scope.bindAddresses, ['192.168.10.12', 'fd12:3456:789a::42']);
+  scope.bindAddresses.push('203.0.113.9');
+  assert.deepEqual(scope.bindAddresses, ['192.168.10.12', 'fd12:3456:789a::42']);
+  scope.update({ adapters: [privateWifi], override: ['10.0.0.0/8'] });
+  assert.deepEqual(scope.bindAddresses, ['192.168.10.12']);
+  assert.equal(scope.allows('192.168.10.44', 'local'), false);
+});
+
 test('only local listeners and directly connected private physical LAN peers accept a standing password', () => {
   const scope = createLocalSessionScope({ adapters: [privateWifi], override: 'auto' });
   assert.equal(scope.allows('192.168.10.44', 'local'), true);

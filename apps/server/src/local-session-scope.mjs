@@ -49,7 +49,7 @@ function contains(outer, inner) {
 
 const privateNetworks = PRIVATE_RANGES.map(([address, prefix]) => network(address, prefix));
 
-function eligibleNetworks(adapters, profiles) {
+function eligibleAdapters(adapters, profiles) {
   const result = [];
   for (const adapter of adapters) {
     const profile = adapter.profile ?? profiles?.get?.(adapter.interfaceIndex);
@@ -62,7 +62,7 @@ function eligibleNetworks(adapters, profiles) {
       continue;
     const candidate = network(adapter.address, adapter.prefixLength);
     if (candidate && privateNetworks.some((range) => contains(range, candidate)))
-      result.push(candidate);
+      result.push({ address: adapter.address, network: candidate });
   }
   return result;
 }
@@ -90,8 +90,12 @@ export function createLocalSessionScope({
   override = 'auto',
 } = {}) {
   let allowed = [];
+  let bindAddresses = [];
   let reason = null;
   const scope = {
+    get bindAddresses() {
+      return [...bindAddresses];
+    },
     get reason() {
       return reason;
     },
@@ -104,10 +108,13 @@ export function createLocalSessionScope({
       override = nextOverride;
       if (error) {
         allowed = [];
+        bindAddresses = [];
         reason = `LAN detection failed; standing password is loopback-only: ${error.message}`;
         return;
       }
-      const detected = eligibleNetworks(rows, profiles);
+      const eligible = eligibleAdapters(rows, profiles);
+      const detected = eligible.map((row) => row.network);
+      bindAddresses = [...new Set(eligible.map((row) => row.address))];
       const requested = parseOverride(override);
       if (
         requested === false ||
