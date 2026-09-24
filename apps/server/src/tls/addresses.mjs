@@ -51,7 +51,12 @@ export function connectionAddresses({
   const wildcard = preference === '0.0.0.0' || preference === '::';
   const allHosts = Object.values(interfaces())
     .flat()
-    .filter((n) => n.family === 'IPv4' && !n.internal)
+    .filter(
+      (n) =>
+        !n.internal &&
+        (n.family === 'IPv4' ||
+          (n.family === 'IPv6' && !n.address.includes('%') && !/^fe80:/i.test(n.address))),
+    )
     .map((n) => n.address);
   const hosts = wildcard ? allHosts : allHosts.filter((address) => address === preference);
   if (!wildcard && !isIP(preference) && preference !== 'localhost') hosts.push(preference);

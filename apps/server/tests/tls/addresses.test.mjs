@@ -67,6 +67,22 @@ test('an explicit HTTPS loopback bind does not advertise unbound LAN HTTPS addre
   );
 });
 
+test('an explicit IPv6 HTTPS bind advertises its bracketed origin', () => {
+  const withUla = () => ({
+    ...interfaces(),
+    PrivateV6: [{ address: 'fd12::42', family: 'IPv6', internal: false }],
+  });
+  assert.deepEqual(
+    connectionAddresses({ interfaces: withUla, tls: on(4383), hostPreference: 'fd12::42' }).urls,
+    ['https://[fd12::42]:4383'],
+  );
+  assert.ok(
+    connectionAddresses({ interfaces: withUla, tls: on(4383) }).urls.includes(
+      'https://[fd12::42]:4383',
+    ),
+  );
+});
+
 test('deliberate HTTP mode shows only the bound plaintext addresses', () => {
   assert.deepEqual(connectionAddresses({ interfaces, httpBindings: boundHttp(), tls: off }), {
     lan: ['http://192.168.1.5:4382', 'http://10.0.0.7:4382'],

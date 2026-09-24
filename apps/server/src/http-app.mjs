@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
+import { isIP } from 'node:net';
 import { SessionStore } from './session-store.mjs';
 import { chooseProfile, profileNames } from './profiles.mjs';
 import { audioModes, chooseAudioMode } from './audio.mjs';
@@ -42,17 +43,22 @@ function send(response, status, body) {
 // patterns, all public files with nothing secret in them. tests/tls/trust-page.test.mjs
 // derives that set from the real page and fails if the list and the page ever differ, in
 // either direction. Adding an asset to the page means adding it here and to the static table.
-export const PLAINTEXT_ALLOWED_PATHS = Object.freeze([
+// Shared theme/shell/style assets are also loaded by the viewer. Keep only the
+// trust-specific paths local on HTTPS; an off-scope approved viewer still needs them.
+export const TRUST_ONLY_PATHS = Object.freeze([
   '/trust',
   '/trust.js',
   '/trust.css',
   '/trust-model.js',
   '/trust-instructions.js',
+  '/api/trust/anchor',
+  '/api/trust/status',
+]);
+export const PLAINTEXT_ALLOWED_PATHS = Object.freeze([
+  ...TRUST_ONLY_PATHS,
   '/theme.js',
   '/style.css',
   '/shell.css',
-  '/api/trust/anchor',
-  '/api/trust/status',
 ]);
 
 // What the two trust endpoints tell a device, decided once from the listener's `report()`
@@ -139,6 +145,7 @@ export function createHttpApp({
   access = null,
   listenerScope = 'local',
   localSessionScope = createLocalSessionScope(),
+  interfaces = networkInterfaces,
   admission = null,
   log = console.error,
   // Injectable TLS status: `{ status() }` returning `{ active, port }`, read on every
@@ -162,14 +169,19 @@ export function createHttpApp({
   const ordinaryKeyAllowed = (purpose) =>
     (purpose === 'session' && connectionMode() === 'session-key') ||
     (purpose === 'one-time-connection' && connectionMode() !== 'approved-only');
-  const allowedHosts = new Set([
-    'localhost',
-    '127.0.0.1',
-    '[::1]',
-    ...Object.values(networkInterfaces())
-      .flat()
-      .map((n) => n.address),
-  ]);
+  const allowedHost = (host) => {
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
+    for (const row of Object.values(interfaces()).flat()) {
+      if (!row?.address) continue;
+      const candidate = isIP(row.address) === 6 ? `[${row.address}]` : row.address;
+      try {
+        if (new URL(`http://${candidate}`).hostname === host) return true;
+      } catch {
+        // A scoped or malformed interface address is not a valid HTTP Host.
+      }
+    }
+    return false;
+  };
   function connectionPlan(body, request) {
     let effective, selectedDisplay;
     if (inventory)
@@ -227,8 +239,7 @@ export function createHttpApp({
     );
     try {
       const host = new URL(`http://${request.headers.host}`).hostname;
-      if (!allowedHosts.has(host))
-        return send(response, 403, { error: 'Use the server IP address.' });
+      if (!allowedHost(host)) return send(response, 403, { error: 'Use the server IP address.' });
       // The scheme is read from the socket, not from a client-supplied header (e.g.
       // X-Forwarded-Proto): only the connection itself can say whether it is encrypted.
       const scheme = request.socket.encrypted ? 'https' : 'http';
@@ -251,7 +262,7 @@ export function createHttpApp({
         route === '/diagnostics.css'
       )
         return send(response, 404, { error: 'Not found' });
-      if (PLAINTEXT_ALLOWED_PATHS.includes(route) && !isLocal)
+      if (TRUST_ONLY_PATHS.includes(route) && !isLocal)
         return send(response, 403, { error: 'Trust enrollment is local only.' });
       // Plaintext redirect: once TLS is active, every plaintext request except the
       // enrolment allow-list is sent to its HTTPS equivalent, preserving path and query

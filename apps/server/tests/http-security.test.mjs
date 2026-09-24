@@ -63,6 +63,37 @@ test('serves every browser entry asset through workspace resolution', () =>
     assert.equal((await fetch(url + '/package.json')).status, 404);
   }));
 
+test('Host allowlist accepts bracketed IPv6 and follows adapter changes after app construction', () => {
+  const adapters = {
+    Ethernet: [
+      { address: '192.168.10.12', family: 'IPv4', internal: false },
+      { address: 'fd12::42', family: 'IPv6', internal: false },
+    ],
+  };
+  return withServer(
+    async (url, server) => {
+      const port = server.address().port;
+      assert.equal((await rawGet(url + '/api/info', { host: `[fd12::42]:${port}` })).status, 200);
+      assert.equal(
+        (await rawGet(url + '/api/info', { host: `192.168.10.12:${port}` })).status,
+        200,
+      );
+      adapters.Ethernet[0].address = '192.168.10.13';
+      assert.equal(
+        (await rawGet(url + '/api/info', { host: `192.168.10.13:${port}` })).status,
+        200,
+      );
+      assert.equal(
+        (await rawGet(url + '/api/info', { host: `192.168.10.12:${port}` })).status,
+        403,
+      );
+    },
+    {
+      interfaces: () => adapters,
+    },
+  );
+});
+
 test('public-capable handler has no diagnostics routes, even for loopback with a valid bearer', () => {
   const capabilities = new DiagnosticsCapabilities();
   const token = capabilities.issue().token;

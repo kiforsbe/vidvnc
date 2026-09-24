@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { request as httpRequest } from 'node:http';
 import { createServer as createTlsServer, request as httpsRequest } from 'node:https';
-import { createHttpApp, PLAINTEXT_ALLOWED_PATHS } from '../../src/http-app.mjs';
+import { createHttpApp, PLAINTEXT_ALLOWED_PATHS, TRUST_ONLY_PATHS } from '../../src/http-app.mjs';
 import { createTlsListener } from '../../src/tls/listener.mjs';
 import { defaultTlsSettings } from '../../src/tls/tls-settings.mjs';
 import {
@@ -164,10 +164,23 @@ test('out-of-scope peers cannot fetch trust pages, assets, status, or anchor on 
   );
   const httpsPort = secure.address().port;
   assert.equal((await httpsCall(httpsPort, '/api/info')).status, 200);
-  for (const path of PLAINTEXT_ALLOWED_PATHS) {
+  for (const path of TRUST_ONLY_PATHS) {
     assert.equal((await httpCall(httpPort, path)).status, 403, `HTTP ${path}`);
     assert.equal((await httpsCall(httpsPort, path)).status, 403, `HTTPS ${path}`);
   }
+  for (const path of [
+    '/',
+    '/app.js',
+    '/approved-client.js',
+    '/connection-link.js',
+    '/password-entry.js',
+    '/receiver-stats.js',
+    '/stream-subscriptions.js',
+    '/codec-preferences.js',
+    '/profile-labels.js',
+    ...PLAINTEXT_ALLOWED_PATHS.filter((path) => !TRUST_ONLY_PATHS.includes(path)),
+  ])
+    assert.equal((await httpsCall(httpsPort, path)).status, 200, `viewer HTTPS ${path}`);
 });
 
 // --- the anchor download ---------------------------------------------------------------

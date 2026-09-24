@@ -43,7 +43,7 @@ may include breaking changes.
 - HTTP now binds only loopback and eligible Private-LAN addresses and rechecks peers after
   adapter changes. Unexpected TLS failure or invalid settings refuse viewer, login, and
   signaling over HTTP; active HTTPS redirects them. Absolute-form request targets cannot
-  bypass that redirect, and trust pages/assets/API are local-peer-only on both schemes.
+  bypass that redirect, and trust pages/trust-specific assets/API are local-peer-only on both schemes.
   Valid explicit TLS-off mode remains a LAN-only HTTP viewer. CLI and native-host status
   show no viewer URL and disable Connect/Preview while required HTTPS is unavailable.
 

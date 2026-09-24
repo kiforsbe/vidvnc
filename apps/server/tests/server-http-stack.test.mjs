@@ -23,11 +23,11 @@ async function withStack(t, scope, appOptions = {}) {
   return stack;
 }
 
-function invokeKey(app, peer, port) {
+function invokeKey(app, peer, port, host = '127.0.0.1') {
   const request = Readable.from([JSON.stringify({ key: app.sessionStore.password })]);
   request.url = '/api/key-start';
   request.method = 'POST';
-  request.headers = { host: `127.0.0.1:${port}`, 'content-type': 'application/json' };
+  request.headers = { host: `${host}:${port}`, 'content-type': 'application/json' };
   request.socket = { remoteAddress: peer, localPort: port, encrypted: false };
   const response = {
     headersSent: false,
@@ -72,4 +72,25 @@ test('assembly admits an eligible LAN password but denies off-link and public-sc
     await invokeKey(publicStack.app, '192.168.10.44', publicStack.app.address().port),
     401,
   );
+});
+
+test('eligible IPv6 LAN peer can use an advertised bracketed Host', async (t) => {
+  const scope = createLocalSessionScope({
+    adapters: [
+      {
+        kind: 'ethernet',
+        physical: true,
+        up: true,
+        profile: 'Private',
+        address: 'fd12::42',
+        prefixLength: 64,
+      },
+    ],
+  });
+  const stack = await withStack(t, scope, {
+    interfaces: () => ({ Ethernet: [{ address: 'fd12::42', family: 'IPv6', internal: false }] }),
+  });
+  const port = stack.app.address().port;
+  assert.equal(await invokeKey(stack.app, 'fd12::44', port, '[fd12::42]'), 201);
+  assert.equal(await invokeKey(stack.app, 'fd13::44', port, '[fd12::42]'), 403);
 });
