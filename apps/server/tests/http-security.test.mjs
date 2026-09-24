@@ -66,9 +66,9 @@ test('serves every browser entry asset through workspace resolution', () =>
 test('public-capable handler has no diagnostics routes, even for loopback with a valid bearer', () => {
   const capabilities = new DiagnosticsCapabilities();
   const token = capabilities.issue().token;
-  const headers = { host: 'localhost' };
   return withServer(
-    async (url) => {
+    async (url, server) => {
+      const headers = { host: `localhost:${server.address().port}` };
       for (const route of [
         '/diagnostics',
         '/api/diagnostics',

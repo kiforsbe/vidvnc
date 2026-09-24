@@ -364,20 +364,39 @@ test('a hostile Host header is refused with 403 and no Location, even while TLS 
     assert.equal(response.headers.location, undefined, host);
   }
   // Control: the same request with an allow-listed Host is what redirects.
-  const legit = await httpGet(plaintext.port, '/api/info', { headers: { host: '127.0.0.1' } });
+  const legit = await httpGet(plaintext.port, '/api/info', {
+    headers: { host: `127.0.0.1:${plaintext.port}` },
+  });
   assert.equal(legit.status, 307);
   assert.equal(legit.headers.location, 'https://127.0.0.1:8443/api/info');
 });
 
-test('a request target that is not origin-form (`*`, absolute-form) is not redirected: the Location could not reproduce it', async (t) => {
+test('a matching absolute-form POST redirects without dispatching the key API', async (t) => {
   const plaintext = await startPlaintext(t, { status: () => ({ active: true, port: 8443 }) });
-  const targets = ['OPTIONS *', 'GET http://evil.example/x'];
+  const response = await rawExchange(
+    plaintext.port,
+    `POST http://127.0.0.1:${plaintext.port}/api/key-start?x=1 HTTP/1.1\r\n` +
+      `Host: 127.0.0.1:${plaintext.port}\r\nContent-Type: application/json\r\n` +
+      'Content-Length: 2\r\nConnection: close\r\n\r\n{}',
+  );
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.location, 'https://127.0.0.1:8443/api/key-start?x=1');
+});
+
+test('unsupported or mismatched request targets never dispatch a plaintext API', async (t) => {
+  const plaintext = await startPlaintext(t, { status: () => ({ active: true, port: 8443 }) });
+  const targets = [
+    'OPTIONS *',
+    'POST http://evil.example/api/key-start',
+    `POST https://127.0.0.1:${plaintext.port}/api/key-start`,
+    `POST http://127.0.0.1:9999/api/key-start`,
+  ];
   for (const line of targets) {
     const response = await rawExchange(
       plaintext.port,
-      `${line} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`,
+      `${line} HTTP/1.1\r\nHost: 127.0.0.1:${plaintext.port}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`,
     );
-    assert.notEqual(response.status, 307, line);
+    assert.ok([400, 421].includes(response.status), `${line}: ${response.status}`);
     assert.equal(response.headers.location, undefined, line);
   }
 });
@@ -406,18 +425,18 @@ test('a real Origin header over a real TLS connection is judged against https an
   assert.equal((await get(`https://127.0.0.1:${port}`)).status, 200);
 });
 
-test('the default-port shape works over a real TLS connection: an omitted or explicit :443 agree, a different port does not', async (t) => {
+test('a real TLS connection rejects a Host claiming port 443 when the socket is on another port', async (t) => {
   const { listener } = makeListener(t, { ensureCertificate: fakeEnsure(ok(VALID)) });
   await listener.attempt();
   const { port } = listener.status();
-  // The connection really lands on the ephemeral port; the Host header is what says the
-  // request was addressed to the scheme's default port, as a browser on 443 would send.
+  // The Origin unit tests cover default-port normalization. This socket is not on 443,
+  // so a Host that claims 443 must be rejected before Origin is considered.
   const get = (origin) => httpsGet(port, '/api/info', { headers: { host: '127.0.0.1', origin } });
 
-  assert.equal((await get('https://127.0.0.1')).status, 200, 'origin without a port');
-  assert.equal((await get('https://127.0.0.1:443')).status, 200, 'explicit default port');
-  assert.equal((await get(`https://127.0.0.1:${port}`)).status, 403, 'a non-default port');
-  assert.equal((await get('http://127.0.0.1')).status, 403, 'wrong scheme');
+  assert.equal((await get('https://127.0.0.1')).status, 421);
+  assert.equal((await get('https://127.0.0.1:443')).status, 421);
+  assert.equal((await get(`https://127.0.0.1:${port}`)).status, 421);
+  assert.equal((await get('http://127.0.0.1')).status, 421);
 });
 
 // --- failure table: no strategy succeeds -----------------------------------------------

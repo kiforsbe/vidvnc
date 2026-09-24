@@ -17,6 +17,7 @@ import { applyServerLimits } from './server-limits.mjs';
 import { createLocalSessionScope } from './local-session-scope.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
+import { parseRequestTarget } from './http-request-target.mjs';
 
 function send(response, status, body) {
   response.writeHead(status, {
@@ -228,7 +229,12 @@ export function createHttpApp({
       // The scheme is read from the socket, not from a client-supplied header (e.g.
       // X-Forwarded-Proto): only the connection itself can say whether it is encrypted.
       const scheme = request.socket.encrypted ? 'https' : 'http';
-      const route = new URL(request.url, 'http://localhost').pathname;
+      const { route, pathAndQuery } = parseRequestTarget(
+        request.url,
+        scheme,
+        request.headers.host,
+        request.socket.localPort,
+      );
       // This handler serves the public-capable HTTP and HTTPS ports. Diagnostics live
       // exclusively on a separate loopback-bound listener, even for local callers.
       if (
@@ -248,16 +254,12 @@ export function createHttpApp({
       // `no-store`. The check runs AFTER the host allow-list above: the Location is built
       // from the already-allow-listed hostname and this listener's own TLS port, never
       // from the raw Host header, so it cannot be steered to another site. Only
-      // origin-form targets ("/path?query") are redirected; anything else (an
-      // absolute-form or authority-form request target) is not something the Location
-      // could faithfully reproduce and falls through to normal handling. When `tls` is not
-      // supplied, or reports `active: false` (no credential yet, or TLS off), this branch
-      // never fires and every request is served exactly as it is today.
-      if (scheme === 'http' && request.url.startsWith('/')) {
+      // Validated origin-form and absolute-form targets both have a safe path/query.
+      if (scheme === 'http') {
         const tlsStatus = tls?.status() ?? { active: false, port: null };
         if (tlsStatus.active && !PLAINTEXT_ALLOWED_PATHS.includes(route)) {
           response.writeHead(307, {
-            location: `https://${host}:${tlsStatus.port}${request.url}`,
+            location: `https://${host}:${tlsStatus.port}${pathAndQuery}`,
             'cache-control': 'no-store',
           });
           return response.end();
