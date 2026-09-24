@@ -61,11 +61,15 @@ test('the field is JSON-serialisable and carries no certificate object', () => {
     'expired',
     'expiry',
     'fingerprint',
+    'httpViewerEnabled',
+    'localHttpUrls',
     'mode',
     'needsRenewal',
     'port',
     'reason',
     'strategy',
+    'viewerReady',
+    'viewerUrls',
   ]);
   assert.equal(round.anchor, undefined);
 });
@@ -138,7 +142,10 @@ test('before the first attempt finishes the host is told HTTPS is pending, not b
     status: { active: false, port: null },
     report: report(null),
   });
-  assert.equal(field.reason, 'HTTPS has not started yet.');
+  assert.equal(
+    field.reason,
+    'HTTPS has not started yet. The viewer is waiting; HTTP viewer access is disabled.',
+  );
 });
 
 test('mode off is a configuration, not a failure', () => {
@@ -165,6 +172,51 @@ test('mode off because the settings were invalid is not a deliberate configurati
   assert.equal(field.active, false);
   assert.equal(
     field.reason,
-    'The TLS settings could not be used, so HTTPS is off. Nothing was changed; the server log says why.',
+    'The TLS settings could not be used, so HTTPS is off and HTTP viewer access is disabled. Nothing was changed; the server log says why.',
   );
+});
+
+test('viewer URLs are absent during pending or failed HTTPS, even though local trust roots exist', () => {
+  const localHttpUrls = ['http://127.0.0.1:4382'];
+  for (const configuration of [
+    { settings: settings(), report: report(null) },
+    { settings: settings(), report: report(null, 'port taken') },
+    { settings: settings({ mode: 'off', invalid: true }), report: report(null) },
+  ]) {
+    const field = tlsDesktopStatus({
+      ...configuration,
+      status: { active: false, port: null },
+      localHttpUrls,
+      secureUrls: ['https://127.0.0.1:4383'],
+    });
+    assert.equal(field.viewerReady, false);
+    assert.equal(field.httpViewerEnabled, false);
+    assert.deepEqual(field.viewerUrls, []);
+    assert.deepEqual(field.localHttpUrls, localHttpUrls);
+  }
+});
+
+test('only deliberate off advertises LAN HTTP and active TLS advertises HTTPS', () => {
+  const localHttpUrls = ['http://192.168.10.12:4382', 'http://127.0.0.1:4382'];
+  const secureUrls = ['https://192.168.10.12:4383', 'https://127.0.0.1:4383'];
+  const off = tlsDesktopStatus({
+    settings: settings({ mode: 'off' }),
+    status: { active: false, port: null },
+    report: report(null),
+    localHttpUrls,
+    secureUrls,
+  });
+  assert.equal(off.httpViewerEnabled, true);
+  assert.equal(off.viewerReady, true);
+  assert.deepEqual(off.viewerUrls, localHttpUrls);
+  const active = tlsDesktopStatus({
+    settings: settings(),
+    status: { active: true, port: 4383 },
+    report: report(validAnchor()),
+    localHttpUrls,
+    secureUrls,
+  });
+  assert.equal(active.httpViewerEnabled, false);
+  assert.equal(active.viewerReady, true);
+  assert.deepEqual(active.viewerUrls, secureUrls);
 });

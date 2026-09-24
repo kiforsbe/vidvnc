@@ -41,17 +41,17 @@ const REASONS = {
   provided: (port) =>
     `The certificate configured for this host could not be used, so HTTPS is not running on port ${port}. Nothing was generated in its place — check the TLS certificate settings and the server log.`,
   failed: (port) =>
-    `HTTPS could not be started on port ${port}, so connections are not encrypted. The server log says why.`,
+    `HTTPS could not be started on port ${port}. The viewer is unavailable; HTTP viewer access is disabled. The server log says why.`,
   // The status message is sent once a second from the moment the plaintext listener binds,
   // which is deliberately before TLS has been provisioned (main.mjs), so this is the honest
   // state for the first moments of every run, not an error.
-  pending: 'HTTPS has not started yet.',
+  pending: 'HTTPS has not started yet. The viewer is waiting; HTTP viewer access is disabled.',
   // The configured mode is 'off' only because the on-disk settings could not be used
   // (load-settings.mjs's `off()`), never because anyone asked for TLS to be off.
   // Distinguishing this from a deliberate `off` (which returns null below) is the point:
   // an operator whose config is broken must not be told HTTPS is deliberately disabled.
   invalidSettings:
-    'The TLS settings could not be used, so HTTPS is off. Nothing was changed; the server log says why.',
+    'The TLS settings could not be used, so HTTPS is off and HTTP viewer access is disabled. Nothing was changed; the server log says why.',
 };
 
 // `settings` is the validated TLS settings this process loaded at startup (tls-settings.mjs).
@@ -76,12 +76,22 @@ const REASONS = {
 //                      certificate. That rule applies to the host UI as much as to a reissue
 //                      predicate here.
 //   reason          — one of REASONS above, or null when there is nothing to say.
-export function tlsDesktopStatus({ settings, status, report, now } = {}) {
+export function tlsDesktopStatus({
+  settings,
+  status,
+  report,
+  now,
+  localHttpUrls = [],
+  secureUrls = [],
+} = {}) {
   const mode = settings?.mode ?? 'off';
   const configuredPort = settings?.port ?? null;
   const listening = status?.active === true;
   const anchor = report?.anchor ?? null;
   const renewal = anchor ? renewalStatus(anchor, now ? { now } : undefined) : null;
+  const httpViewerEnabled = mode === 'off' && !settings?.invalid;
+  const viewerUrls =
+    listening && !settings?.invalid ? secureUrls : httpViewerEnabled ? localHttpUrls : [];
 
   return {
     mode,
@@ -93,6 +103,10 @@ export function tlsDesktopStatus({ settings, status, report, now } = {}) {
     expiry: renewal ? renewal.validTo.toISOString() : null,
     expired: renewal ? renewal.expired : false,
     needsRenewal: renewal ? renewal.needsRenewal : false,
+    httpViewerEnabled,
+    viewerReady: viewerUrls.length > 0,
+    localHttpUrls,
+    viewerUrls,
     reason: sanitizedReason({
       mode,
       listening,

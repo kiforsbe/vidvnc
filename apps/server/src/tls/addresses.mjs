@@ -66,7 +66,7 @@ export function connectionAddresses({
   return { lan, local, urls: [...lan, ...(local ? [local] : [])] };
 }
 
-// The one follow-up block printed when HTTPS comes up after the plaintext banner. It says
+// The one follow-up block printed when HTTPS comes up after the startup banner. It says
 // nothing about how a device enrols the certificate: it is only honest about what the
 // browser will do.
 export function secureAddressLines({ lan, local }) {
@@ -75,9 +75,9 @@ export function secureAddressLines({ lan, local }) {
     'VidVNC · Secure connection ready',
     '',
     ...lan.map((url) => `Open ${url}`),
-    `Local preview: ${local}`,
+    ...(local ? [`Local preview: ${local}`] : []),
     'Live diagnostics (this PC only): use diagnostics open',
-    'Connections on these addresses are encrypted, and the http addresses above now redirect to them.',
+    'Connections on these addresses are encrypted. Local HTTP remains for trust enrollment; other HTTP paths redirect to HTTPS.',
     "Devices that have not enrolled this PC's certificate will show a browser warning.",
     'Trusted LAN only. Do not forward this port.',
     '',

@@ -36,6 +36,13 @@ test('diagnostics capability is issued only by an explicit live console command'
   assert.notEqual(token(first), token(second));
 });
 
+test('info does not advertise a local HTTP viewer while required HTTPS is inactive', async (t) => {
+  const h = await harness(t, { plaintextMode: 'https-required' });
+  const info = await h.send('info', /Connect/);
+  assert.match(info, /Connect\s+HTTPS pending or unavailable/);
+  assert.doesNotMatch(info, /http:\/\/192\.168/);
+});
+
 async function bindTlsListener(t, { ok = true } = {}) {
   const listener = createTlsListener({
     settings: { ...defaultTlsSettings(), port: 0 },

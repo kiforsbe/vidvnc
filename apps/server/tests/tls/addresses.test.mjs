@@ -198,6 +198,13 @@ test('the follow-up block omits Open lines when there is no LAN address', () => 
   assert.match(text, /^Local preview: https:\/\/127\.0\.0\.1$/m);
 });
 
+test('HTTPS follow-up says local HTTP is for trust only and omits a missing preview', () => {
+  const lines = secureAddressLines({ lan: ['https://192.168.1.5:4383'], local: null });
+  const text = lines.join('\n');
+  assert.doesNotMatch(text, /Local preview: null/);
+  assert.match(text, /local HTTP.*trust/i);
+});
+
 function fakeListener({ activates = true, rejects = false } = {}) {
   let active = false;
   let attempts = 0;

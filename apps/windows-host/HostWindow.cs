@@ -82,22 +82,15 @@ public sealed partial class HostWindow : Window
                 var vendorLabel = hostBackends.Length > 0 ? hostBackends[0].Label : "Hardware";
                 heading.Text = "Your desktop is ready";
                 detail.Text = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}\nConnect from your browser. Keyboard and mouse start off.";
-                // The ready line is written before TLS can be up (the server provisions it
-                // afterwards, on purpose), so these are always the plaintext addresses. The
-                // first one is what a user is told to open; it is swapped for the HTTPS
-                // equivalent by ApplyTlsAddress once the secure listener reports itself
-                // bound. The plaintext original is kept for the enrolment page, which is only
-                // ever served unencrypted.
-                plaintextAddress = ready.GetProperty("urls")[0].GetString() ?? "";
-                address.Text = plaintextAddress;
-                ApplyTlsAddress();
+                // `ready.urls` can be empty while HTTPS is pending or failed. The separate
+                // owner-only TLS field supplies viewer and local trust roots explicitly.
+                UpdateTlsStatus(ready);
                 password.Text = ready.GetProperty("password").GetString() ?? "";
                 displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}";
                 if (ready.TryGetProperty("displays", out var displays)) UpdateDisplays(displays);
                 if (ready.TryGetProperty("policy", out var policy)) UpdatePolicy(policy);
                 if (ready.TryGetProperty("access", out var access)) UpdateAccess(access);
                 if (ready.TryGetProperty("clients", out var clients)) UpdateClients(clients);
-                previewUrl = ready.GetProperty("urls").EnumerateArray().Select(x => x.GetString()).FirstOrDefault(x => x?.StartsWith("http://127.0.0.1:") == true);
                 SetSharing(true);
                 action.Content = "Stop sharing"; action.IsEnabled = true;
             }

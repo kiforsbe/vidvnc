@@ -51,7 +51,9 @@ public sealed partial class HostWindow
         var host = new StackPanel { Spacing = 8 };
         var name = Label(Environment.MachineName, 24); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         host.Children.Add(name);
-        host.Children.Add(Secondary(sharing ? "Available on your local network" : heading.Text));
+        host.Children.Add(Secondary(sharing
+            ? tlsReport?.ViewerReady == true ? "Available on your local network" : "Viewer waiting for HTTPS — check Settings"
+            : heading.Text));
         var state = Label(sharing ? "●  Sharing is on" : "●  Sharing is off");
         state.Foreground = ThemeStatusBrush(navigation, sharing ? "success" : "neutral"); host.Children.Add(state);
         if (!sharing) host.Children.Add(new ScrollViewer { Content = Label(detail.Text), MaxHeight = 70 });
@@ -62,7 +64,7 @@ public sealed partial class HostWindow
         session.Children.Add(overviewSessionSummary);
         var sessionActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related };
         sessionActions.Children.Add(Command("View sessions  ›", () => navigation.SelectedItem = navigation.MenuItems.OfType<NavigationViewItem>().Single(i => i.Tag as string == "Sessions")));
-        var connect = new Button { Content = "Connect a device", IsEnabled = sharing };
+        var connect = new Button { Content = "Connect a device", IsEnabled = sharing && tlsReport?.ViewerReady == true };
         connect.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         connect.Click += async (_, _) => await ShowConnection("connect-once");
         sessionActions.Children.Add(connect);

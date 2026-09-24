@@ -173,7 +173,7 @@ public sealed partial class HostWindow
 
     void RenderClients()
     {
-        var connect = new Button { Content = "Connect a browser", Tag = "approved-client", IsEnabled = sharing };
+        var connect = new Button { Content = "Connect a browser", Tag = "approved-client", IsEnabled = sharing && tlsReport?.ViewerReady == true };
         connect.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         connect.Click += async (_, _) => await ShowConnection("approved-client");
         pageAction.Content = connect;

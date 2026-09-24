@@ -22,7 +22,12 @@ const pause = (milliseconds = 5) => new Promise((resolve) => setTimeout(resolve,
 // redirect-target status; most tests need neither.
 export async function liveConsole(
   t,
-  { terminal = false, tls = { active: false, port: null }, tlsListener } = {},
+  {
+    terminal = false,
+    tls = { active: false, port: null },
+    tlsListener,
+    plaintextMode = 'lan-http',
+  } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'vidvnc-console-'));
   const sessionStore = new SessionStore({ maxSessions: 2 });
@@ -111,7 +116,7 @@ export async function liveConsole(
               { host: '192.168.1.2', port: 4382 },
               { host: '127.0.0.1', port: 4382 },
             ],
-            plaintextMode: 'lan-http',
+            plaintextMode,
             tls,
           }),
         diagnosticsUrl: () => 'http://127.0.0.1:45999/diagnostics',

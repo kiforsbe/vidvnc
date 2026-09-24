@@ -306,9 +306,22 @@ public partial class App : Application
                                 var enrolmentUrl = typeof(HostWindow).GetMethod("EnrolmentUrl", flags)!;
                                 var addressBox = (TextBox)typeof(HostWindow).GetField("address", flags)!.GetValue(window)!;
                                 var serverField = typeof(HostWindow).GetField("server", flags)!;
+                                var connectButton = (Button)typeof(HostWindow).GetField("connectDevice", flags)!.GetValue(window)!;
+                                var previewButton = (Button)typeof(HostWindow).GetField("openPreview", flags)!.GetValue(window)!;
+                                setSharing.Invoke(window, new object[] { true });
                                 typeof(HostWindow).GetField("plaintextAddress", flags)!.SetValue(window, "http://192.168.50.47:4382");
 
-                                string TlsStatus(string tls) => $"{{\"type\":\"status\",\"sessions\":[],\"streamCount\":0,\"tls\":{tls}}}";
+                                string TlsStatus(string tls)
+                                {
+                                    using var parsed = JsonDocument.Parse(tls);
+                                    var root = parsed.RootElement;
+                                    var active = root.GetProperty("active").GetBoolean();
+                                    var mode = root.GetProperty("mode").GetString();
+                                    var reason = root.GetProperty("reason").ValueKind == JsonValueKind.String;
+                                    var viewerUrls = active ? "[\"https://192.168.50.47:4383\",\"https://127.0.0.1:4383\"]" : mode == "off" && !reason ? "[\"http://192.168.50.47:4382\",\"http://127.0.0.1:4382\"]" : "[]";
+                                    var extra = $"\"viewerReady\":{(viewerUrls == "[]" ? "false" : "true")},\"httpViewerEnabled\":{(mode == "off" && !reason ? "true" : "false")},\"viewerUrls\":{viewerUrls},\"localHttpUrls\":[\"http://192.168.50.47:4382\",\"http://127.0.0.1:4382\"]";
+                                    return $"{{\"type\":\"status\",\"sessions\":[],\"streamCount\":0,\"tls\":{{{tls.TrimStart('{').TrimEnd('}')},{extra}}}}}";
+                                }
                                 async Task ApplyTls(string tls)
                                 {
                                     using var document = JsonDocument.Parse(TlsStatus(tls));
@@ -341,6 +354,8 @@ public partial class App : Application
                                 // Spec: the address shown encodes HTTPS once TLS is up.
                                 if (addressBox.Text != "https://192.168.50.47:4383")
                                     throw new Exception($"Connection address did not move to HTTPS: '{addressBox.Text}'");
+                                if (!connectButton.IsEnabled || !previewButton.IsEnabled)
+                                    throw new Exception("Active HTTPS should enable connection and loopback preview actions");
                                 // The enrolment page stays on the plaintext listener: a device that
                                 // does not trust this PC yet cannot fetch the anchor over HTTPS.
                                 var trustUrl = (string?)enrolmentUrl.Invoke(window, null);
@@ -367,12 +382,14 @@ public partial class App : Application
                                 if (TlsButton("tls-regenerate")?.IsEnabled != false || TlsText("tls-regenerate-blocked") is null)
                                     throw new Exception("A supplied certificate must not offer a regenerate action, and must say why");
 
-                                // off: nothing to regenerate, and the address goes back to plaintext.
+                                // Deliberate off: LAN-only HTTP remains a viewer option.
                                 await ApplyTls("{\"mode\":\"off\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":null}");
                                 if (TlsButton("tls-regenerate")?.IsEnabled != false || TlsText("tls-regenerate-blocked") is null)
                                     throw new Exception("Regenerate must be unavailable and explained while HTTPS is off");
                                 if (addressBox.Text != "http://192.168.50.47:4382")
                                     throw new Exception($"Address must return to plaintext when HTTPS is off: '{addressBox.Text}'");
+                                if (!connectButton.IsEnabled || !previewButton.IsEnabled)
+                                    throw new Exception("Deliberate LAN HTTP should retain connection and preview actions");
                                 if (TlsBar("tls-reason") is not null)
                                     throw new Exception("A deliberate off must not be reported as a failure");
 
@@ -380,6 +397,10 @@ public partial class App : Application
                                 // off without anyone asking for it. That must not read as a clean,
                                 // deliberate "Off" — the sanitized sentence has to reach the UI.
                                 await ApplyTls("{\"mode\":\"off\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"The TLS settings could not be used, so HTTPS is off. Nothing was changed; the server log says why.\"}");
+                                if (!addressBox.Text.Contains("HTTPS unavailable"))
+                                    throw new Exception("Invalid TLS settings must not show a usable HTTP viewer address");
+                                if (connectButton.IsEnabled || previewButton.IsEnabled)
+                                    throw new Exception("Invalid TLS settings must disable connection and preview actions");
                                 if (TlsBar("tls-reason")?.Message?.Contains("TLS settings could not be used") != true)
                                     throw new Exception($"An unusable TLS settings file must be reported, not shown as a deliberate off: '{TlsBar("tls-reason")?.Message}'");
                                 if (TlsButton("tls-regenerate")?.IsEnabled != false || TlsText("tls-regenerate-blocked") is null)
@@ -388,8 +409,15 @@ public partial class App : Application
                                 // Provisioning failed: TLS never degrades silently.
                                 const string failedAuto = "{\"mode\":\"auto\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"HTTPS could not be started on port 4383, so connections are not encrypted. The server log says why.\"}";
                                 await ApplyTls(failedAuto);
+                                if (!addressBox.Text.Contains("HTTPS unavailable"))
+                                    throw new Exception("Failed auto TLS must not show a usable HTTP viewer address");
+                                if (connectButton.IsEnabled || previewButton.IsEnabled)
+                                    throw new Exception("Failed HTTPS must disable connection and preview actions");
                                 if (TlsBar("tls-reason")?.Message?.Contains("could not be started on port 4383") != true)
                                     throw new Exception("A failed HTTPS start must be reported in the host UI, not silently");
+                                await ApplyTls("{\"mode\":\"auto\",\"active\":false,\"port\":null,\"strategy\":null,\"enrolmentStatus\":null,\"fingerprint\":null,\"expiry\":null,\"expired\":false,\"needsRenewal\":false,\"reason\":\"HTTPS has not started yet. The viewer is waiting; HTTP viewer access is disabled.\"}");
+                                if (addressBox.Text != "Waiting for HTTPS" || connectButton.IsEnabled || previewButton.IsEnabled)
+                                    throw new Exception("Pending HTTPS must show a waiting state with viewer controls disabled");
 
                                 // An expired certificate must be flagged even though the server
                                 // reports needsRenewal:false for it.
@@ -451,6 +479,7 @@ public partial class App : Application
                                 {
                                     serverField.SetValue(window, null); tlsOwner.StandardInput.Close();
                                     if (!tlsOwner.WaitForExit(5000)) tlsOwner.Kill();
+                                    setSharing.Invoke(window, new object[] { false });
                                     renderPage.Invoke(window, null);
                                 }
                             }

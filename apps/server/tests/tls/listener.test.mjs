@@ -453,7 +453,7 @@ test('no strategy succeeds in auto: HTTP viewer fails closed while trust remains
   assert.match(log.lines.join('\n'), /TLS unavailable/);
   assert.match(log.lines.join('\n'), /mkcert is not available/);
   assert.match(log.lines.join('\n'), /PowerShell unavailable/);
-  assert.match(log.lines.join('\n'), /Serving plaintext only/);
+  assert.match(log.lines.join('\n'), /HTTP viewer.*disabled/);
 
   const plaintext = await startPlaintext(t, listener);
   for (const path of ['/', '/api/info']) {
@@ -556,7 +556,7 @@ for (const [label, credential] of [
       assert.equal(created.length, 0, 'no server was left behind');
       const text = log.lines.join('\n');
       assert.match(text, /TLS configuration error \(/);
-      assert.match(text, /Serving plaintext only/);
+      assert.match(text, /HTTP viewer.*disabled/);
 
       // Trust remains available, but the viewer cannot fall back to plaintext.
       const plaintext = await startPlaintext(t, listener);
@@ -605,7 +605,7 @@ test(
     assert.equal(listener.status().active, false);
     const text = log.lines.join('\n');
     assert.match(text, new RegExp(`TLS port ${port} is already in use`));
-    assert.match(text, /Serving plaintext only/);
+    assert.match(text, /HTTP viewer.*disabled/);
 
     // Because TLS is not actually up, plaintext must neither redirect nor admit a viewer.
     const plaintext = await startPlaintext(t, listener);

@@ -291,19 +291,17 @@ async function serve() {
             serverLog(`Warning: LAN password eligibility refresh failed: ${error.message}`),
           );
     }, 15_000).unref();
+    // This owner-only report is shared by ready and periodic status messages. Viewer URLs
+    // are separate from local trust roots, including before HTTPS provisioning completes.
+    const tlsField = () =>
+      tlsDesktopStatus({
+        settings: tlsSettings,
+        status: tlsListener.status(),
+        report: tlsListener.report(),
+        localHttpUrls: plaintextAddresses().urls,
+        secureUrls: currentAddresses().urls,
+      });
     if (desktop) {
-      // The TLS report rides along on the status message the host already reads every
-      // second, rather than as a message of its own: the host's TLS section is a view of
-      // live state, and a separate stream would let the two drift. It is merged in here,
-      // at the call site, and not added to `runtime.status()` — that method is also read
-      // by the CLI console and by `diagnosticStreams()`, neither of which has any business
-      // with TLS, and its contract is asserted by stream-runtime.test.mjs.
-      const tlsField = () =>
-        tlsDesktopStatus({
-          settings: tlsSettings,
-          status: tlsListener.status(),
-          report: tlsListener.report(),
-        });
       statusTimer = setInterval(() => {
         if (!stopping && !process.stdout.writableNeedDrain) {
           console.log(
@@ -658,7 +656,8 @@ async function serve() {
         console.log(
           JSON.stringify({
             type: 'ready',
-            urls: plaintextAddresses().urls,
+            urls: tlsField().viewerUrls,
+            tls: tlsField(),
             password: store.password,
             width: info.width,
             height: info.height,
@@ -671,16 +670,21 @@ async function serve() {
           }),
         );
       } else {
-        console.log('\nVidVNC · Ready to connect\n');
-        const shown = plaintextAddresses();
+        const shown = currentAddresses();
+        console.log(
+          plaintextMode === 'lan-http'
+            ? '\nVidVNC · Ready to connect (LAN-only HTTP)\n'
+            : '\nVidVNC · Waiting for HTTPS\n',
+        );
         for (const url of shown.lan) console.log(`Open ${url}`);
-        console.log(`Local preview: ${shown.local}\nPassword: ${store.password}\n`);
+        if (shown.local) console.log(`Local preview: ${shown.local}`);
+        console.log(`Password: ${store.password}\n`);
         console.log('Live diagnostics (this PC only): use diagnostics open');
         const codecLabels = VIDEO_CODECS.filter((codec) => hostCodecs.includes(codec))
           .map((codec) => CODEC_LABELS[codec])
           .join(' / ');
         console.log(
-          `${info.width} × ${info.height} · ${info.backends[0]?.label ?? 'Hardware'} ${codecLabels} · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
+          `${info.width} × ${info.height} · ${info.backends[0]?.label ?? 'Hardware'} ${codecLabels} · 30 fps\n${plaintextMode === 'lan-http' ? 'Trusted LAN only. HTTP pairing is not encrypted.' : 'HTTP viewer access is disabled until HTTPS is available. Local HTTP serves trust enrollment only.'} Do not forward the HTTP port.\nCtrl+C stops sharing.`,
         );
         console.log(
           `Type help for commands. Default control: ${accessLabel(access.snapshot().defaultControl)}.`,

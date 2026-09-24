@@ -10,10 +10,9 @@
 // certificate orchestration (`ensureCertificate`) so no test ever reaches real mkcert or
 // Windows certificate tooling.
 //
-// The governing rule, from the design: TLS is an improvement, never a precondition. So
-// nothing here may throw to the caller or leave an unhandled error event, and every
-// failure that leaves the product plaintext is logged, with its reason, because silent
-// degradation is the one outcome the design refuses.
+// Server startup survives TLS failure, but viewer admission fails closed on local HTTP.
+// Nothing here may throw to the caller or leave an unhandled error event, and every
+// failure is logged with its reason.
 import { createServer as nodeCreateServer } from 'node:https';
 import { ensureCertificate as realEnsureCertificate } from './ensure-certificate.mjs';
 import { applyServerLimits } from '../server-limits.mjs';
@@ -77,7 +76,7 @@ export function createTlsListener({
       try {
         // Node validates the credential here, synchronously: a certificate/key pair that do
         // not belong together, or that cannot be parsed, throws from createServer. That
-        // must degrade to plaintext like every other TLS failure — a throw inside this
+        // must leave the HTTP viewer disabled like every other TLS failure — a throw inside this
         // executor would reject the attempt and, through a fire-and-forget caller, take the
         // process down.
         secure = createServer({ ...result.credential }, requestListener);
@@ -85,14 +84,14 @@ export function createTlsListener({
       } catch (error) {
         failureReason = `the credential could not be used (${error.message})`;
         log(
-          `TLS configuration error (${error.message}). Serving plaintext only; the credential could not be used.`,
+          `TLS configuration error (${error.message}). HTTP viewer access is disabled; the credential could not be used.`,
         );
         return resolve();
       }
       // Attached BEFORE listen(): a bind failure (most commonly EADDRINUSE) is reported
       // as an asynchronous 'error' event, not a thrown exception. With no listener that
       // event is unhandled and takes the whole process down, which is exactly what the
-      // design's port-conflict row rules out. Plaintext keeps serving either way.
+      // design's port-conflict row rules out. Local trust remains available.
       secure.on('error', (error) => {
         const wasServing = server === secure;
         if (wasServing) {
@@ -107,8 +106,8 @@ export function createTlsListener({
             : `listener error on port ${settings.port} (${error.message})`;
         log(
           error.code === 'EADDRINUSE'
-            ? `TLS port ${settings.port} is already in use. Serving plaintext only.`
-            : `TLS listener error on port ${settings.port} (${error.message}). Serving plaintext only.`,
+            ? `TLS port ${settings.port} is already in use. HTTP viewer access is disabled.`
+            : `TLS listener error on port ${settings.port} (${error.message}). HTTP viewer access is disabled.`,
         );
         resolve();
       });
@@ -133,7 +132,7 @@ export function createTlsListener({
         // listen() throws synchronously for an out-of-range port or an invalid host.
         failureReason = `listener error on port ${settings.port} (${error.message})`;
         log(
-          `TLS listener error on port ${settings.port} (${error.message}). Serving plaintext only.`,
+          `TLS listener error on port ${settings.port} (${error.message}). HTTP viewer access is disabled.`,
         );
         resolve();
       }
@@ -159,10 +158,10 @@ export function createTlsListener({
         // error, and is never silently replaced by a generated one (ensureCertificate
         // guarantees that); say so plainly rather than wording it as a missing tool.
         log(
-          `TLS configuration error: ${reason}. Serving plaintext only; no certificate was generated in its place.`,
+          `TLS configuration error: ${reason}. HTTP viewer access is disabled; no certificate was generated in its place.`,
         );
       } else {
-        log(`TLS unavailable (${reason}). Serving plaintext only.`);
+        log(`TLS unavailable (${reason}). HTTP viewer access is disabled.`);
       }
       return;
     }
@@ -204,7 +203,7 @@ export function createTlsListener({
       const started = (forced && inflight ? inflight.then(() => run(true)) : run(forced))
         .catch((error) => {
           log(
-            `TLS attempt failed unexpectedly (${error?.message ?? error}). Serving plaintext only.`,
+            `TLS attempt failed unexpectedly (${error?.message ?? error}). HTTP viewer access is disabled.`,
           );
         })
         // Identity-guarded: a forced attempt queued behind this one has already replaced
@@ -215,7 +214,7 @@ export function createTlsListener({
       inflight = started;
       return started;
     },
-    // The live state the plaintext listener reads per request. `active` is true only
+    // The live state the local HTTP listener reads per request. `active` is true only
     // while a listener is really bound: a credential that was provisioned but failed to
     // bind must not send clients toward a port nothing is listening on.
     status() {

@@ -32,17 +32,27 @@ public sealed partial class HostWindow
     // told from a real change and not rebuild the page under the user's cursor.
     sealed record TlsReport(
         string Mode, bool Active, int? Port, string? Strategy, string? EnrolmentStatus,
-        string? Fingerprint, DateTimeOffset? Expiry, bool Expired, bool NeedsRenewal, string? Reason);
+        string? Fingerprint, DateTimeOffset? Expiry, bool Expired, bool NeedsRenewal, string? Reason,
+        bool HttpViewerEnabled, bool ViewerReady, string? ViewerUrl);
 
     TlsReport? tlsReport;
-    // The plaintext address the server reported at startup, kept even after `address` starts
-    // showing the HTTPS one: the enrolment page is served unencrypted on purpose (a device
+    // A currently bound local HTTP root, kept separate from viewer URLs: the enrolment page
+    // is served unencrypted on purpose (a device
     // that does not trust this PC yet cannot fetch the anchor over a connection that anchor
     // exists to authenticate), so the QR code still needs this.
     string? plaintextAddress;
     bool tlsRegenerating;
     string? tlsError;
     TaskCompletionSource<JsonElement>? tlsReply;
+
+    static string? FirstUrl(JsonElement parent, string property, string scheme)
+    {
+        if (!parent.TryGetProperty(property, out var urls) || urls.ValueKind != JsonValueKind.Array) return null;
+        foreach (var item in urls.EnumerateArray())
+            if (item.ValueKind == JsonValueKind.String && Uri.TryCreate(item.GetString(), UriKind.Absolute, out var uri) && uri.Scheme == scheme)
+                return uri.GetLeftPart(UriPartial.Authority);
+        return null;
+    }
 
     void UpdateTlsStatus(JsonElement status)
     {
@@ -60,7 +70,17 @@ public sealed partial class HostWindow
             DateTimeOffset.TryParse(Text(tls, "expiry"), out var expiry) ? expiry : null,
             tls.TryGetProperty("expired", out var expired) && expired.ValueKind == JsonValueKind.True,
             tls.TryGetProperty("needsRenewal", out var renewal) && renewal.ValueKind == JsonValueKind.True,
-            Text(tls, "reason") is { Length: > 0 } reason ? reason : null);
+            Text(tls, "reason") is { Length: > 0 } reason ? reason : null,
+            tls.TryGetProperty("httpViewerEnabled", out var httpViewer) && httpViewer.ValueKind == JsonValueKind.True,
+            tls.TryGetProperty("viewerReady", out var viewerReady) && viewerReady.ValueKind == JsonValueKind.True,
+            FirstUrl(tls, "viewerUrls", "https") ?? FirstUrl(tls, "viewerUrls", "http"));
+        var priorPlaintext = plaintextAddress;
+        plaintextAddress = FirstUrl(tls, "localHttpUrls", "http");
+        previewUrl = null;
+        if (tls.TryGetProperty("viewerUrls", out var viewerUrls) && viewerUrls.ValueKind == JsonValueKind.Array)
+            foreach (var item in viewerUrls.EnumerateArray())
+                if (item.ValueKind == JsonValueKind.String && Uri.TryCreate(item.GetString(), UriKind.Absolute, out var uri) && uri.Host is "127.0.0.1" or "::1")
+                { previewUrl = uri.GetLeftPart(UriPartial.Authority); break; }
         // A failed regenerate leaves a message that has to outlive the tick it was set on
         // (status arrives once a second), but must not outlive the problem. It is cleared
         // when the server's own report actually *recovers* — an unhealthy report followed by
@@ -70,7 +90,7 @@ public sealed partial class HostWindow
         // read.
         var recovered = next.Reason is null && tlsReport is { Reason: not null } && tlsError is not null;
         if (recovered) tlsError = null;
-        var changed = tlsReport != next || recovered;
+        var changed = tlsReport != next || recovered || priorPlaintext != plaintextAddress;
         tlsReport = next;
         ApplyTlsAddress();
         // Settings shows the full TLS section; Overview's "Connection security" note also
@@ -81,24 +101,16 @@ public sealed partial class HostWindow
 
     void ReceiveTlsRegenerateResult(JsonElement value) => tlsReply?.TrySetResult(value.Clone());
 
-    // "The address shown and the QR code encode the HTTPS address once TLS is up" — the
-    // address a user is told to open moves to HTTPS the moment the secure listener is really
-    // bound, and moves back if it ever stops. `previewUrl` deliberately does not follow: it
-    // is the loopback preview this app opens itself, and the plaintext listener redirects it.
-    // Diagnostics uses a separate owner-provided loopback address.
+    // Viewer addresses come from the server's explicit viewer list, never from a local
+    // trust root. In auto/provided mode a failed TLS listener yields no viewer address.
     void ApplyTlsAddress()
     {
-        if (plaintextAddress is null) return;
-        address.Text = SecureAddress() ?? plaintextAddress;
-    }
-
-    string? SecureAddress()
-    {
-        if (tlsReport is not { Active: true, Port: int port }) return null;
-        if (!Uri.TryCreate(plaintextAddress, UriKind.Absolute, out var uri)) return null;
-        // GetLeftPart(Authority) omits a port that is the scheme's default, matching what a
-        // browser shows and what the server's own address formatting does.
-        return new UriBuilder(uri) { Scheme = "https", Port = port }.Uri.GetLeftPart(UriPartial.Authority);
+        address.Text = tlsReport is { ViewerReady: true, ViewerUrl: { } viewer } ? viewer
+            : tlsReport?.Reason?.StartsWith("HTTPS has not started yet.") == true
+                ? "Waiting for HTTPS"
+                : "HTTPS unavailable — check Settings";
+        openPreview.IsEnabled = sharing && tlsReport?.ViewerReady == true && previewUrl is not null;
+        connectDevice.IsEnabled = sharing && tlsReport?.ViewerReady == true;
     }
 
     // The enrolment page, always on the plaintext listener (the server leaves that one path
@@ -111,9 +123,11 @@ public sealed partial class HostWindow
     // page's own HTTPS section could already be contradicting by the time a user read it.
     // `tlsReport` is null only in the brief window before the first status tick, where the
     // conservative (pre-HTTPS) wording is still the honest default.
-    string ConnectionSecurityNote() => tlsReport is { Active: true }
+    string ConnectionSecurityNote() => tlsReport is { Active: true, ViewerReady: true }
         ? "This preview uses HTTPS pairing, which is encrypted. Devices must install this PC's certificate once before connecting without a browser warning — see the HTTPS section below. Allow private-network firewall access only. Never forward its port to the Internet."
-        : "This preview uses HTTP pairing, which is not encrypted. Allow private-network firewall access only. Never forward its port to the Internet.";
+        : tlsReport is { HttpViewerEnabled: true, ViewerReady: true }
+            ? "This preview uses LAN-only HTTP pairing, which is not encrypted. Allow private-network firewall access only. Never forward its port to the Internet."
+            : "The viewer is waiting for HTTPS or HTTPS is unavailable. Local HTTP is only for trust enrollment; it cannot open a viewer. Check HTTPS in Settings.";
 
     static string TlsModeLabel(string mode) => mode switch
     {

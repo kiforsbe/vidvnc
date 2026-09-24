@@ -137,7 +137,7 @@ export function createLiveContext({
       // Read now, not when the console was created: HTTPS can come up after startup.
       const { urls } = addresses();
       return [
-        ['Connect', urls.join(', ')],
+        ['Connect', urls.length ? urls.join(', ') : 'HTTPS pending or unavailable'],
         ['Password', sessionStore.password],
         ['Diagnostics', 'Use diagnostics open on this PC'],
         ['Data folder', directory],

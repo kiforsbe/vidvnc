@@ -57,7 +57,7 @@ for (const [label, text] of [
     assert.equal(log.lines.length, 1);
     assert.ok(log.lines[0].includes(PATH), 'the log names the file');
     assert.match(log.lines[0], /invalid/);
-    assert.match(log.lines[0], /plaintext only/);
+    assert.match(log.lines[0], /HTTP viewer.*disabled/);
   });
 }
 
@@ -66,7 +66,7 @@ test('a settings file that exists but cannot be read is not the same as a missin
   const settings = await load(fileFailing('EACCES', 'permission denied'), { log });
   assert.equal(settings.mode, 'off');
   assert.match(log.lines.join('\n'), /permission denied/);
-  assert.match(log.lines.join('\n'), /plaintext only/);
+  assert.match(log.lines.join('\n'), /HTTP viewer.*disabled/);
 });
 
 test('the auto defaults are validated against the live plaintext port: VIDVNC_PORT equal to the default TLS port skips TLS and names both ports', async () => {
@@ -76,7 +76,7 @@ test('the auto defaults are validated against the live plaintext port: VIDVNC_PO
   assert.equal(log.lines.length, 1);
   assert.match(log.lines[0], new RegExp(`TLS port ${DEFAULT_TLS_PORT}`));
   assert.match(log.lines[0], new RegExp(`plaintext port ${DEFAULT_TLS_PORT}`));
-  assert.match(log.lines[0], /plaintext only/);
+  assert.match(log.lines[0], /HTTP viewer.*disabled/);
 });
 
 test('a file whose port collides with the plaintext port skips TLS and names both ports', async () => {

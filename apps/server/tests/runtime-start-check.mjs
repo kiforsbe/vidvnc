@@ -209,8 +209,15 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 30));
     }
     const invalidReady = invalidMessages.find((message) => message.type === 'ready');
-    assert.equal(invalidReady.urls[0], `http://127.0.0.1:${port}`);
-    assert.ok(invalidReady.urls.every((url) => /^http:\/\/(?:127\.0\.0\.1|\[::1\]):/.test(url)));
+    assert.deepEqual(invalidReady.urls, []);
+    assert.equal(invalidReady.tls.viewerReady, false);
+    assert.deepEqual(invalidReady.tls.viewerUrls, []);
+    assert.equal(invalidReady.tls.localHttpUrls[0], `http://127.0.0.1:${port}`);
+    assert.ok(
+      invalidReady.tls.localHttpUrls.every((url) =>
+        /^http:\/\/(?:127\.0\.0\.1|\[::1\]):/.test(url),
+      ),
+    );
     const denied = await fetch(`http://127.0.0.1:${port}/api/info`);
     assert.equal(denied.status, 503);
     assert.equal(denied.headers.get('cache-control'), 'no-store');

@@ -3,7 +3,7 @@ import { defaultTlsSettings, validateTlsSettings } from './tls-settings.mjs';
 
 // Reads and validates the TLS settings file for startup. Never throws, and every outcome
 // that leaves the product without TLS is reported through `log`, because a failure that
-// leaves the product plaintext must be visible even when it is not fatal.
+// leaves HTTPS unavailable must be visible even when server startup continues.
 //
 // The three cases differ on purpose:
 //   - A MISSING file means nobody has configured TLS: use the `auto` defaults, which is
@@ -12,10 +12,10 @@ import { defaultTlsSettings, validateTlsSettings } from './tls-settings.mjs';
 //     naming the plaintext port) means someone configured *something* and it is wrong.
 //     Guessing what they meant, by silently running `auto` in its place, could provision
 //     and serve a certificate the operator never asked for — so the safe reading is "no
-//     TLS this run", plaintext only, with the reason logged.
+//     TLS this run", with HTTP viewer access disabled and the reason logged.
 //   - The `auto` defaults are checked against the live plaintext port too. `VIDVNC_PORT`
 //     can be set to the default TLS port, and binding TLS there first would leave the
-//     plaintext listener with EADDRINUSE, which stops the whole server.
+//     HTTPS and local HTTP listeners in conflict.
 //
 // `plaintextPort` is the live, possibly env-overridden plaintext port. `readFile` and `log`
 // are injectable for tests.
@@ -29,7 +29,7 @@ export async function loadTlsSettings(
   // with a broken file that HTTPS is deliberately disabled.
   const off = () => ({ ...defaultTlsSettings(), mode: 'off', invalid: true });
   const clash = (port) =>
-    `TLS port ${port} is the same as the plaintext port ${plaintextPort}. TLS is disabled for this run and the server is plaintext only; ` +
+    `TLS port ${port} is the same as the plaintext port ${plaintextPort}. HTTPS is unavailable and HTTP viewer access is disabled for this run; ` +
     `change the TLS port in "${path}" or VIDVNC_PORT.`;
 
   let raw;
@@ -45,7 +45,7 @@ export async function loadTlsSettings(
       return defaults;
     }
     log(
-      `Could not read TLS settings "${path}" (${error.message}). TLS is disabled for this run and the server is plaintext only.`,
+      `Could not read TLS settings "${path}" (${error.message}). HTTPS is unavailable and HTTP viewer access is disabled for this run.`,
     );
     return off();
   }
@@ -60,7 +60,7 @@ export async function loadTlsSettings(
       log(clash(port));
     } else {
       log(
-        `TLS settings in "${path}" are invalid (${error.message}). TLS is disabled for this run and the server is plaintext only.`,
+        `TLS settings in "${path}" are invalid (${error.message}). HTTPS is unavailable and HTTP viewer access is disabled for this run.`,
       );
     }
     return off();
@@ -70,7 +70,7 @@ export async function loadTlsSettings(
 // Reads and validates the TLS settings file for CLI status reporting (the offline `tls`
 // status command, and the live `tls` status command's on-disk read for drift detection) —
 // NOT for startup. `loadTlsSettings` above exists to keep the SERVER running safely:
-// "never leave TLS in a broken state, fall back to plaintext, log it." Reusing that same
+// "never leave TLS in a broken state, disable HTTP viewer admission, log it." Reusing that same
 // graceful fallback for a command whose entire job is to answer "what does my TLS
 // configuration look like right now" would be actively wrong: a corrupt or invalid file
 // would silently read back as "TLS mode: Off", which looks exactly like a deliberate,

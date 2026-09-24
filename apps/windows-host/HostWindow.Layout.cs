@@ -117,10 +117,11 @@ public sealed partial class HostWindow
         if (!enabled) CloseIdentify();
         sharing = enabled; sharingText.Text = enabled ? "Sharing is on" : "Sharing is off";
         UpdateSharingIndicator();
-        connectDevice.IsEnabled = enabled; openPreview.IsEnabled = enabled;
+        connectDevice.IsEnabled = enabled && tlsReport?.ViewerReady == true;
+        openPreview.IsEnabled = enabled && tlsReport?.ViewerReady == true && previewUrl is not null;
         // TLS state belongs to the running server, so it is dropped with it rather than left
         // on screen describing a listener that no longer exists.
-        if (!enabled) { sessionList.Children.Clear(); sessionCards.Clear(); deviceTotal.Text = "0"; streamTotal.Text = "0"; summary.Text = "No connected devices"; ownership.Text = "No connected devices"; address.Text = ""; password.Text = ""; tlsReport = null; plaintextAddress = null; tlsError = null; }
+        if (!enabled) { sessionList.Children.Clear(); sessionCards.Clear(); deviceTotal.Text = "0"; streamTotal.Text = "0"; summary.Text = "No connected devices"; ownership.Text = "No connected devices"; address.Text = ""; password.Text = ""; tlsReport = null; plaintextAddress = null; previewUrl = null; tlsError = null; }
         RenderPage();
     }
 
@@ -193,7 +194,7 @@ public sealed partial class HostWindow
 
     async Task ShowConnection(string initialMode = "connect-once")
     {
-        if (dialogOpen) return;
+        if (dialogOpen || !sharing || tlsReport?.ViewerReady != true) return;
         dialogOpen = true;
         try
         {
