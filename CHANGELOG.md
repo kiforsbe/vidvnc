@@ -5,6 +5,43 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- The host and CLI now issue one-time connection and client-registration codes only on explicit
+  request. Codes expire after five minutes by default and can be used once. The host offers
+  letters-and-numbers or letters-only codes; the CLI and configuration file allow bounded
+  changes to code lifetime, attempt limits, alphabet, and eligible local networks.
+- The host and CLI can explicitly disconnect existing ordinary sessions when immediate
+  lockdown is needed. The CLI's `diagnostics open` command and the host's Diagnostics action
+  create a short-lived local diagnostics link on demand.
+
+### Changed
+
+- Connection codes remain eight characters but no longer encode their purpose and exclude
+  easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is accepted only
+  from the host PC or an eligible local LAN subnet, not from a public-scoped listener.
+- An approved browser credential can have only one live session at a time. Removing an approved
+  client ends its sessions; changing it to view-only revokes active control before the host
+  reports success.
+
+### Fixed
+
+- Removed the anonymous connection-key inspection and legacy connect routes. Key starts and
+  approved-client admission now have server-wide and per-source attempt limits, bounded
+  password-verification work, and expiring registration state.
+- Control grants and lease renewals now check the client's current permission. Local live
+  diagnostics requires an owner-issued bearer capability, so a loopback reverse proxy alone
+  cannot read it.
+
+### Known limitations
+
+- These changes harden the existing LAN service; they do **not** make it ready to expose to the
+  Internet. HTTPS trust enrollment and WebRTC routing for remote access remain unresolved. An
+  approved browser's secret is still copyable, and in-process limits do not replace an
+  Internet-facing traffic filter. See the [security implementation status](docs/security/internet-exposure-hardening-status-2026-09-24.md).
+
 ## [0.8.0] - 2026-09-23
 
 ### Added
