@@ -148,6 +148,28 @@ const json = (response) => JSON.parse(response.text);
 const sha256Colon = (bytes) =>
   createHash('sha256').update(bytes).digest('hex').toUpperCase().match(/.{2}/g).join(':');
 
+test('out-of-scope peers cannot fetch trust pages, assets, status, or anchor on either scheme', async (t) => {
+  const { server, port: httpPort } = await startApp(t, {
+    tls: stubTls(requiredReport()),
+    localSessionScope: { allows: () => false },
+  });
+  const secure = createTlsServer(VALID, server.requestListener);
+  await new Promise((resolve) => secure.listen(0, '127.0.0.1', resolve));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        secure.close(resolve);
+        secure.closeAllConnections();
+      }),
+  );
+  const httpsPort = secure.address().port;
+  assert.equal((await httpsCall(httpsPort, '/api/info')).status, 200);
+  for (const path of PLAINTEXT_ALLOWED_PATHS) {
+    assert.equal((await httpCall(httpPort, path)).status, 403, `HTTP ${path}`);
+    assert.equal((await httpsCall(httpsPort, path)).status, 403, `HTTPS ${path}`);
+  }
+});
+
 // --- the anchor download ---------------------------------------------------------------
 
 test('the anchor is served as DER with the type and filename devices recognise, uncached and unsniffable', async (t) => {

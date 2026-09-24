@@ -95,6 +95,48 @@ test('accepts a dashless lowercase password through the real HTTP endpoint', () 
     assert.equal((await post(url + '/api/key-start', { key: password })).status, 201);
   }));
 
+test('inactive required HTTPS denies every viewer, admission, bearer, and signaling path on HTTP', () =>
+  withServer(
+    async (url, server) => {
+      for (const path of ['/', '/api/info']) {
+        const response = await fetch(url + path);
+        assert.equal(response.status, 503, path);
+        assert.equal(response.headers.get('cache-control'), 'no-store', path);
+      }
+      for (const [path, body] of [
+        ['/api/key-start', { key: server.sessionStore.password }],
+        ['/api/approved-clients/sign-in', {}],
+        ['/api/heartbeat', {}],
+        ['/api/offer', { sdp: 'offer' }],
+        ['/api/stream-offer', { sdp: 'offer' }],
+      ]) {
+        const response = await post(url + path, body, 'not-a-session');
+        assert.equal(response.status, 503, path);
+        assert.equal(response.headers.get('cache-control'), 'no-store', path);
+      }
+    },
+    { tls: { status: () => ({ active: false, port: null }) }, plaintextMode: 'https-required' },
+  ));
+
+test('deliberate LAN HTTP mode still admits a loopback session when TLS is off', () =>
+  withServer(
+    async (url, server) => {
+      const response = await post(url + '/api/key-start', { key: server.sessionStore.password });
+      assert.equal(response.status, 201);
+    },
+    { tls: { status: () => ({ active: false, port: null }) }, plaintextMode: 'lan-http' },
+  ));
+
+test('an out-of-scope HTTP peer is rejected before ordinary routing', () =>
+  withServer(
+    async (url) => {
+      const response = await fetch(url + '/api/info');
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    },
+    { localSessionScope: { allows: () => false } },
+  ));
+
 test('an in-flight protected request cannot return data after its bearer is revoked', async () => {
   const sessions = new SessionStore();
   const sessionId = sessions.connectApproved(

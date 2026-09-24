@@ -149,8 +149,11 @@ export function createHttpApp({
   // only while a listener is really bound. This function never provisions anything; it
   // only reads whatever status it is handed.
   tls = null,
+  plaintextMode = tls ? 'https-required' : 'lan-http',
 } = {}) {
   if (!['local', 'public'].includes(listenerScope)) throw new Error('Invalid listener scope');
+  if (!['lan-http', 'https-required'].includes(plaintextMode))
+    throw new Error('Invalid plaintext mode');
   admission ??= approvedClients?.admission ?? new AdmissionBudget();
   if (approvedClients && !approvedClients.admission) approvedClients.admission = admission;
   const reconnecting = new Set();
@@ -235,6 +238,9 @@ export function createHttpApp({
         request.headers.host,
         request.socket.localPort,
       );
+      const isLocal = localSessionScope.allows(request.socket.remoteAddress, 'local');
+      if (scheme === 'http' && !isLocal)
+        return send(response, 403, { error: 'Local network only.' });
       // This handler serves the public-capable HTTP and HTTPS ports. Diagnostics live
       // exclusively on a separate loopback-bound listener, even for local callers.
       if (
@@ -245,6 +251,8 @@ export function createHttpApp({
         route === '/diagnostics.css'
       )
         return send(response, 404, { error: 'Not found' });
+      if (PLAINTEXT_ALLOWED_PATHS.includes(route) && !isLocal)
+        return send(response, 403, { error: 'Trust enrollment is local only.' });
       // Plaintext redirect: once TLS is active, every plaintext request except the
       // enrolment allow-list is sent to its HTTPS equivalent, preserving path and query
       // (`request.url` already carries both). 307 (not 301/302) so a non-GET request keeps
@@ -255,15 +263,17 @@ export function createHttpApp({
       // from the already-allow-listed hostname and this listener's own TLS port, never
       // from the raw Host header, so it cannot be steered to another site. Only
       // Validated origin-form and absolute-form targets both have a safe path/query.
-      if (scheme === 'http') {
+      if (scheme === 'http' && !PLAINTEXT_ALLOWED_PATHS.includes(route)) {
         const tlsStatus = tls?.status() ?? { active: false, port: null };
-        if (tlsStatus.active && !PLAINTEXT_ALLOWED_PATHS.includes(route)) {
+        if (tlsStatus.active) {
           response.writeHead(307, {
             location: `https://${host}:${tlsStatus.port}${pathAndQuery}`,
             'cache-control': 'no-store',
           });
           return response.end();
         }
+        if (plaintextMode === 'https-required')
+          return send(response, 503, { error: 'HTTPS is unavailable.' });
       }
       if (!isAllowedOrigin(scheme, request.headers.host, request.headers.origin))
         return send(response, 403, { error: 'Cross-origin request denied' });

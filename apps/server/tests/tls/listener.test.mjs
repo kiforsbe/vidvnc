@@ -135,8 +135,8 @@ function makeListener(t, options) {
 
 // A plaintext listener whose redirect decision comes from `tls` (a listener, or any object
 // with the same `status()`), i.e. exactly how main.mjs wires the two together.
-async function startPlaintext(t, tls) {
-  const server = createHttpApp({ serverName: 'Test PC', tls });
+async function startPlaintext(t, tls, options = {}) {
+  const server = createHttpApp({ serverName: 'Test PC', tls, ...options });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(
     () =>
@@ -441,7 +441,7 @@ test('a real TLS connection rejects a Host claiming port 443 when the socket is 
 
 // --- failure table: no strategy succeeds -----------------------------------------------
 
-test('no strategy succeeds in auto: plaintext serves the whole application exactly as today, no redirect, and the reason is logged', async (t) => {
+test('no strategy succeeds in auto: HTTP viewer fails closed while trust remains local', async (t) => {
   const { listener, log } = makeListener(t, {
     ensureCertificate: fakeEnsure(
       failed('mkcert: mkcert is not available; windows-self-signed: PowerShell unavailable'),
@@ -456,12 +456,15 @@ test('no strategy succeeds in auto: plaintext serves the whole application exact
   assert.match(log.lines.join('\n'), /Serving plaintext only/);
 
   const plaintext = await startPlaintext(t, listener);
-  for (const path of ['/', '/api/info', ...PLAINTEXT_ALLOWED_PATHS]) {
+  for (const path of ['/', '/api/info']) {
+    const response = await fetch(plaintext.url + path, { redirect: 'manual' });
+    assert.equal(response.status, 503, path);
+    assert.equal(response.headers.get('cache-control'), 'no-store', path);
+  }
+  for (const path of PLAINTEXT_ALLOWED_PATHS) {
     const response = await fetch(plaintext.url + path, { redirect: 'manual' });
     assert.notEqual(response.status, 307, path);
   }
-  const info = await (await fetch(plaintext.url + '/api/info')).json();
-  assert.equal(info.serverName, 'Test PC');
 });
 
 test('an ensureCertificate that throws is survived, logged, and leaves plaintext serving', async (t) => {
@@ -493,7 +496,7 @@ test('mode off consults nothing, binds nothing and logs nothing', async (t) => {
   await listener.attempt();
   assert.deepEqual(listener.status(), { active: false, port: null });
   assert.deepEqual(log.lines, []);
-  const plaintext = await startPlaintext(t, listener);
+  const plaintext = await startPlaintext(t, listener, { plaintextMode: 'lan-http' });
   const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
   assert.equal(response.status, 200);
 });
@@ -526,7 +529,7 @@ test('a failing provided certificate is reported as a configuration error, and n
 
   const plaintext = await startPlaintext(t, listener);
   const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 503);
 });
 
 // --- failure table: a credential the TLS stack rejects on the FIRST bind ---------------
@@ -538,7 +541,7 @@ for (const [label, credential] of [
   ['unparseable garbage', { cert: 'not a certificate', key: 'not a key' }],
 ]) {
   test(
-    `${label} on the very first bind leaves the process alive and plaintext serving, with the reason logged`,
+    `${label} on the very first bind leaves the process alive but HTTP viewer unavailable`,
     { timeout: 5000 },
     async (t) => {
       // The real createServer, exactly as main.mjs uses it: this is the call that throws
@@ -555,11 +558,11 @@ for (const [label, credential] of [
       assert.match(text, /TLS configuration error \(/);
       assert.match(text, /Serving plaintext only/);
 
-      // Plaintext keeps serving, and does not redirect toward a port nobody listens on.
+      // Trust remains available, but the viewer cannot fall back to plaintext.
       const plaintext = await startPlaintext(t, listener);
       const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
-      assert.equal(response.status, 200);
-      assert.equal((await response.json()).serverName, 'Test PC');
+      assert.equal(response.status, 503);
+      assert.equal((await fetch(plaintext.url + '/trust')).status, 200);
     },
   );
 }
@@ -587,7 +590,7 @@ test(
 // --- failure table: TLS port already in use --------------------------------------------
 
 test(
-  'a TLS port already in use is reported naming the port, plaintext keeps serving, and the process survives',
+  'a TLS port already in use leaves the process alive but not the HTTP viewer',
   { timeout: 5000 },
   async (t) => {
     const { port } = await occupyPort(t);
@@ -604,11 +607,10 @@ test(
     assert.match(text, new RegExp(`TLS port ${port} is already in use`));
     assert.match(text, /Serving plaintext only/);
 
-    // Because TLS is not actually up, plaintext must not redirect anyone toward a port
-    // nothing is listening on.
+    // Because TLS is not actually up, plaintext must neither redirect nor admit a viewer.
     const plaintext = await startPlaintext(t, listener);
     const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 503);
   },
 );
 
