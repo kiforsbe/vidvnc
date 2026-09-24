@@ -67,6 +67,16 @@ const generalCommands = [
     },
   },
   {
+    name: 'diagnostics open',
+    usage: 'diagnostics open',
+    summary: 'Issue a short-lived local diagnostics link for this PC.',
+    where: 'live',
+    run: (context, { positionals }) => {
+      expectArguments(positionals, 0);
+      return context.diagnosticsOpen();
+    },
+  },
+  {
     name: 'disconnect-ordinary',
     usage: 'disconnect-ordinary [--yes]',
     summary:

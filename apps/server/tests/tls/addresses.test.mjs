@@ -125,10 +125,7 @@ test('the follow-up block lists the HTTPS addresses and a corrected warning', ()
   assert.match(text, /^Open https:\/\/192\.168\.1\.5:4383$/m);
   assert.match(text, /^Open https:\/\/10\.0\.0\.7:4383$/m);
   assert.match(text, /^Local preview: https:\/\/127\.0\.0\.1:4383$/m);
-  assert.match(
-    text,
-    /^Live diagnostics \(this PC only\): https:\/\/127\.0\.0\.1:4383\/diagnostics$/m,
-  );
+  assert.match(text, /^Live diagnostics \(this PC only\): use diagnostics open$/m);
   assert.match(
     text,
     /Devices that have not enrolled this PC's certificate will show a browser warning/,
@@ -228,7 +225,7 @@ test('the info command shows the current plaintext rows exactly while TLS is dow
   const h = await liveConsole(t);
   const text = await h.send('info', /Diagnostics/);
   assert.match(text, /^Connect\s+http:\/\/192\.168\.1\.2:4382, http:\/\/127\.0\.0\.1:4382$/m);
-  assert.match(text, /^Diagnostics\s+http:\/\/127\.0\.0\.1:4382\/diagnostics \(this PC only\)$/m);
+  assert.match(text, /^Diagnostics\s+Use diagnostics open on this PC$/m);
 });
 
 test('the info command switches to the HTTPS rows when TLS comes up, evaluated at call time', async (t) => {
@@ -240,12 +237,12 @@ test('the info command switches to the HTTPS rows when TLS comes up, evaluated a
   tls.port = 4383;
   const after = await h.send('info', /Diagnostics/);
   assert.match(after, /^Connect\s+https:\/\/192\.168\.1\.2:4383, https:\/\/127\.0\.0\.1:4383$/m);
-  assert.match(after, /^Diagnostics\s+https:\/\/127\.0\.0\.1:4383\/diagnostics \(this PC only\)$/m);
+  assert.match(after, /^Diagnostics\s+Use diagnostics open on this PC$/m);
 });
 
 test('the info command omits the port for HTTPS on 443', async (t) => {
   const h = await liveConsole(t, { tls: { active: true, port: 443 } });
   const text = await h.send('info', /Diagnostics/);
   assert.match(text, /^Connect\s+https:\/\/192\.168\.1\.2, https:\/\/127\.0\.0\.1$/m);
-  assert.match(text, /^Diagnostics\s+https:\/\/127\.0\.0\.1\/diagnostics \(this PC only\)$/m);
+  assert.match(text, /^Diagnostics\s+Use diagnostics open on this PC$/m);
 });

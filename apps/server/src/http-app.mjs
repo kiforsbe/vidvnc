@@ -298,6 +298,7 @@ export function createHttpApp({
           '/codec-preferences.js',
           '/profile-labels.js',
           '/diagnostics.js',
+          '/diagnostics-auth.js',
           '/diagnostics.css',
           '/style.css',
           '/theme.js',

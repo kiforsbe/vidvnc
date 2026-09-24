@@ -19,6 +19,12 @@ try {
   const keys = new ConnectionKeyRegistry();
   for await (const line of createInterface({ input: process.stdin })) {
     const message = JSON.parse(line);
+    if (message.type === 'diagnostics-capability-create') {
+      console.log(JSON.stringify({ type: 'diagnostics-capability-result', requestId: message.requestId,
+        ok: true, token: 'A'.repeat(43), expiresAt: Date.now() + 900_000,
+        received: { type: message.type } }));
+      continue;
+    }
     if (message.type === 'client-setup-create') {
       const setup = keys.createSetup({ ttlMs: 5 * 60_000, alphabet: message.alphabet });
       console.log(JSON.stringify({ type: 'client-setup-result', requestId: message.requestId,

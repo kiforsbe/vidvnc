@@ -891,6 +891,30 @@ public partial class App : Application
                                 var diagnosticsAddress = typeof(HostWindow).GetMethod("DiagnosticsAddress", flags)!;
                                 if ((string?)diagnosticsAddress.Invoke(window, null) != "http://127.0.0.1:45678/diagnostics")
                                     throw new Exception("Diagnostics must use the active host's loopback port");
+                                if (cycle == 0)
+                                {
+                                    var start = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
+                                        RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                                    start.ArgumentList.Add(Path.GetFullPath("apps/windows-host/tests/Navigation/owner-fixture.mjs"));
+                                    using var owner = System.Diagnostics.Process.Start(start)!;
+                                    var serverField = typeof(HostWindow).GetField("server", flags)!;
+                                    try
+                                    {
+                                        serverField.SetValue(window, owner);
+                                        var requested = (Task<string>)typeof(HostWindow).GetMethod("RequestDiagnosticsCapability", flags)!.Invoke(window, null)!;
+                                        var line = await owner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                        using var result = JsonDocument.Parse(line!);
+                                        if (result.RootElement.GetProperty("received").GetProperty("type").GetString() != "diagnostics-capability-create")
+                                            throw new Exception("Diagnostics did not request owner-scoped capability");
+                                        typeof(HostWindow).GetMethod("ReceiveClientResult", flags)!.Invoke(window, new object[] { result.RootElement });
+                                        var token = await requested.WaitAsync(TimeSpan.FromSeconds(5));
+                                        var launched = (string)typeof(HostWindow).GetMethod("DiagnosticsLaunchUrl", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null,
+                                            new object[] { "http://127.0.0.1:45678/diagnostics", token })!;
+                                        if (launched != "http://127.0.0.1:45678/diagnostics#capability=" + token)
+                                            throw new Exception("Diagnostics capability was not confined to a URL fragment");
+                                    }
+                                    finally { serverField.SetValue(window, null); owner.StandardInput.Close(); if (!owner.WaitForExit(5000)) owner.Kill(); }
+                                }
                                 typeof(HostWindow).GetField("previewUrl", flags)!.SetValue(window, "http://example.com:45678/");
                                 if (diagnosticsAddress.Invoke(window, null) is not null) throw new Exception("Diagnostics link accepted a non-local endpoint");
                                 if (cycle == 0)

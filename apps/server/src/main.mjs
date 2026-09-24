@@ -30,6 +30,7 @@ import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { createCodeIssuer } from './code-issuance.mjs';
 import { createOwnerSecurityCommands } from './owner-security-commands.mjs';
+import { DiagnosticsCapabilities } from './diagnostics-capabilities.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -67,6 +68,7 @@ async function serve() {
     const diagnostics = new Diagnostics({
       directory: logDirectory,
     });
+    const diagnosticsCapabilities = new DiagnosticsCapabilities();
     const serverLog = createServerLog({ desktop, directory: logDirectory });
     const localSession = createLocalSessionScopeController({
       access,
@@ -132,6 +134,7 @@ async function serve() {
       sessionStore: store,
       media,
       diagnostics,
+      diagnosticsCapabilities,
       policy,
       inventory,
       profileOrderFile: files.profileOrder,
@@ -277,6 +280,23 @@ async function serve() {
         else if (Buffer.byteLength(line) <= 128 * 1024) {
           try {
             const command = JSON.parse(line);
+            if (
+              command.type === 'diagnostics-capability-create' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              !stopping
+            ) {
+              const { token, expiresAt } = diagnosticsCapabilities.issue();
+              console.log(
+                JSON.stringify({
+                  type: 'diagnostics-capability-result',
+                  requestId: command.requestId,
+                  ok: true,
+                  token,
+                  expiresAt,
+                }),
+              );
+            }
             if (
               command.type === 'connection-once-create' &&
               typeof command.requestId === 'string' &&
@@ -612,7 +632,7 @@ async function serve() {
       const shown = plaintextAddresses();
       for (const url of shown.lan) console.log(`Open ${url}`);
       console.log(`Local preview: ${shown.local}\nPassword: ${store.password}\n`);
-      console.log(`Live diagnostics (this PC only): ${shown.diagnostics}`);
+      console.log('Live diagnostics (this PC only): use diagnostics open');
       const codecLabels = VIDEO_CODECS.filter((codec) => hostCodecs.includes(codec))
         .map((codec) => CODEC_LABELS[codec])
         .join(' / ');
@@ -635,6 +655,7 @@ async function serve() {
             access,
             inventory,
             runtime,
+            diagnosticsCapabilities,
             sessionStore: store,
             profileOrderFile: files.profileOrder,
             directory,

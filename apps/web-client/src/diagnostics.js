@@ -1,5 +1,7 @@
 import { CODEC_LABELS } from './codec-preferences.js';
 import { profileTooltip, targetBitrateText } from './profile-labels.js';
+import { fetchDiagnostics, takeDiagnosticsCapability } from './diagnostics-auth.js';
+let capability = takeDiagnosticsCapability(location, history);
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 1) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
@@ -65,13 +67,20 @@ function chart(id, history, now, series, minimum, unit) {
   }
 }
 async function refresh() {
+  if (!capability) {
+    $('state').textContent = 'Reopen Diagnostics from the host';
+    $('state').className = 'stale';
+    return;
+  }
   try {
     const requestedStream = selectedStream;
-    const response = await fetch(
-      '/api/diagnostics' +
-        (requestedStream ? '?stream=' + encodeURIComponent(requestedStream) : ''),
-      { signal: AbortSignal.timeout(3000) },
+    const response = await fetchDiagnostics(
+      fetch,
+      requestedStream,
+      capability,
+      AbortSignal.timeout(3000),
     );
+    if (response.status === 403) capability = null;
     if (!response.ok) throw new Error('Diagnostics unavailable');
     const data = await response.json();
     if (requestedStream !== selectedStream) return;
@@ -230,12 +239,14 @@ async function refresh() {
       'Mbit/s',
     );
   } catch {
-    $('state').textContent = 'Server unreachable · reconnect or restart sharing';
+    $('state').textContent = capability
+      ? 'Server unreachable · reconnect or restart sharing'
+      : 'Reopen Diagnostics from the host';
     $('state').className = 'stale';
     $('profile').textContent = 'Current profile unavailable · server unreachable';
     $('profile-settings').textContent = '';
   } finally {
-    setTimeout(refresh, 1000);
+    if (capability) setTimeout(refresh, 1000);
   }
 }
 refresh();

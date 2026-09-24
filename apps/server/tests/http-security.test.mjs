@@ -51,6 +51,7 @@ test('serves every browser entry asset through workspace resolution', () =>
       '/theme.js',
       '/diagnostics',
       '/diagnostics.js',
+      '/diagnostics-auth.js',
       '/profile-labels.js',
       '/diagnostics.css',
     ]) {

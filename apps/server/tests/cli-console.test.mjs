@@ -23,6 +23,19 @@ const VALID = {
 const validAnchor = new X509Certificate(VALID.cert);
 const validFingerprint = validAnchor.fingerprint256;
 
+test('diagnostics capability is issued only by an explicit live console command', async (t) => {
+  const h = await harness(t);
+  const info = await h.send('info', /Diagnostics/);
+  assert.match(info, /Diagnostics\s+Use diagnostics open on this PC/);
+  assert.doesNotMatch(info, /#capability=/);
+  const first = await h.send('diagnostics open', /#capability=/);
+  const second = await h.send('diagnostics open', /#capability=/);
+  const token = (output) => output.match(/#capability=([A-Za-z0-9_-]{43})/)?.[1];
+  assert.ok(token(first));
+  assert.ok(token(second));
+  assert.notEqual(token(first), token(second));
+});
+
 async function bindTlsListener(t, { ok = true } = {}) {
   const listener = createTlsListener({
     settings: { ...defaultTlsSettings(), port: 0 },

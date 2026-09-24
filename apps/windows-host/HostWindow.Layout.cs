@@ -175,12 +175,19 @@ public sealed partial class HostWindow
     string? DiagnosticsAddress() => Uri.TryCreate(previewUrl, UriKind.Absolute, out var uri) &&
         uri.Scheme == "http" && uri.Host == "127.0.0.1" ? new Uri(uri, "/diagnostics").AbsoluteUri : null;
 
-    void OpenDiagnostics()
+    static string DiagnosticsLaunchUrl(string address, string token) =>
+        address + "#capability=" + Uri.EscapeDataString(token);
+
+    async void OpenDiagnostics()
     {
         var url = DiagnosticsAddress();
         if (url is null) return;
-        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
-        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
+        try
+        {
+            var token = await RequestDiagnosticsCapability();
+            Process.Start(new ProcessStartInfo(DiagnosticsLaunchUrl(url, token)) { UseShellExecute = true });
+        }
+        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         { page.Children.Add(new InfoBar { IsOpen = true, Severity = InfoBarSeverity.Error, Message = "Couldn't open diagnostics: " + error.Message }); }
     }
 

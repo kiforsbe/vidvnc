@@ -11,6 +11,7 @@ import { SessionNumbers } from './resolve.mjs';
 import { createTerminal } from './terminal.mjs';
 import { createCodeIssuer } from '../code-issuance.mjs';
 import { createOwnerSecurityCommands } from '../owner-security-commands.mjs';
+import { DiagnosticsCapabilities } from '../diagnostics-capabilities.mjs';
 
 const RESTART = 'Restart the server to reload settings.';
 
@@ -35,9 +36,11 @@ export function createLiveContext({
   tls,
   codeIssuer = null,
   ownerSecurity = null,
+  diagnosticsCapabilities = null,
 }) {
   const issuer = codeIssuer ?? createCodeIssuer({ access, sessionStore });
   const security = ownerSecurity ?? createOwnerSecurityCommands({ store: sessionStore, runtime });
+  const capabilities = diagnosticsCapabilities ?? new DiagnosticsCapabilities();
   const saving = async (write) => {
     try {
       return await write();
@@ -48,6 +51,13 @@ export function createLiveContext({
   return {
     mode: 'live',
     codeIssuer: issuer,
+    diagnosticsOpen() {
+      const { diagnostics } = addresses();
+      const { token, expiresAt } = capabilities.issue();
+      return {
+        text: `${diagnostics}#capability=${encodeURIComponent(token)}\nExpires: ${new Date(expiresAt).toISOString()}\nKeep this link private; open it on this PC.`,
+      };
+    },
     async disconnectOrdinary({ yes = false } = {}) {
       const count = sessionStore.list().filter((row) => row.approvedClientId === null).length;
       if (!count) return { text: 'No ordinary sessions are connected.' };
@@ -123,11 +133,11 @@ export function createLiveContext({
       readTlsSettingsStatus(settingsFiles(directory).tls, { plaintextPort: plaintextPort() }),
     async info() {
       // Read now, not when the console was created: HTTPS can come up after startup.
-      const { urls, diagnostics } = addresses();
+      const { urls } = addresses();
       return [
         ['Connect', urls.join(', ')],
         ['Password', sessionStore.password],
-        ['Diagnostics', `${diagnostics} (this PC only)`],
+        ['Diagnostics', 'Use diagnostics open on this PC'],
         ['Data folder', directory],
         ['Log folder', logDirectory],
         ['Default control', accessLabel(access.snapshot().defaultControl)],

@@ -102,6 +102,14 @@ public sealed partial class HostWindow
         finally { clientReplies.Remove(requestId); }
     }
 
+    async Task<string> RequestDiagnosticsCapability()
+    {
+        var result = await SendClientOwnerCommand(new() { ["type"] = "diagnostics-capability-create" });
+        var token = Text(result, "token");
+        if (token.Length != 43) throw new IOException("The server returned an invalid diagnostics capability.");
+        return token;
+    }
+
     async Task RequestClientSetupKey(string alphabet)
     {
         var result = await SendClientOwnerCommand(new() { ["type"] = "client-setup-create", ["alphabet"] = alphabet });

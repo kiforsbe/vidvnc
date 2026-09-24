@@ -49,6 +49,27 @@ async function until(predicate) {
 }
 try {
   const ready = await until((message) => message.type === 'ready');
+  assert.doesNotMatch(JSON.stringify(ready), /capability/);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/diagnostics`)).status, 403);
+  child.stdin.write(
+    JSON.stringify({ type: 'diagnostics-capability-create', requestId: 'diagnostics-check' }) +
+      '\n',
+  );
+  const capability = await until(
+    (message) =>
+      message.type === 'diagnostics-capability-result' && message.requestId === 'diagnostics-check',
+  );
+  assert.equal(capability.ok, true);
+  assert.match(capability.token, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(
+    (
+      await fetch(`http://127.0.0.1:${port}/api/diagnostics`, {
+        headers: { authorization: `Bearer ${capability.token}` },
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/diagnostics`)).status, 403);
   const instanceFile = join(directory, 'VidVNC', 'instances', `${child.pid}.json`);
   assert.equal(JSON.parse(await readFile(instanceFile, 'utf8')).mode, 'desktop');
   const post = (route, body, token) =>
@@ -66,6 +87,7 @@ try {
   const status = await until(
     (message) => message.type === 'status' && message.sessions.length === 2,
   );
+  assert.doesNotMatch(JSON.stringify(status), new RegExp(capability.token));
   assert.equal(status.capabilities.hostControl, true);
   assert.equal(ready.access.defaultControl, 'approval');
   assert.equal(ready.access.connectionMode, 'session-key');
