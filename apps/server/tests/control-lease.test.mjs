@@ -72,3 +72,31 @@ test('failed acknowledgement removes the old peer before transfer and expired ow
   ]);
   await assert.rejects(lease.grant('expired', 'c'), /inactive/i);
 });
+
+test('revoke reports either native denial acknowledgement or completed peer termination', async () => {
+  const { ControlLease } = await import('../src/control-lease.mjs');
+  let acknowledge = true;
+  const events = [];
+  const lease = new ControlLease({
+    isActive: () => true,
+    media: {
+      async setPermission(id, allowed) {
+        events.push([id, allowed]);
+        if (!allowed && !acknowledge) throw new Error('timeout');
+        return allowed;
+      },
+      async removePeer(id) {
+        events.push(['removed', id]);
+      },
+    },
+  });
+  await lease.grant('alice', 'a');
+  assert.deepEqual(await lease.revoke('alice'), { nativeAck: true, peerTerminated: false });
+  await lease.grant('alice', 'a');
+  acknowledge = false;
+  assert.deepEqual(await lease.revoke('alice'), { nativeAck: false, peerTerminated: true });
+  assert.deepEqual(events.slice(-2), [
+    ['a', false],
+    ['removed', 'a'],
+  ]);
+});

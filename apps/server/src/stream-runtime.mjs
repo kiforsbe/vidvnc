@@ -7,6 +7,7 @@ import { Recovery } from './recovery.mjs';
 import { peerSample } from './media-sample.mjs';
 import { selectVideoCodec } from './video-codecs.mjs';
 import { selectEncoderBackend } from './encoder-backends.mjs';
+import { effectivePermission } from './approved-client-permission.mjs';
 
 export class StreamRuntime {
   constructor({
@@ -26,6 +27,7 @@ export class StreamRuntime {
       media,
       inventory,
       policy,
+      access,
       approvedClients,
       registry,
       clock,
@@ -43,10 +45,16 @@ export class StreamRuntime {
     const onConnect = sessions.onConnect;
     sessions.onConnect = (id) => {
       onConnect?.(id);
-      const approvedClientId = sessions.get(id)?.approvedClientId;
-      const permission = approvedClientId ? approvedClients?.permission(approvedClientId) : null;
-      const control =
-        permission && permission !== 'default' ? permission : access?.snapshot().defaultControl;
+      const session = sessions.get(id);
+      const approvedClientId = session?.approvedClientId;
+      const auth = approvedClientId ? approvedClients?.authorization(approvedClientId) : null;
+      const current = !approvedClientId || (auth && auth.generation === session.approvedGeneration);
+      const control = approvedClientId
+        ? effectivePermission(
+            current ? auth : null,
+            access?.snapshot().defaultControl ?? 'view-only',
+          )
+        : (access?.snapshot().defaultControl ?? 'view-only');
       if (control === 'available') this.automaticControl.add(id);
     };
     // The lease addresses subscriptions; the worker it talks to is the subscription's source.
@@ -59,15 +67,7 @@ export class StreamRuntime {
         },
         removePeer: (streamId) => this.#endSubscription(streamId),
       },
-      isActive: (sessionId, streamId) => {
-        const source = registry.sourceOf(streamId);
-        return (
-          sessions.list().some((s) => s.sessionId === sessionId) &&
-          registry.get(sessionId, streamId)?.state === 'live' &&
-          source?.state === 'ready' &&
-          media.workers.has(source.id)
-        );
-      },
+      isActive: (sessionId, streamId, options) => this.currentControl(sessionId, streamId, options),
     });
     const onExit = media.onExit;
     media.onExit = (id, exit) => {
@@ -111,12 +111,47 @@ export class StreamRuntime {
       .list(sessionId)
       .map(({ id, state, plan }) => ({ streamId: id, state, ...plan }));
   }
+  currentControl(sessionId, streamId, { explicitOwner = false } = {}) {
+    const session = this.sessions.list().find((row) => row.sessionId === sessionId);
+    const source = this.registry.sourceOf(streamId);
+    if (
+      !session ||
+      this.registry.get(sessionId, streamId)?.state !== 'live' ||
+      source?.state !== 'ready' ||
+      !this.media.workers.has(source.id)
+    )
+      return false;
+    const auth = session.approvedClientId
+      ? this.approvedClients?.authorization(session.approvedClientId)
+      : null;
+    const current =
+      !session.approvedClientId || (auth && auth.generation === session.approvedGeneration);
+    const permission = session.approvedClientId
+      ? effectivePermission(
+          current ? auth : null,
+          this.access?.snapshot().defaultControl ?? 'view-only',
+        )
+      : (this.access?.snapshot().defaultControl ?? 'view-only');
+    return explicitOwner ? permission !== 'view-only' : permission === 'available';
+  }
+  async revokeApprovedClient(clientId) {
+    const affected = this.sessions.list().filter((row) => row.approvedClientId === clientId);
+    for (const row of affected) this.automaticControl.delete(row.sessionId);
+    const results = await Promise.all(affected.map((row) => this.control.revoke(row.sessionId)));
+    return {
+      nativeAck: results.every((result) => result.nativeAck),
+      peerTerminated: results.some((result) => result.peerTerminated),
+    };
+  }
   async selectStream(sessionId, streamId) {
     if (!this.sessions.get(sessionId) || this.registry.get(sessionId, streamId)?.state !== 'live')
       throw Object.assign(new Error('Unknown stream'), { status: 404 });
-    if (this.control.owner?.sessionId === sessionId && this.control.owner.streamId !== streamId)
-      await this.control.grant(sessionId, streamId);
-    else if (this.automaticControl.delete(sessionId))
+    if (this.control.owner?.sessionId === sessionId && this.control.owner.streamId !== streamId) {
+      const explicitOwner = this.control.explicitOwner;
+      if (this.currentControl(sessionId, streamId, { explicitOwner }))
+        await this.control.grant(sessionId, streamId, { explicitOwner });
+      else await this.control.revoke(sessionId);
+    } else if (this.automaticControl.delete(sessionId) && this.currentControl(sessionId, streamId))
       await this.control.grant(sessionId, streamId, { onlyIfAvailable: true });
     if (this.registry.get(sessionId, streamId)?.state !== 'live') throw new Error('Stream ended');
     this.selected.set(sessionId, streamId);
@@ -130,16 +165,16 @@ export class StreamRuntime {
     if (!this.sessions.list().some((session) => session.sessionId === sessionId))
       throw new Error('Device disconnected');
     if (action === 'grant' || action === 'revoke') this.automaticControl.delete(sessionId);
-    if (action === 'grant' && this.#viewOnly(sessionId))
-      throw new Error('This approved client is set to view only');
-    if (action === 'grant') return this.control.grant(sessionId, this.selected.get(sessionId));
+    if (
+      action === 'grant' &&
+      !this.currentControl(sessionId, this.selected.get(sessionId), { explicitOwner: true })
+    )
+      throw new Error('Control is view only or unavailable');
+    if (action === 'grant')
+      return this.control.grant(sessionId, this.selected.get(sessionId), { explicitOwner: true });
     if (action === 'revoke') return this.control.revoke(sessionId);
     if (action === 'stop-stream') return this.stopStream(sessionId, streamId);
     throw new Error('Unknown session action');
-  }
-  #viewOnly(sessionId) {
-    const approvedClientId = this.sessions.get(sessionId)?.approvedClientId;
-    return !!approvedClientId && this.approvedClients?.permission(approvedClientId) === 'view-only';
   }
   #audioOf(sessionId) {
     return this.registry.list(sessionId, 'audio')[0] ?? null;

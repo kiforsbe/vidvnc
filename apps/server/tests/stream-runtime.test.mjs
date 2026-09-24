@@ -151,7 +151,7 @@ test('automatic access grants once, never steals control or undoes a host revoke
   assert.equal(runtime.control.owner, null);
 });
 
-test('access default is captured at admission, not when a client selects its stream', async (t) => {
+test('automatic eligibility is captured at admission but current permission is checked at selection', async (t) => {
   const { runtime, sessions, a, b, offer, access } = await setup(t);
   access.defaultControl = 'available';
   const first = await offer(a);
@@ -163,19 +163,22 @@ test('access default is captured at admission, not when a client selects its str
   access.defaultControl = 'approval';
   const next = await offer(fresh);
   await runtime.selectStream(fresh, next.streamId);
-  assert.equal(runtime.control.owner?.sessionId, fresh);
+  assert.equal(runtime.control.owner, null);
 });
 
 test('approved-client overrides replace the Access default for that client', async (t) => {
   const permissions = { allowed: 'available', watcher: 'view-only' };
-  const approvedClients = { permission: (id) => permissions[id] ?? null };
+  const approvedClients = {
+    authorization: (id) =>
+      permissions[id] ? { id, generation: 0, permission: permissions[id] } : null,
+  };
   const { runtime, sessions, a, b, offer } = await setup(t, 'approval', approvedClients);
   for (const id of [a, b]) {
     sessions.disconnect(id);
     await runtime.stopSession(id);
   }
-  const allowed = sessions.connectApproved({ id: 'allowed' }, 'allowed').sessionId;
-  const watcher = sessions.connectApproved({ id: 'watcher' }, 'watcher').sessionId;
+  const allowed = sessions.connectApproved({ id: 'allowed', generation: 0 }, 'allowed').sessionId;
+  const watcher = sessions.connectApproved({ id: 'watcher', generation: 0 }, 'watcher').sessionId;
   const watched = await offer(watcher);
   await runtime.selectStream(watcher, watched.streamId);
   await assert.rejects(
@@ -186,6 +189,82 @@ test('approved-client overrides replace the Access default for that client', asy
   const stream = await offer(allowed);
   await runtime.selectStream(allowed, stream.streamId);
   assert.equal(runtime.control.owner?.sessionId, allowed);
+});
+
+test('downgrade before first selection cancels an approved client automatic grant', async (t) => {
+  let authorized = true;
+  const approvedClients = {
+    authorization: (id) => (authorized ? { id, generation: 0, permission: 'available' } : null),
+  };
+  const { runtime, sessions, a, b, offer } = await setup(t, 'approval', approvedClients);
+  for (const id of [a, b]) {
+    sessions.disconnect(id);
+    await runtime.stopSession(id);
+  }
+  const client = sessions.connectApproved({ id: 'client-1', generation: 0 }).sessionId;
+  const stream = await offer(client);
+  authorized = false;
+  await runtime.selectStream(client, stream.streamId);
+  assert.equal(runtime.control.owner, null);
+});
+
+test('downgrade during a native grant releases control before the grant resolves', async (t) => {
+  let authorized = true;
+  const approvedClients = {
+    authorization: (id) => (authorized ? { id, generation: 0, permission: 'approval' } : null),
+  };
+  const { runtime, sessions, media, a, b, offer } = await setup(t, 'approval', approvedClients);
+  for (const id of [a, b]) {
+    sessions.disconnect(id);
+    await runtime.stopSession(id);
+  }
+  const client = sessions.connectApproved({ id: 'client-1', generation: 0 }).sessionId;
+  const stream = await offer(client);
+  await runtime.selectStream(client, stream.streamId);
+  let nativeGrantStarted;
+  const started = new Promise((resolve) => {
+    nativeGrantStarted = resolve;
+  });
+  let releaseGrant;
+  const gate = new Promise((resolve) => {
+    releaseGrant = resolve;
+  });
+  const setPermission = media.setPermission.bind(media);
+  const events = [];
+  media.setPermission = async (...args) => {
+    events.push(args.at(-1));
+    if (args.at(-1) === true) {
+      nativeGrantStarted();
+      await gate;
+    }
+    return setPermission(...args);
+  };
+  const granting = runtime.command({ action: 'grant', sessionId: client });
+  await started;
+  authorized = false;
+  releaseGrant();
+  await assert.rejects(granting, /inactive|permission|view only/i);
+  assert.equal(runtime.control.owner, null);
+  assert.ok(events.includes(false));
+});
+
+test('renewal rejects a client whose current authorization was revoked', async (t) => {
+  let authorized = true;
+  const approvedClients = {
+    authorization: (id) => (authorized ? { id, generation: 0, permission: 'approval' } : null),
+  };
+  const { runtime, sessions, a, b, offer } = await setup(t, 'approval', approvedClients);
+  for (const id of [a, b]) {
+    sessions.disconnect(id);
+    await runtime.stopSession(id);
+  }
+  const client = sessions.connectApproved({ id: 'client-1', generation: 0 }).sessionId;
+  const stream = await offer(client);
+  await runtime.selectStream(client, stream.streamId);
+  await runtime.command({ action: 'grant', sessionId: client });
+  authorized = false;
+  await runtime.control.renew();
+  assert.equal(runtime.control.owner, null);
 });
 
 test('simultaneous automatic clients cannot transfer control from the first grantee', async (t) => {
@@ -269,7 +348,7 @@ test('host status keeps each stream graph separate and reports only acknowledged
   runtime.record(a, first.streamId, { decodeFps: 12 });
   runtime.record(a, second.streamId, { decodeFps: 29 });
   runtime.streamDiagnostics.get(first.streamId).record('server', { captureFps: 15, encodeFps: 15 });
-  await runtime.control.grant(a, second.streamId);
+  await runtime.control.grant(a, second.streamId, { explicitOwner: true });
   const status = runtime.status();
   assert.equal(status.streamCount, 3);
   const row = status.sessions.find((s) => s.id === a);
@@ -413,8 +492,8 @@ test('control transfers between two viewers of one source and addresses each pee
     calls.push([peerId, allowed]);
     return setPermission(sourceId, peerId, allowed);
   };
-  await runtime.control.grant(a, first.streamId);
-  await runtime.control.grant(b, second.streamId);
+  await runtime.control.grant(a, first.streamId, { explicitOwner: true });
+  await runtime.control.grant(b, second.streamId, { explicitOwner: true });
   assert.deepEqual(calls, [
     [first.streamId, true],
     [first.streamId, false],
@@ -427,7 +506,7 @@ test('an unacknowledged revoke removes only that peer', async (t) => {
   const { runtime, media, a, b, offer } = await setup(t);
   await offer(a);
   const second = await offer(b, 0, 'mobile', videoSdp('no-revoke'));
-  await runtime.control.grant(b, second.streamId);
+  await runtime.control.grant(b, second.streamId, { explicitOwner: true });
   await runtime.control.revoke(b);
   assert.equal(runtime.control.owner, null);
   assert.deepEqual(runtime.list(b), []);
@@ -441,7 +520,7 @@ test('an unacknowledged removal stops the whole source', async (t) => {
   });
   await offer(a);
   const second = await offer(b, 0, 'mobile', videoSdp('no-revoke no-remove'));
-  await runtime.control.grant(b, second.streamId);
+  await runtime.control.grant(b, second.streamId, { explicitOwner: true });
   await runtime.control.revoke(b);
   assert.deepEqual(runtime.list(a), []);
   assert.equal(media.workers.size, 0);
