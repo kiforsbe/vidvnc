@@ -97,7 +97,11 @@ To change settings while the server is stopped, run
 
 Both packages keep settings and logs in `%LOCALAPPDATA%\VidVNC`, so upgrading or
 uninstalling keeps them. To remove the command-line server, stop it and delete its folder.
-Use VidVNC only on a trusted local network, and don't forward its port.
+Use VidVNC only on a trusted local network, and don't forward either port. The HTTP
+listener binds only loopback and eligible Private-LAN addresses. With the default TLS
+mode, the viewer is unavailable until HTTPS starts; an invalid TLS configuration or
+listener failure does not fall back to HTTP login or streaming. Only a valid, explicit
+`tls.mode: off` setting permits the full viewer on unencrypted LAN-only HTTP.
 
 ## Build and run (Windows)
 
@@ -115,8 +119,11 @@ npm run test:hardware
 npm start
 ```
 
-`npm start` prints the LAN addresses and generated password. Open a printed URL
-from the client. Clients require host approval by default. In the host, use
+`npm start` prints a viewer address once HTTPS is ready, or immediately in explicit
+LAN-only TLS-off mode. Before HTTPS is ready, the CLI reports that viewer access is
+pending or unavailable; the native host disables Connect and Preview. Do not use the
+local HTTP trust URL as a viewer URL. Open an advertised viewer URL from the client.
+Clients require host approval by default. In the host, use
 Sessions → Grant control, then enable keyboard/mouse in the browser.
 Access → Keyboard and mouse can instead allow new connections when control is
 available. This saved default does not change existing sessions, take control
@@ -318,6 +325,7 @@ None of these generated/dependency directories belongs in version control.
 - [Original UI guide](docs/vnc-ui-guide.html) / [POC mockup](docs/vnc-poc-mockup.html)
 - [iOS investigation](docs/investigations/IOS-COMPATIBILITY.md)
 - [Transport investigation](docs/investigations/TRANSPORT-INVESTIGATION.md)
+- [Current Internet-exposure security review](docs/security/internet-exposure-review-2026-09-24.md)
 
 This is a LAN-focused preview. Passkeys, remote access/hub, multi-monitor routing,
 signed release packages, and production security hardening remain future work. Do not

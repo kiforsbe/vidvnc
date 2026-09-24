@@ -19,9 +19,13 @@ may include breaking changes.
 
 ### Changed
 
+- Refreshed the Internet-exposure security review against the current code, including the
+  approved browser/client credential and revocation boundaries, HTTPS sub-pages, diagnostics
+  isolation, F1/F3 code-level closure, and the still-open F6/remote-deployment blockers.
 - Connection codes remain eight characters but no longer encode their purpose and exclude
-  easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is accepted only
-  from the host PC or an eligible local LAN subnet, not from a public-scoped listener.
+  easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is intended for
+  the host PC or an eligible local LAN subnet, not a public-scoped listener. The live server
+  now injects the detected Private-LAN scope into its HTTP admission path.
 - An approved browser/client secret is explicitly described as a copyable credential in addition
   to username and password, not as device proof. It can have only one live session. Removing or
   changing permissions immediately invalidates its active sessions and starts stream/control
@@ -36,13 +40,20 @@ may include breaking changes.
   responses recheck session validity. Diagnostics pages, API, and diagnostics-only assets are
   absent from the public-capable HTTP/HTTPS ports; the private listener still requires an
   owner-issued bearer capability for live data.
+- HTTP now binds only loopback and eligible Private-LAN addresses and rechecks peers after
+  adapter changes. Unexpected TLS failure or invalid settings refuse viewer, login, and
+  signaling over HTTP; active HTTPS redirects them. Absolute-form request targets cannot
+  bypass that redirect, and trust pages/assets/API are local-peer-only on both schemes.
+  Valid explicit TLS-off mode remains a LAN-only HTTP viewer. CLI and native-host status
+  show no viewer URL and disable Connect/Preview while required HTTPS is unavailable.
 
 ### Known limitations
 
 - These changes harden the existing LAN service; they do **not** make it ready to expose to the
-  Internet. HTTPS trust enrollment and WebRTC routing for remote access remain unresolved. An
-  approved browser's secret is still copyable, and in-process limits do not replace an
-  Internet-facing traffic filter. See the [security implementation status](docs/security/internet-exposure-hardening-status-2026-09-24.md).
+  Internet. Remote trust enrollment and WebRTC routing remain unresolved, and a same-host
+  proxy can make remote clients appear local. An approved browser's secret is still copyable;
+  in-process limits do not replace an Internet-facing traffic filter. See the
+  [security implementation status](docs/security/internet-exposure-hardening-status-2026-09-24.md).
 
 ## [0.8.0] - 2026-09-23
 

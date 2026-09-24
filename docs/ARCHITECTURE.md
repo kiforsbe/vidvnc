@@ -29,7 +29,7 @@ flowchart LR
         win["DXGI · WASAPI · SendInput"]
     end
 
-    browser <-->|"HTTP: auth, SDP offer/answer,<br/>telemetry"| server
+    browser <-->|"HTTPS by default: auth, SDP offer/answer,<br/>telemetry; deliberate LAN HTTP off mode"| server
     browser <-.->|"WebRTC: RTP video + audio,<br/>data channel for input"| worker
     host -->|"spawns in a job object;<br/>JSON lines on stdin/stdout"| server
     server -->|"one child per source;<br/>JSON lines on stdin/stdout"| worker
@@ -39,7 +39,7 @@ flowchart LR
 The browser talks to the Node server for everything except media, and to the worker for
 media only. The server never carries pixels; the worker never authenticates anyone.
 
-Signaling is plain HTTP request/response, not WebSocket. The browser POSTs an offer and
+Signaling is HTTP request/response over HTTPS by default, not WebSocket. The browser POSTs an offer and
 receives the answer in the same response, after ICE gathering completes. There is no
 STUN or TURN server and no trickle ICE: this is a same-subnet product, so host-local
 candidates are all there are. That is a deliberate scope limit, not an omission — a
@@ -117,12 +117,12 @@ serialized so overlapping requests cannot interleave
 All client traffic is HTTP under `/api`, plus the static client assets. Routes fall into
 four groups:
 
-| Group | Routes | Purpose |
-| --- | --- | --- |
-| Admission | `/api/key-start`, `/api/approved-clients/*` | Meter key attempts or authenticate an approved browser/client and issue a session token |
-| Negotiation | `/api/offer`, `/api/stream-offer`, `/api/audio-offer`, `/api/streams`, `/api/stream-select`, `/api/stream-stop` | Start, pick and tear down media |
-| Liveness | `/api/heartbeat`, `/api/reconnect`, `/api/disconnect` | Keep, recover or end a session |
-| Reporting | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info` | Client-side metrics and public-safe status on the normal listener |
+| Group       | Routes                                                                                                          | Purpose                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Admission   | `/api/key-start`, `/api/approved-clients/*`                                                                     | Meter key attempts or authenticate an approved browser/client and issue a session token |
+| Negotiation | `/api/offer`, `/api/stream-offer`, `/api/audio-offer`, `/api/streams`, `/api/stream-select`, `/api/stream-stop` | Start, pick and tear down media                                                         |
+| Liveness    | `/api/heartbeat`, `/api/reconnect`, `/api/disconnect`                                                           | Keep, recover or end a session                                                          |
+| Reporting   | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info`                 | Client-side metrics and public-safe status on the normal listener                       |
 
 Three connection modes are supported, set by the host
 ([access-settings.mjs](../apps/server/src/access-settings.mjs)):
@@ -164,7 +164,7 @@ that viewer. Audio follows the session profile rather than being chosen separate
 15 fps mobile profiles get the low-bandwidth mono mix.
 
 Rate control is expressed as intent — mode, target and peak bitrate, GOP length, and
-quality floors as *fractions* of the element's QP range — and only turned into concrete
+quality floors as _fractions_ of the element's QP range — and only turned into concrete
 property strings at pipeline build time. See the next section for why.
 
 ## Hardware encoder selection
@@ -329,16 +329,16 @@ server defaults it to an empty list.
 
 ### Contract fields
 
-| Message | Field | Meaning |
-| --- | --- | --- |
-| probe result | `backends[].id` | `nvenc`, `qsv`, `amf`, `mediafoundation` |
-| probe result | `backends[].onCaptureAdapter` | Element sits on the GPU that captures |
-| probe result | `backends[].minimums[codec]` | Smallest input the element accepts |
-| `start` | `encoderBackend` | Host override, or absent for automatic |
-| `ready` | `encoderBackend`, `encoderLabel` | What was actually chosen |
-| `ready` | `encoder` | The GStreamer element name |
-| `ready` | `encoderReason` | `capture-adapter`, `forced`, `forced-unavailable`, `fixed-order` |
-| `status` | `encoders.available`, `encoders.setting` | Host-facing only; no client sees these |
+| Message      | Field                                    | Meaning                                                          |
+| ------------ | ---------------------------------------- | ---------------------------------------------------------------- |
+| probe result | `backends[].id`                          | `nvenc`, `qsv`, `amf`, `mediafoundation`                         |
+| probe result | `backends[].onCaptureAdapter`            | Element sits on the GPU that captures                            |
+| probe result | `backends[].minimums[codec]`             | Smallest input the element accepts                               |
+| `start`      | `encoderBackend`                         | Host override, or absent for automatic                           |
+| `ready`      | `encoderBackend`, `encoderLabel`         | What was actually chosen                                         |
+| `ready`      | `encoder`                                | The GStreamer element name                                       |
+| `ready`      | `encoderReason`                          | `capture-adapter`, `forced`, `forced-unavailable`, `fixed-order` |
+| `status`     | `encoders.available`, `encoders.setting` | Host-facing only; no client sees these                           |
 
 There is no software encoder fallback. If no family delivers H.264 the worker fails
 the probe by name, listing every element it tried.
@@ -354,7 +354,7 @@ Because that channel bypasses the server, the worker enforces permission itself 
 trusts nothing on the channel:
 
 - Only the owner pipe — the server, over stdin — can change who may send input
-  (`control-permission`). A client can ask to *use* control it has already been granted;
+  (`control-permission`). A client can ask to _use_ control it has already been granted;
   it can never grant itself any ([peer-permission.hpp](../native/media-worker/src/peer-permission.hpp)).
 - An unknown peer id means the server's view is stale, so the worker refuses it and
   clears the current owner rather than guessing.
@@ -406,16 +406,16 @@ Stated plainly, because the scope limit is a design decision rather than an over
   own certificate automatically, trying an operator-supplied certificate first, then
   mkcert's local CA, then a self-signed certificate issued through Windows — see [TLS and
   trust provisioning](#tls-and-trust-provisioning) below for the exact order and why. A
-  plaintext listener stays up alongside the TLS one solely to serve the enrolment page and
-  redirect everything else to its HTTPS equivalent, so admission keys and session tokens
-  are not readable by anything on the path once a device has enrolled. The one case where
-  the old description — plain HTTP, no TLS, nothing readable-in-transit protection —
+  local-only HTTP listeners stay up alongside the TLS one to serve the enrolment page and
+  redirect everything else to HTTPS while TLS is live. If HTTPS is pending or fails,
+  viewer/auth/session/signaling requests receive no-store `503`, not a plaintext fallback.
+  The one case where the old description — plain HTTP, no TLS, nothing readable-in-transit protection —
   still holds exactly is **`off` mode**, an explicit opt-out that restores today's
-  single-listener behaviour with no redirect. This is still a same-subnet product either
+  LAN-only HTTP viewer behaviour with no redirect. This is still a same-subnet product either
   way; exposing a port to an untrusted network is not a supported configuration regardless
   of scheme.
 - **The media plane is encrypted regardless**, since WebRTC mandates DTLS-SRTP. Pixels
-  and audio are not in the clear even though the signaling that set them up is.
+  and audio are not in the clear; signaling uses HTTPS by default or deliberate LAN HTTP.
 - **Approved-client credentials are stored hashed**, with a per-client salt, scrypt, and
   constant-time comparison ([approved-clients.mjs](../apps/server/src/approved-clients.mjs)).
   Tokens and claim values are 32 random bytes.
@@ -437,17 +437,27 @@ never collides out of the box — independently configurable through TLS setting
 CLI's `tls-port` command
 ([tls-settings.mjs](../apps/server/src/tls/tls-settings.mjs)). If the two ever end up
 equal (for example `VIDVNC_PORT` moved onto the TLS default), TLS is disabled for that
-run rather than failing to start, and the reason is logged
+run rather than failing to start, and the reason is logged; HTTP viewer access remains disabled
 ([load-settings.mjs](../apps/server/src/tls/load-settings.mjs)).
 
-Once TLS is active, the plaintext listener serves only the enrolment page and its assets
+The HTTP listeners bind only loopback and eligible physical Private-LAN addresses, never a
+wildcard or public address. `VIDVNC_HOST` can narrow those binds but cannot widen them;
+adapter refresh removes ineligible sockets. The handler also checks the live peer scope on
+every HTTP request, including existing keep-alive connections. The local scope is injected
+into the production router as well as the listener manager. Trust routes are local-peer-only
+on HTTP **and HTTPS**, even when TLS binds publicly.
+
+Once TLS is active, local HTTP serves only the enrolment page and its assets
 (`/trust` and everything it loads) plus the two trust API routes
-(`/api/trust/anchor`, `/api/trust/status`) unredirected; every other plaintext request
-gets a `307` redirect (not `308`, so a client that cached it does not keep being sent to
+(`/api/trust/anchor`, `/api/trust/status`) unredirected. Diagnostics routes return `404`
+on both main ports; other plaintext requests get a `307` redirect (not `308`, so a client that cached it does not keep being sent to
 a TLS port that may later change) to the same path and query on the HTTPS listener,
-preserving the request method. This is deliberate: a device that does not yet trust the
-host has no un-warned way to fetch the trust anchor over the very connection that anchor
-exists to authenticate, so those routes must stay reachable in the clear
+preserving the request method. Absolute-form requests must match the socket scheme,
+authority, and port before routing; they cannot bypass the redirect. When HTTPS is
+required but unavailable, every non-trust HTTP route returns no-store `503`. Only a
+valid, deliberate `tls.mode: off` serves the full viewer over LAN-only HTTP. A device
+that does not yet trust the host has no un-warned way to fetch the trust anchor over the very connection that anchor
+exists to authenticate, so those routes remain reachable locally in the clear
 ([http-app.mjs](../apps/server/src/http-app.mjs)).
 
 ### Strategy order and reissue
@@ -459,11 +469,11 @@ Provisioning tries strategies in a fixed order — `provided`, then `mkcert`, th
 candidate, so a failure there is reported rather than silently replaced by a generated
 certificate. In every other mode all three are tried in that order:
 
-| Strategy | Condition | Anchor a device must trust |
-| --- | --- | --- |
-| `provided` | Operator configured a certificate and key (or PFX) | Whatever their CA chain already is |
-| `mkcert` | `mkcert` resolves on `PATH` | The mkcert local root CA |
-| `windows-self-signed` | Always available on Windows | The leaf certificate itself |
+| Strategy              | Condition                                          | Anchor a device must trust         |
+| --------------------- | -------------------------------------------------- | ---------------------------------- |
+| `provided`            | Operator configured a certificate and key (or PFX) | Whatever their CA chain already is |
+| `mkcert`              | `mkcert` resolves on `PATH`                        | The mkcert local root CA           |
+| `windows-self-signed` | Always available on Windows                        | The leaf certificate itself        |
 
 A credential is reissued — at startup, and again on a periodic re-check — whenever any
 of these holds: it is absent or unreadable; its expiry falls inside the renewal window
@@ -501,19 +511,18 @@ sequenceDiagram
     Note over Device,Host: Device compares fingerprint against Host UI, then installs the anchor
 
     Device->>Plain: GET /app-route (any other path)
-    Plain-->>Device: 307 redirect to https://host:4383/app-route
+    Plain-->>Device: 307 redirect while HTTPS is live; otherwise 503
     Device->>TLS: GET /app-route (redirect followed)
     TLS-->>Device: response, now warning-free
 ```
 
 ### Known limitations
 
-- **A page loaded over plaintext before TLS comes up can break mid-session.** If a
-  browser tab is open on the plaintext origin when TLS starts or restarts, its next
-  same-origin fetch (a heartbeat, for example) gets redirected cross-origin to HTTPS and
-  fails, because `fetch()` on an already-loaded page cannot silently follow a
-  cross-origin redirect the way a navigation can. The user sees a disconnect and must
-  reload.
+- **Explicit LAN HTTP is not encrypted.** A valid `off` setting keeps the viewer and
+  admission on local HTTP; clients on that network should treat passwords and session
+  data as readable by anyone on path. In default auto/provided mode the viewer cannot be
+  loaded on HTTP while HTTPS is pending or failed. If an operator changes a running
+  deployment's TLS configuration, clients should reload at the advertised viewer URL.
 - **Enrolment over plaintext is trust-on-first-use.** Comparing the fingerprint on the
   page against the one on the host screen detects a mismatched or tampered display, but
   does not by itself prove the downloaded certificate file is genuine against a
@@ -533,8 +542,9 @@ sequenceDiagram
 - **Provisioning can freeze the server briefly.** Certificate provisioning shells out to
   external tools (mkcert, Windows PowerShell certificate cmdlets) synchronously, which
   can block the server's event loop for up to roughly 150 seconds in the worst case (each
-  tool has its own timeout, and they can stack). This happens after the plaintext
-  listener is already serving, so plaintext access is never blocked by it, but it can
+  tool has its own timeout, and they can stack). This happens after local HTTP listeners
+  are bound, but viewer admission remains blocked until HTTPS is active unless deliberate
+  `off` mode is selected. It can
   happen more than once: at startup, and again on every periodic re-check.
 - **A default install still shows a browser warning on devices that have not enrolled.**
   This is expected, not a bug — enrolling a device (visiting `/trust` and installing the
