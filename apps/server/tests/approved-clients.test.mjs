@@ -339,3 +339,70 @@ test('expiry removes only old claims and also clears rejected requests', async (
   });
   assert.equal(store.status().pending.length, 1);
 });
+
+test('removal during password verification denies the old authorization generation', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vidvnc-auth-race-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filename = join(directory, 'clients.json');
+  let passwordHash;
+  let verifierStarted;
+  const started = new Promise((resolve) => {
+    verifierStarted = resolve;
+  });
+  let releaseVerifier;
+  const gate = new Promise((resolve) => {
+    releaseVerifier = resolve;
+  });
+  const store = await ApprovedClientStore.open(filename, {
+    keys: new ConnectionKeyRegistry(),
+    verifyPassword: async (_, salt) => {
+      verifierStarted();
+      await gate;
+      return { salt, hash: passwordHash };
+    },
+  });
+  const registration = await store.submit({
+    registrationTicket: ticket(store),
+    deviceName: 'Phone',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-1',
+    client: 'Safari',
+  });
+  await store.approve(registration.requestId);
+  passwordHash = JSON.parse(await readFile(filename, 'utf8')).clients[0].password.hash;
+  const credential = store.registrationStatus(registration.requestId, registration.claimToken);
+  const snapshot = store.authorization(credential.clientId);
+  const checking = store.authenticate({ ...credential, password: 'correct horse battery staple' });
+  await started;
+  store.invalidate(credential.clientId, 'remove');
+  assert.equal(store.stillAuthorized(snapshot), false);
+  releaseVerifier();
+  assert.equal(await checking, null);
+});
+
+test('permission change invalidates immediately and only restores after a durable write', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'vidvnc-permission-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = await ApprovedClientStore.open(null, { keys: new ConnectionKeyRegistry() });
+  const registration = await store.submit({
+    registrationTicket: ticket(store),
+    deviceName: 'Phone',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-1',
+    client: 'Safari',
+  });
+  await store.approve(registration.requestId);
+  const { clientId } = store.registrationStatus(registration.requestId, registration.claimToken);
+  const before = store.authorization(clientId);
+  const changing = store.setPermission(clientId, 'view-only');
+  assert.equal(store.stillAuthorized(before), false);
+  await changing;
+  const after = store.authorization(clientId);
+  assert.equal(after.permission, 'view-only');
+  assert.notEqual(after.generation, before.generation);
+  store.filename = directory;
+  await assert.rejects(store.setPermission(clientId, 'available'));
+  assert.equal(store.authorization(clientId), null);
+});

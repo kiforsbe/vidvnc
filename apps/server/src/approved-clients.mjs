@@ -82,7 +82,9 @@ export class ApprovedClientStore {
   #submitting = 0;
   #attempts = new Map();
   #queue = Promise.resolve();
-  constructor(filename, value, { keys, clock, maxAttempts, windowMs, admission }) {
+  #generations = new Map();
+  #denied = new Map();
+  constructor(filename, value, { keys, clock, maxAttempts, windowMs, admission, verifyPassword }) {
     this.filename = filename;
     this.#value = value;
     this.keys = keys;
@@ -90,10 +92,18 @@ export class ApprovedClientStore {
     this.maxAttempts = maxAttempts;
     this.windowMs = windowMs;
     this.admission = admission;
+    this.verifyPassword = verifyPassword;
   }
   static async open(
     filename,
-    { keys, clock = () => Date.now(), maxAttempts = 5, windowMs = 60_000, admission = null } = {},
+    {
+      keys,
+      clock = () => Date.now(),
+      maxAttempts = 5,
+      windowMs = 60_000,
+      admission = null,
+      verifyPassword = passwordVerifier,
+    } = {},
   ) {
     if (!keys) throw new Error('Connection-key registry is required');
     return new ApprovedClientStore(filename, await read(filename), {
@@ -102,7 +112,28 @@ export class ApprovedClientStore {
       maxAttempts,
       windowMs,
       admission,
+      verifyPassword,
     });
+  }
+  authorization(clientId) {
+    if (this.#denied.has(clientId) || this.#expiredUnclaimed(clientId)) return null;
+    const row = this.#value.clients.find((candidate) => candidate.id === clientId);
+    return row
+      ? { id: row.id, generation: this.#generations.get(clientId) ?? 0, permission: row.permission }
+      : null;
+  }
+  stillAuthorized(snapshot) {
+    const current = snapshot && this.authorization(snapshot.id);
+    return !!current && current.generation === snapshot.generation;
+  }
+  invalidate(clientId, kind) {
+    if (kind !== 'remove' && kind !== 'downgrade') throw new Error('Invalid invalidation kind');
+    if (!this.#value.clients.some((row) => row.id === clientId))
+      throw new Error('Unknown approved client');
+    const generation = (this.#generations.get(clientId) ?? 0) + 1;
+    this.#generations.set(clientId, generation);
+    this.#denied.set(clientId, this.#denied.get(clientId) === 'remove' ? 'remove' : kind);
+    return generation;
   }
   #expired(row) {
     return this.clock() >= row.requestedAt + CLAIM_TTL_MS;
@@ -258,7 +289,8 @@ export class ApprovedClientStore {
     const row = this.#value.clients.find(
       (candidate) => candidate.id === input.clientId && candidate.username === input.username,
     );
-    if (!row || !safeEqual(row.secretHash, hash(String(input.clientSecret)))) {
+    const authorization = this.authorization(input.clientId);
+    if (!row || !authorization || !safeEqual(row.secretHash, hash(String(input.clientSecret)))) {
       attempts.push(now);
       this.#attempts.set(attemptKey, attempts);
       return null;
@@ -266,13 +298,19 @@ export class ApprovedClientStore {
     let candidate;
     try {
       candidate = this.admission
-        ? await this.admission.withScrypt(() => passwordVerifier(input.password, row.password.salt))
-        : await passwordVerifier(input.password, row.password.salt);
+        ? await this.admission.withScrypt(() =>
+            this.verifyPassword(input.password, row.password.salt),
+          )
+        : await this.verifyPassword(input.password, row.password.salt);
     } catch (error) {
       if (error.status === 503) throw error;
       candidate = null;
     }
-    if (!candidate || !safeEqual(row.password.hash, candidate.hash)) {
+    if (
+      !candidate ||
+      !safeEqual(row.password.hash, candidate.hash) ||
+      !this.stillAuthorized(authorization)
+    ) {
       attempts.push(now);
       this.#attempts.set(attemptKey, attempts);
       return null;
@@ -283,6 +321,7 @@ export class ApprovedClientStore {
       deviceName: row.deviceName,
       username: row.username,
       permission: row.permission,
+      generation: authorization.generation,
     };
   }
   markConnected(clientId) {
@@ -297,6 +336,11 @@ export class ApprovedClientStore {
     return operation;
   }
   remove(clientId) {
+    try {
+      this.invalidate(clientId, 'remove');
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const operation = this.#queue.then(async () => {
       await this.#sweepExpiredInner();
       const length = this.#value.clients.length;
@@ -310,17 +354,26 @@ export class ApprovedClientStore {
     return operation;
   }
   permission(clientId) {
-    if (this.#expiredUnclaimed(clientId)) return null;
-    return this.#value.clients.find((candidate) => candidate.id === clientId)?.permission ?? null;
+    return this.authorization(clientId)?.permission ?? null;
   }
   setPermission(clientId, permission) {
+    let generation;
+    try {
+      if (!CLIENT_PERMISSIONS.includes(permission)) throw new Error('Invalid client permission');
+      if (this.#denied.get(clientId) === 'remove')
+        throw new Error('Approved client is being removed');
+      generation = this.invalidate(clientId, 'downgrade');
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const operation = this.#queue.then(async () => {
       await this.#sweepExpiredInner();
-      if (!CLIENT_PERMISSIONS.includes(permission)) throw new Error('Invalid client permission');
       const row = this.#value.clients.find((candidate) => candidate.id === clientId);
       if (!row) throw new Error('Unknown approved client');
       row.permission = permission;
       await this.#write();
+      if (this.#generations.get(clientId) === generation && this.#denied.get(clientId) !== 'remove')
+        this.#denied.delete(clientId);
     });
     this.#queue = operation.catch(() => {});
     return operation;
