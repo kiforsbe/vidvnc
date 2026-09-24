@@ -4,32 +4,66 @@
 // Everything here is pure: interfaces and the TLS state are passed in, so it is tested
 // without sockets. `tls` is the shape `createTlsListener().status()` returns.
 import { networkInterfaces as systemInterfaces } from 'node:os';
+import { isIP } from 'node:net';
 
 const DEFAULT_PORTS = { http: 80, https: 443 };
 
 // Browsers omit a port that equals the scheme's default, so `https://host:443` is shown as
 // `https://host`. Any other port stays, and a plaintext listener on port 80 is likewise bare.
 function origin(scheme, host, port) {
-  return port === DEFAULT_PORTS[scheme] ? `${scheme}://${host}` : `${scheme}://${host}:${port}`;
+  const authority = isIP(host) === 6 ? `[${host}]` : host;
+  return port === DEFAULT_PORTS[scheme]
+    ? `${scheme}://${authority}`
+    : `${scheme}://${authority}:${port}`;
 }
 
-// `lan` are the non-loopback IPv4 addresses (each NIC in enumeration order), `local` the
-// loopback preview and `urls` both together. The separate private diagnostics listener
-// is deliberately not derived from these public-capable addresses.
+export function httpConnectionAddresses(bindings = []) {
+  const rows = bindings.filter(
+    ({ host, port }) => isIP(host) && Number.isInteger(port) && port > 0 && port <= 65535,
+  );
+  const lan = rows
+    .filter(({ host }) => host !== '127.0.0.1' && host !== '::1')
+    .map(({ host, port }) => origin('http', host, port));
+  const localRow = rows.find(({ host }) => host === '127.0.0.1');
+  const local = localRow ? origin('http', localRow.host, localRow.port) : null;
+  const ipv6Loopback = rows
+    .filter(({ host }) => host === '::1')
+    .map(({ host, port }) => origin('http', host, port));
+  return { lan, local, urls: [...lan, ...(local ? [local] : []), ...ipv6Loopback] };
+}
+
+// HTTP addresses come only from actual bounded listeners. HTTPS addresses follow the TLS
+// bind preference; an inactive HTTPS-required service has no viewer URL to advertise.
 export function connectionAddresses({
   interfaces = systemInterfaces,
   plaintextPort,
+  httpBindings = [],
   tls = { active: false, port: null },
+  plaintextMode = 'lan-http',
+  hostPreference = '0.0.0.0',
 }) {
   const secure = tls.active && tls.port !== null;
-  const scheme = secure ? 'https' : 'http';
-  const port = secure ? tls.port : plaintextPort;
-  const lan = Object.values(interfaces())
+  if (!secure)
+    return plaintextMode === 'lan-http'
+      ? httpConnectionAddresses(httpBindings)
+      : { lan: [], local: null, urls: [] };
+  const preference = hostPreference || '0.0.0.0';
+  const wildcard = preference === '0.0.0.0' || preference === '::';
+  const allHosts = Object.values(interfaces())
     .flat()
     .filter((n) => n.family === 'IPv4' && !n.internal)
-    .map((n) => origin(scheme, n.address, port));
-  const local = origin(scheme, '127.0.0.1', port);
-  return { lan, local, urls: [...lan, local] };
+    .map((n) => n.address);
+  const hosts = wildcard ? allHosts : allHosts.filter((address) => address === preference);
+  if (!wildcard && !isIP(preference) && preference !== 'localhost') hosts.push(preference);
+  const lan = hosts.map((host) => origin('https', host, tls.port));
+  const localHost =
+    wildcard || preference === '127.0.0.1' || preference === 'localhost'
+      ? '127.0.0.1'
+      : preference === '::1'
+        ? '::1'
+        : null;
+  const local = localHost ? origin('https', localHost, tls.port) : null;
+  return { lan, local, urls: [...lan, ...(local ? [local] : [])] };
 }
 
 // The one follow-up block printed when HTTPS comes up after the plaintext banner. It says

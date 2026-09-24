@@ -107,6 +107,11 @@ export async function liveConsole(
               Loopback: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
             }),
             plaintextPort: 4382,
+            httpBindings: [
+              { host: '192.168.1.2', port: 4382 },
+              { host: '127.0.0.1', port: 4382 },
+            ],
+            plaintextMode: 'lan-http',
             tls,
           }),
         diagnosticsUrl: () => 'http://127.0.0.1:45999/diagnostics',

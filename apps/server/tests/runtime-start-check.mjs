@@ -174,6 +174,54 @@ try {
   child.stdin.end('{"type":"stop"}\n');
   assert.equal(await exited, 0);
   await assert.rejects(readFile(instanceFile), { code: 'ENOENT' });
+
+  // An invalid TLS file is not deliberate TLS-off mode. A public bind preference must
+  // not make the plaintext listener bind there or lose required local management.
+  await writeFile(join(directory, 'VidVNC', 'tls-settings.json'), '{"mode":"invalid"}');
+  const invalidChild = spawn(process.execPath, ['apps/server/src/main.mjs', '--desktop'], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      LOCALAPPDATA: directory,
+      VIDVNC_LOG_DIR: join(directory, 'logs'),
+      VIDVNC_MEDIA_WORKER: resolve('out/native/windows-x64/Debug/media-worker.exe'),
+      VIDVNC_HOST: '203.0.113.5',
+      VIDVNC_PORT: String(port),
+    },
+  });
+  const invalidMessages = [];
+  let invalidStderr = '';
+  invalidChild.stderr.on('data', (data) => (invalidStderr += data));
+  createInterface({ input: invalidChild.stdout }).on('line', (line) => {
+    try {
+      invalidMessages.push(JSON.parse(line));
+    } catch {}
+  });
+  const invalidExited = new Promise((resolve) => invalidChild.once('close', resolve));
+  try {
+    const deadline = Date.now() + 15000;
+    while (!invalidMessages.some((message) => message.type === 'ready')) {
+      if (invalidChild.exitCode !== null)
+        throw new Error(invalidStderr || 'Invalid TLS server exited');
+      if (Date.now() > deadline)
+        throw new Error('Invalid TLS server ready timed out: ' + invalidStderr);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    const invalidReady = invalidMessages.find((message) => message.type === 'ready');
+    assert.equal(invalidReady.urls[0], `http://127.0.0.1:${port}`);
+    assert.ok(invalidReady.urls.every((url) => /^http:\/\/(?:127\.0\.0\.1|\[::1\]):/.test(url)));
+    const denied = await fetch(`http://127.0.0.1:${port}/api/info`);
+    assert.equal(denied.status, 503);
+    assert.equal(denied.headers.get('cache-control'), 'no-store');
+  } finally {
+    if (invalidChild.exitCode === null) {
+      invalidChild.stdin.end('{"type":"stop"}\n');
+      const timer = setTimeout(() => invalidChild.kill(), 6000);
+      await invalidExited;
+      clearTimeout(timer);
+    }
+  }
   assert.ok(
     !stderr.trim() ||
       stderr

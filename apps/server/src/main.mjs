@@ -1,7 +1,7 @@
 import { networkInterfaces, hostname } from 'node:os';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
-import { createHttpApp } from './http-app.mjs';
+import { createHttpStack } from './server-http-stack.mjs';
 import { NativeMedia, probe, listDisplays } from './native-media.mjs';
 import { DisplayInventory } from './displays.mjs';
 import { SessionStore } from './session-store.mjs';
@@ -22,7 +22,12 @@ import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
 import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
-import { attemptAndAnnounce, connectionAddresses, secureAddressLines } from './tls/addresses.mjs';
+import {
+  attemptAndAnnounce,
+  connectionAddresses,
+  httpConnectionAddresses,
+  secureAddressLines,
+} from './tls/addresses.mjs';
 import { tlsDesktopStatus } from './tls/desktop-status.mjs';
 import { createServerLog } from './server-log.mjs';
 import { createLocalSessionScopeController } from './local-session-scope.mjs';
@@ -105,9 +110,6 @@ async function serve() {
       inventory,
       policy,
       access,
-      listenerScope: 'local',
-      localSessionScope: localSession.scope,
-      admission,
       log: serverLog,
       approvedClients,
       videoCodecs: hostCodecs,
@@ -120,28 +122,43 @@ async function serve() {
       plaintextPort: port,
       log: serverLog,
     });
-    // The TLS listener shares the plaintext app's request handling, but the app is created
-    // below and needs this listener's `status()` as its `tls` option, so the handler is
-    // forwarded lazily. It is only ever invoked for a request, after `server` exists.
+    const hostPreference = process.env.VIDVNC_HOST || '0.0.0.0';
+    const plaintextMode =
+      tlsSettings.mode === 'off' && !tlsSettings.invalid ? 'lan-http' : 'https-required';
+    // TLS and the narrow HTTP listeners share one handler and admission state. The TLS
+    // callback is invoked only after HTTP stack construction, so the reference is lazy.
+    let httpStack;
     const tlsListener = createTlsListener({
       settings: tlsSettings,
-      requestListener: (request, response) => server.requestListener(request, response),
-      host: process.env.VIDVNC_HOST || '0.0.0.0',
+      requestListener: (request, response) => httpStack.app.requestListener(request, response),
+      host: hostPreference,
       log: serverLog,
     });
-    const server = createHttpApp({
-      runtime,
-      serverName: hostname(),
-      sessionStore: store,
-      media,
-      diagnostics,
-      policy,
-      inventory,
-      profileOrderFile: files.profileOrder,
-      approvedClients,
-      access,
-      display: { name: 'Primary display', width: info.width, height: info.height, refreshHz: 30 },
-      tls: tlsListener,
+    httpStack = createHttpStack({
+      localSessionScope: localSession.scope,
+      port,
+      hostPreference,
+      appOptions: {
+        runtime,
+        serverName: hostname(),
+        sessionStore: store,
+        media,
+        diagnostics,
+        policy,
+        inventory,
+        profileOrderFile: files.profileOrder,
+        approvedClients,
+        access,
+        display: {
+          name: 'Primary display',
+          width: info.width,
+          height: info.height,
+          refreshHz: 30,
+        },
+        tls: tlsListener,
+        plaintextMode,
+      },
+      log: serverLog,
     });
     const diagnosticsServer = createDiagnosticsHttp({
       diagnostics,
@@ -173,16 +190,16 @@ async function serve() {
       );
     }
     process.on('exit', () => releaseInstance());
-    // The ready line and the banner are written before TLS can be up (it is provisioned
-    // after them, on purpose), so they show the plaintext addresses, which are true then.
-    // Everything read later, and the HTTPS follow-up, follows the live listener instead.
-    const plaintextAddresses = () =>
-      connectionAddresses({ interfaces: networkInterfaces, plaintextPort: port });
+    // HTTP roots are derived from bound sockets, never merely from installed NICs.
+    const plaintextAddresses = () => httpConnectionAddresses(httpStack.http.addresses());
     const currentAddresses = () =>
       connectionAddresses({
         interfaces: networkInterfaces,
         plaintextPort: port,
+        httpBindings: httpStack.http.addresses(),
         tls: tlsListener.status(),
+        plaintextMode,
+        hostPreference,
       });
     let owner;
     let consoleSession;
@@ -207,13 +224,12 @@ async function serve() {
       owner?.close();
       consoleSession?.close();
       process.stdin.pause();
-      const closed = new Promise((resolve) => server.close(resolve));
-      server.closeAllConnections();
+      const httpClosed = httpStack.http.close();
       const diagnosticsClosed = new Promise((resolve) => diagnosticsServer.close(resolve));
       diagnosticsServer.closeAllConnections();
       const tlsClosed = tlsListener.close();
       await runtime.shutdown();
-      await closed;
+      await httpClosed;
       await diagnosticsClosed;
       await tlsClosed;
       await diagnostics.writes;
@@ -270,6 +286,7 @@ async function serve() {
       if (!stopping)
         localSession
           .refresh()
+          .then(() => httpStack.http.reconcile())
           .catch((error) =>
             serverLog(`Warning: LAN password eligibility refresh failed: ${error.message}`),
           );
@@ -617,13 +634,18 @@ async function serve() {
       });
       owner.on('close', stop);
     }
-    server.listen(port, process.env.VIDVNC_HOST || '0.0.0.0', () => {
-      if (stopping) return;
-      // TLS provisioning starts only now, with plaintext already bound, and one turn of
-      // the event loop later so the ready line / banner below has been written first.
+    try {
+      await httpStack.http.start();
+    } catch (error) {
+      await stop();
+      throw error;
+    }
+    if (!stopping) {
+      // TLS provisioning starts only after local HTTP listeners are bound, one turn of
+      // the event loop after the ready line / banner has been written.
       // Provisioning shells out synchronously (mkcert, PowerShell) and can block the
-      // event loop for as long as those tools take, so it must never sit in front of
-      // plaintext becoming reachable; TLS is an improvement, not a precondition.
+      // event loop for as long as those tools take. Viewer admission on HTTP waits for
+      // HTTPS unless the operator deliberately selected LAN-only TLS-off mode.
       setImmediate(() => {
         if (stopping) return;
         attemptTls();
@@ -648,53 +670,53 @@ async function serve() {
             backends: info.backends.map(({ id, label, codecs }) => ({ id, label, codecs })),
           }),
         );
-        return;
+      } else {
+        console.log('\nVidVNC · Ready to connect\n');
+        const shown = plaintextAddresses();
+        for (const url of shown.lan) console.log(`Open ${url}`);
+        console.log(`Local preview: ${shown.local}\nPassword: ${store.password}\n`);
+        console.log('Live diagnostics (this PC only): use diagnostics open');
+        const codecLabels = VIDEO_CODECS.filter((codec) => hostCodecs.includes(codec))
+          .map((codec) => CODEC_LABELS[codec])
+          .join(' / ');
+        console.log(
+          `${info.width} × ${info.height} · ${info.backends[0]?.label ?? 'Hardware'} ${codecLabels} · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
+        );
+        console.log(
+          `Type help for commands. Default control: ${accessLabel(access.snapshot().defaultControl)}.`,
+        );
+        // Started after the banner so the prompt appears below it.
+        consoleSession = startConsole({
+          input: process.stdin,
+          output: process.stdout,
+          errors: process.stderr,
+          terminal: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+          stop,
+          createContext: ({ confirm }) =>
+            createLiveContext({
+              policy,
+              access,
+              inventory,
+              runtime,
+              diagnosticsCapabilities,
+              diagnosticsUrl: () => privateDiagnosticsUrl,
+              sessionStore: store,
+              profileOrderFile: files.profileOrder,
+              directory,
+              logDirectory,
+              addresses: currentAddresses,
+              confirm,
+              hostCodecs,
+              tls: tlsListener,
+              codeIssuer,
+              ownerSecurity,
+            }),
+        });
       }
-      console.log('\nVidVNC · Ready to connect\n');
-      const shown = plaintextAddresses();
-      for (const url of shown.lan) console.log(`Open ${url}`);
-      console.log(`Local preview: ${shown.local}\nPassword: ${store.password}\n`);
-      console.log('Live diagnostics (this PC only): use diagnostics open');
-      const codecLabels = VIDEO_CODECS.filter((codec) => hostCodecs.includes(codec))
-        .map((codec) => CODEC_LABELS[codec])
-        .join(' / ');
-      console.log(
-        `${info.width} × ${info.height} · ${info.backends[0]?.label ?? 'Hardware'} ${codecLabels} · 30 fps\nTrusted LAN only. HTTP pairing is not encrypted. Do not forward this port.\nCtrl+C stops sharing.`,
-      );
-      console.log(
-        `Type help for commands. Default control: ${accessLabel(access.snapshot().defaultControl)}.`,
-      );
-      // Started after the banner so the prompt appears below it.
-      consoleSession = startConsole({
-        input: process.stdin,
-        output: process.stdout,
-        errors: process.stderr,
-        terminal: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-        stop,
-        createContext: ({ confirm }) =>
-          createLiveContext({
-            policy,
-            access,
-            inventory,
-            runtime,
-            diagnosticsCapabilities,
-            diagnosticsUrl: () => privateDiagnosticsUrl,
-            sessionStore: store,
-            profileOrderFile: files.profileOrder,
-            directory,
-            logDirectory,
-            addresses: currentAddresses,
-            confirm,
-            hostCodecs,
-            tls: tlsListener,
-            codeIssuer,
-            ownerSecurity,
-          }),
-      });
-    });
+    }
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
-    server.on('error', (error) => {
+    httpStack.app.on('error', (error) => {
       console.error(error.message);
       stop();
       process.exitCode = 1;

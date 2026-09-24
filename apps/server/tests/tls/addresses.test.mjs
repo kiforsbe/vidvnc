@@ -5,6 +5,7 @@ import {
   connectionAddresses,
   secureAddressLines,
 } from '../../src/tls/addresses.mjs';
+import * as addressModule from '../../src/tls/addresses.mjs';
 import { liveConsole } from '../fixtures/cli-live-console.mjs';
 
 const nic = (address, extra = {}) => ({ address, family: 'IPv4', internal: false, ...extra });
@@ -15,19 +16,69 @@ const interfaces = () => ({
 });
 const off = { active: false, port: null };
 const on = (port = 4383) => ({ active: true, port });
+const boundHttp = (port = 4382) => [
+  { host: '192.168.1.5', port },
+  { host: '10.0.0.7', port },
+  { host: '127.0.0.1', port },
+];
 
-test('without TLS the plaintext addresses are shown exactly as before', () => {
-  assert.deepEqual(connectionAddresses({ interfaces, plaintextPort: 4382, tls: off }), {
+test('local HTTP roots come only from bound private/loopback listeners with bracketed IPv6', () => {
+  assert.equal(typeof addressModule.httpConnectionAddresses, 'function');
+  const shown = addressModule.httpConnectionAddresses([
+    { host: '127.0.0.1', port: 4382 },
+    { host: '192.168.10.12', port: 4382 },
+    { host: 'fd12::42', port: 4382 },
+    { host: '::1', port: 4382 },
+  ]);
+  assert.deepEqual(shown.lan, ['http://192.168.10.12:4382', 'http://[fd12::42]:4382']);
+  assert.equal(shown.local, 'http://127.0.0.1:4382');
+  assert.deepEqual(shown.urls, [
+    'http://192.168.10.12:4382',
+    'http://[fd12::42]:4382',
+    'http://127.0.0.1:4382',
+    'http://[::1]:4382',
+  ]);
+});
+
+test('required HTTPS with an inactive listener advertises no HTTP viewer addresses', () => {
+  assert.deepEqual(
+    connectionAddresses({
+      interfaces,
+      plaintextPort: 4382,
+      httpBindings: [{ host: '127.0.0.1', port: 4382 }],
+      tls: off,
+      plaintextMode: 'https-required',
+    }),
+    { lan: [], local: null, urls: [] },
+  );
+});
+
+test('an explicit HTTPS loopback bind does not advertise unbound LAN HTTPS addresses', () => {
+  assert.deepEqual(
+    connectionAddresses({
+      interfaces,
+      plaintextPort: 4382,
+      httpBindings: [{ host: '127.0.0.1', port: 4382 }],
+      tls: on(4383),
+      plaintextMode: 'https-required',
+      hostPreference: '127.0.0.1',
+    }).urls,
+    ['https://127.0.0.1:4383'],
+  );
+});
+
+test('deliberate HTTP mode shows only the bound plaintext addresses', () => {
+  assert.deepEqual(connectionAddresses({ interfaces, httpBindings: boundHttp(), tls: off }), {
     lan: ['http://192.168.1.5:4382', 'http://10.0.0.7:4382'],
     local: 'http://127.0.0.1:4382',
     urls: ['http://192.168.1.5:4382', 'http://10.0.0.7:4382', 'http://127.0.0.1:4382'],
   });
 });
 
-test('omitting tls means plaintext', () => {
+test('omitting tls still allows deliberate plaintext from actual HTTP bindings', () => {
   assert.deepEqual(
-    connectionAddresses({ interfaces, plaintextPort: 4382 }),
-    connectionAddresses({ interfaces, plaintextPort: 4382, tls: off }),
+    connectionAddresses({ interfaces, httpBindings: boundHttp() }),
+    connectionAddresses({ interfaces, httpBindings: boundHttp(), tls: off }),
   );
 });
 
@@ -43,7 +94,7 @@ test('with TLS running the HTTPS addresses and TLS port are shown', () => {
 });
 
 test('public-capable address lists do not advertise a diagnostics endpoint', () => {
-  const plain = connectionAddresses({ interfaces, plaintextPort: 4382, tls: off });
+  const plain = connectionAddresses({ interfaces, httpBindings: boundHttp(), tls: off });
   const secure = connectionAddresses({ interfaces, plaintextPort: 4382, tls: on(4383) });
   assert.equal('diagnostics' in plain, false);
   assert.equal('diagnostics' in secure, false);
@@ -57,11 +108,11 @@ test('the HTTPS default port 443 is omitted, any other port is kept', () => {
 });
 
 test('port 80 is omitted for plaintext, but not port 443 and not 80 under https', () => {
-  const plain = connectionAddresses({ interfaces, plaintextPort: 80, tls: off });
+  const plain = connectionAddresses({ interfaces, httpBindings: boundHttp(80), tls: off });
   assert.deepEqual(plain.urls, ['http://192.168.1.5', 'http://10.0.0.7', 'http://127.0.0.1']);
   assert.equal('diagnostics' in plain, false);
   assert.equal(
-    connectionAddresses({ interfaces, plaintextPort: 443, tls: off }).local,
+    connectionAddresses({ interfaces, httpBindings: boundHttp(443), tls: off }).local,
     'http://127.0.0.1:443',
   );
   assert.equal(
@@ -70,19 +121,23 @@ test('port 80 is omitted for plaintext, but not port 443 and not 80 under https'
   );
 });
 
-test('the plaintext port is ignored once TLS is active, and vice versa', () => {
+test('only actual bound HTTP ports are shown while TLS is inactive', () => {
   assert.equal(
     connectionAddresses({ interfaces, plaintextPort: 4382, tls: on(4383) }).local,
     'https://127.0.0.1:4383',
   );
   assert.equal(
-    connectionAddresses({ interfaces, plaintextPort: 4382, tls: { active: false, port: 4383 } })
-      .local,
+    connectionAddresses({
+      interfaces,
+      plaintextPort: 9999,
+      httpBindings: boundHttp(),
+      tls: { active: false, port: 4383 },
+    }).local,
     'http://127.0.0.1:4382',
   );
 });
 
-test('internal and IPv6 interfaces are excluded from the LAN list; loopback comes last', () => {
+test('HTTP ignores unrelated link-local interfaces and reports only bound private LAN hosts', () => {
   const result = connectionAddresses({
     interfaces: () => ({
       A: [nic('127.0.0.1', { internal: true }), nic('::1', { family: 'IPv6', internal: true })],
@@ -90,9 +145,13 @@ test('internal and IPv6 interfaces are excluded from the LAN list; loopback come
       C: [nic('172.16.0.3')],
     }),
     plaintextPort: 4382,
+    httpBindings: [
+      { host: '172.16.0.3', port: 4382 },
+      { host: '127.0.0.1', port: 4382 },
+    ],
     tls: off,
   });
-  assert.deepEqual(result.lan, ['http://169.254.1.1:4382', 'http://172.16.0.3:4382']);
+  assert.deepEqual(result.lan, ['http://172.16.0.3:4382']);
   assert.equal(result.urls.at(-1), 'http://127.0.0.1:4382');
 });
 
@@ -102,13 +161,12 @@ test('a machine with no usable interface still offers the loopback preview', () 
   assert.deepEqual(result.urls, ['https://127.0.0.1:4383']);
 });
 
-test('interfaces are read on every call, so the answer can change', () => {
+test('HTTPS interfaces are read on every call, so the answer can change', () => {
   let addresses = [nic('192.168.1.5')];
-  const read = () =>
-    connectionAddresses({ interfaces: () => ({ e: addresses }), plaintextPort: 1 });
-  assert.equal(read().lan[0], 'http://192.168.1.5:1');
+  const read = () => connectionAddresses({ interfaces: () => ({ e: addresses }), tls: on(4383) });
+  assert.equal(read().lan[0], 'https://192.168.1.5:4383');
   addresses = [nic('10.1.1.1')];
-  assert.equal(read().lan[0], 'http://10.1.1.1:1');
+  assert.equal(read().lan[0], 'https://10.1.1.1:4383');
 });
 
 test('the follow-up block lists the HTTPS addresses and a corrected warning', () => {
