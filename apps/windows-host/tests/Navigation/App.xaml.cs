@@ -108,8 +108,8 @@ public partial class App : Application
                                 updateClients.Invoke(window, new object[] { clientsFixture.RootElement });
                                 await Task.Delay(80);
                                 var clientsAction = (Button?)((ContentControl)typeof(HostWindow).GetField("pageAction", flags)!.GetValue(window)!).Content;
-                                if (clientsAction?.Content as string != "Connect a device" || clientsAction.Tag as string != "approved-client")
-                                    throw new Exception("Clients header must open Connect a device in approved-client mode");
+                                if (clientsAction?.Content as string != "Connect a browser" || clientsAction.Tag as string != "approved-client")
+                                    throw new Exception("Clients header must open Connect a browser in approved-client mode");
                                 var visibleText = Descendants(shell).OfType<TextBlock>().Select(text => text.Text).ToArray();
                                 if (!visibleText.Contains("2 approved clients · 1 waiting for approval"))
                                     throw new Exception("Clients summary does not reflect pending and approved counts");
@@ -887,10 +887,9 @@ public partial class App : Application
                                 }
                                 if (Descendants(list).OfType<TextBlock>().Any(t => t.Text == "Waiting for telemetry" && t.Visibility == Visibility.Visible))
                                     throw new Exception("Fresh frame flow must replace the waiting state");
-                                typeof(HostWindow).GetField("previewUrl", flags)!.SetValue(window, "http://127.0.0.1:45678/");
-                                var diagnosticsAddress = typeof(HostWindow).GetMethod("DiagnosticsAddress", flags)!;
-                                if ((string?)diagnosticsAddress.Invoke(window, null) != "http://127.0.0.1:45678/diagnostics")
-                                    throw new Exception("Diagnostics must use the active host's loopback port");
+                                var diagnosticsAddress = typeof(HostWindow).GetMethod("DiagnosticsAddress", BindingFlags.Static | BindingFlags.NonPublic)!;
+                                if ((string?)diagnosticsAddress.Invoke(null, new object[] { "http://127.0.0.1:45999/diagnostics" }) != "http://127.0.0.1:45999/diagnostics")
+                                    throw new Exception("Diagnostics must accept the owner-provided private loopback port");
                                 if (cycle == 0)
                                 {
                                     var start = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
@@ -901,22 +900,24 @@ public partial class App : Application
                                     try
                                     {
                                         serverField.SetValue(window, owner);
-                                        var requested = (Task<string>)typeof(HostWindow).GetMethod("RequestDiagnosticsCapability", flags)!.Invoke(window, null)!;
+                                        var requested = (Task<(string Url, string Token)>)typeof(HostWindow).GetMethod("RequestDiagnosticsCapability", flags)!.Invoke(window, null)!;
                                         var line = await owner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
                                         using var result = JsonDocument.Parse(line!);
                                         if (result.RootElement.GetProperty("received").GetProperty("type").GetString() != "diagnostics-capability-create")
                                             throw new Exception("Diagnostics did not request owner-scoped capability");
                                         typeof(HostWindow).GetMethod("ReceiveClientResult", flags)!.Invoke(window, new object[] { result.RootElement });
-                                        var token = await requested.WaitAsync(TimeSpan.FromSeconds(5));
+                                        var (url, token) = await requested.WaitAsync(TimeSpan.FromSeconds(5));
                                         var launched = (string)typeof(HostWindow).GetMethod("DiagnosticsLaunchUrl", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null,
-                                            new object[] { "http://127.0.0.1:45678/diagnostics", token })!;
-                                        if (launched != "http://127.0.0.1:45678/diagnostics#capability=" + token)
+                                            new object[] { url, token })!;
+                                        if (launched != "http://127.0.0.1:45999/diagnostics#capability=" + token)
                                             throw new Exception("Diagnostics capability was not confined to a URL fragment");
                                     }
                                     finally { serverField.SetValue(window, null); owner.StandardInput.Close(); if (!owner.WaitForExit(5000)) owner.Kill(); }
                                 }
-                                typeof(HostWindow).GetField("previewUrl", flags)!.SetValue(window, "http://example.com:45678/");
-                                if (diagnosticsAddress.Invoke(window, null) is not null) throw new Exception("Diagnostics link accepted a non-local endpoint");
+                                if (diagnosticsAddress.Invoke(null, new object[] { "http://example.com:45999/diagnostics" }) is not null)
+                                    throw new Exception("Diagnostics link accepted a non-local endpoint");
+                                if (diagnosticsAddress.Invoke(null, new object[] { "http://127.0.0.1:45678/api/info" }) is not null)
+                                    throw new Exception("Diagnostics link accepted another route");
                                 if (cycle == 0)
                                 {
                                     var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();

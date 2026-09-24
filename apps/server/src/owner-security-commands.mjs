@@ -4,6 +4,7 @@ export function createOwnerSecurityCommands({ store, approvedClients, runtime })
   async function stopUnsafeSharing(error) {
     let shutdownError;
     try {
+      for (const row of store.list()) store.disconnect(row.sessionId);
       store.stop();
     } catch (failure) {
       shutdownError = failure;
@@ -25,16 +26,28 @@ export function createOwnerSecurityCommands({ store, approvedClients, runtime })
       if (action === 'permission' && !CLIENT_PERMISSIONS.includes(permission))
         return Promise.reject(new Error('Invalid client permission'));
       let affected;
+      let revocation;
       try {
         affected = store.list().filter((row) => row.approvedClientId === id);
         approvedClients.invalidate(id, action === 'remove' ? 'remove' : 'downgrade');
+        // Start the native denial while the runtime can still find the affected owners.
+        // Disconnect their bearers in the same turn, before any asynchronous wait.
+        try {
+          revocation = runtime.revokeApprovedClient(id);
+        } catch (error) {
+          revocation = Promise.reject(error);
+        }
+        for (const row of affected) store.disconnect(row.sessionId);
       } catch (error) {
         return Promise.reject(error);
       }
       return (async () => {
         let revoked;
         try {
-          revoked = await runtime.revokeApprovedClient(id);
+          [revoked] = await Promise.all([
+            revocation,
+            ...affected.map((row) => runtime.stopSession(row.sessionId)),
+          ]);
         } catch (error) {
           return stopUnsafeSharing(error);
         }
@@ -44,8 +57,6 @@ export function createOwnerSecurityCommands({ store, approvedClients, runtime })
           );
         try {
           if (action === 'remove') {
-            for (const row of affected) store.disconnect(row.sessionId);
-            await Promise.all(affected.map((row) => runtime.stopSession(row.sessionId)));
             await approvedClients.remove(id);
           } else await approvedClients.setPermission(id, permission);
         } catch (error) {

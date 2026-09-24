@@ -84,8 +84,8 @@ public sealed partial class HostWindow
     // "The address shown and the QR code encode the HTTPS address once TLS is up" — the
     // address a user is told to open moves to HTTPS the moment the secure listener is really
     // bound, and moves back if it ever stops. `previewUrl` deliberately does not follow: it
-    // is the loopback preview this app opens itself, the plaintext listener redirects it, and
-    // the loopback-only diagnostics link is derived from it.
+    // is the loopback preview this app opens itself, and the plaintext listener redirects it.
+    // Diagnostics uses a separate owner-provided loopback address.
     void ApplyTlsAddress()
     {
         if (plaintextAddress is null) return;

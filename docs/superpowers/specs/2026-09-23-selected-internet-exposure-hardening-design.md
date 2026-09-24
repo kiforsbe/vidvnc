@@ -2,6 +2,8 @@
 
 Date: 2026-09-23. Status: selected design; see the [implementation status](../../security/internet-exposure-hardening-status-2026-09-24.md) for current controls and remaining verification.
 
+The [2026-09-24 follow-up design](2026-09-24-revocation-and-diagnostics-isolation-design.md) supersedes this document's F2/F4/F5 implementation details: permission edits now disconnect active sessions, diagnostics uses a separate loopback listener, and the retained secret is explicitly a browser/client credential additional to username and password.
+
 This design addresses the selected concerns F1, F2, F4, F5, and F7 from the [Internet exposure review](../../security/internet-exposure-review-2026-09-23.md) and its [remediation proposals](../../security/internet-exposure-remediation-proposals-2026-09-23.md). It hardens the existing LAN-oriented service before any remote deployment profile is chosen. It does **not** authorize Internet exposure: F3 (HTTPS failure and trust enrollment) and F6 (WebRTC media/network policy) remain open, and F5 remains a transferable credential by the owner's explicit choice.
 
 ## Intent and security contract

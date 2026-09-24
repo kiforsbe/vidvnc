@@ -124,7 +124,9 @@ from another device, or undo a manual revoke. The browser still enables input
 locally. Access defaults are stored separately in `access-settings.json` in the
 per-user VidVNC data directory and also apply to the CLI server. Esc releases
 local control/exits fullscreen; Ctrl+C stops the server and all its workers.
-Diagnostics are at `http://127.0.0.1:4382/diagnostics` on the server PC.
+For live diagnostics on the server PC, use the host's Diagnostics action or the CLI
+`diagnostics open` command. It creates a short-lived link to a separate local-only
+listener; the normal connection address does not serve diagnostics.
 
 ### CLI server configuration
 

@@ -129,7 +129,6 @@ export function createHttpApp({
   display = null,
   media = null,
   diagnostics = null,
-  diagnosticsCapabilities = null,
   policy = null,
   inventory = null,
   profileOrderFile = null,
@@ -230,6 +229,16 @@ export function createHttpApp({
       // X-Forwarded-Proto): only the connection itself can say whether it is encrypted.
       const scheme = request.socket.encrypted ? 'https' : 'http';
       const route = new URL(request.url, 'http://localhost').pathname;
+      // This handler serves the public-capable HTTP and HTTPS ports. Diagnostics live
+      // exclusively on a separate loopback-bound listener, even for local callers.
+      if (
+        route === '/diagnostics' ||
+        route === '/api/diagnostics' ||
+        route === '/diagnostics.js' ||
+        route === '/diagnostics-auth.js' ||
+        route === '/diagnostics.css'
+      )
+        return send(response, 404, { error: 'Not found' });
       // Plaintext redirect: once TLS is active, every plaintext request except the
       // enrolment allow-list is sent to its HTTPS equivalent, preserving path and query
       // (`request.url` already carries both). 307 (not 301/302) so a non-GET request keeps
@@ -256,35 +265,6 @@ export function createHttpApp({
       }
       if (!isAllowedOrigin(scheme, request.headers.host, request.headers.origin))
         return send(response, 403, { error: 'Cross-origin request denied' });
-      if (route === '/diagnostics' || route === '/api/diagnostics') {
-        const local =
-          ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress) &&
-          ['127.0.0.1', 'localhost', '[::1]'].includes(host);
-        if (!local)
-          return send(response, 403, { error: 'Diagnostics are available on the server PC only.' });
-        if (request.method !== 'GET') return send(response, 405, { error: 'GET required' });
-        if (route === '/api/diagnostics') {
-          const header = request.headers.authorization;
-          const match = typeof header === 'string' && /^Bearer ([A-Za-z0-9_-]{43})$/.exec(header);
-          if (!match || !diagnosticsCapabilities?.allows(match[1]))
-            return send(response, 403, { error: 'Diagnostics authorization required.' });
-          if (!runtime) return send(response, 200, diagnostics?.snapshot() || {});
-          const streams = runtime.diagnosticStreams();
-          const selectedStreamId =
-            new URL(request.url, 'http://localhost').searchParams.get('stream') ??
-            streams[0]?.id ??
-            null;
-          return send(response, 200, {
-            ...(runtime.diagnostics(selectedStreamId) ?? { at: Date.now(), history: [] }),
-            streams,
-            selectedStreamId,
-          });
-        }
-        response.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' });
-        return response.end(
-          await readFile(new URL(import.meta.resolve('@vidvnc/web-client/diagnostics.html'))),
-        );
-      }
       if (
         request.method === 'GET' &&
         [
@@ -297,9 +277,6 @@ export function createHttpApp({
           '/stream-subscriptions.js',
           '/codec-preferences.js',
           '/profile-labels.js',
-          '/diagnostics.js',
-          '/diagnostics-auth.js',
-          '/diagnostics.css',
           '/style.css',
           '/theme.js',
           '/shell.css',
@@ -561,6 +538,10 @@ export function createHttpApp({
       const session = sessionStore.get(token);
       if (!session || session.clientKey !== request.socket.remoteAddress)
         return send(response, 401, { error: 'Session expired. Reconnect.' });
+      const sendIfLive = (status, body) =>
+        sessionStore.get(token)
+          ? send(response, status, body)
+          : send(response, 401, { error: 'Session expired. Reconnect.' });
       if (runtime) {
         if (['/api/offer', '/api/reconnect', '/api/telemetry'].includes(route))
           return send(response, 409, { error: 'Reload the viewer to use stream subscriptions.' });
@@ -573,7 +554,7 @@ export function createHttpApp({
             : send(response, 429, { error: 'Sample rate exceeded or audio inactive' });
         }
         if (route === '/api/stream-select')
-          return send(response, 200, await runtime.selectStream(token, body.streamId));
+          return sendIfLive(200, await runtime.selectStream(token, body.streamId));
         if (route === '/api/stream-offer' || route === '/api/audio-offer') {
           if (
             typeof body.sdp !== 'string' ||
@@ -582,14 +563,15 @@ export function createHttpApp({
           )
             return send(response, 400, { error: 'Invalid SDP' });
           try {
-            return send(
-              response,
+            return sendIfLive(
               200,
               await (route === '/api/audio-offer'
                 ? runtime.offerAudio(token, body.sdp)
                 : runtime.offerVideo(token, body)),
             );
           } catch (error) {
+            if (!sessionStore.get(token))
+              return send(response, 401, { error: 'Session expired. Reconnect.' });
             return send(response, error.status || 503, {
               error: error.status
                 ? error.message
@@ -602,7 +584,7 @@ export function createHttpApp({
             return send(response, 404, { error: 'Unknown stream' });
           if (route === '/api/stream-stop') {
             await runtime.stopStream(token, body.streamId);
-            return send(response, 204);
+            return sendIfLive(204);
           }
           return runtime.record(token, body.streamId, body)
             ? send(response, 204)
@@ -622,12 +604,13 @@ export function createHttpApp({
         return send(response, 409, { error: 'This session is reconnecting. Retry shortly.' });
       if (route === '/api/profiles') {
         const catalog = policy?.snapshot() ?? defaultStreamPolicy();
-        return send(response, 200, {
+        const profiles = await applyProfileOrder(
+          profileOrderFile,
+          catalog.profiles.filter((p) => p.enabled),
+        );
+        return sendIfLive(200, {
           serverName,
-          profiles: await applyProfileOrder(
-            profileOrderFile,
-            catalog.profiles.filter((p) => p.enabled),
-          ),
+          profiles,
           clientMode: catalog.clientMode,
           allowedOptions: catalog.clientMode === 'options' ? catalog.allowedOptions : null,
           allowAudio: catalog.allowAudio,

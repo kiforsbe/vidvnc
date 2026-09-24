@@ -1,5 +1,7 @@
 # Owner-Capability Diagnostics Implementation Plan
 
+Historical completed plan. The [2026-09-24 follow-up plan](2026-09-24-revocation-diagnostics-isolation.md) supersedes its shared-listener F4 route design with a separate loopback-bound diagnostics listener.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close F4's unauthenticated same-host proxy path to live diagnostics while preserving a convenient local owner workflow.

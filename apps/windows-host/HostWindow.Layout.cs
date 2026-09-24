@@ -137,7 +137,7 @@ public sealed partial class HostWindow
                 break;
             case "Sessions":
                 var diagnosticsLink = Command("Diagnostics ↗", OpenDiagnostics);
-                diagnosticsLink.IsEnabled = sharing && DiagnosticsAddress() is not null;
+                diagnosticsLink.IsEnabled = sharing && server is not null;
                 pageAction.Content = diagnosticsLink;
                 page.Children.Add(sessionTotals);
                 if (sessionCards.Count == 0) page.Children.Add(Card(Label(sharing ? "No devices connected. Choose Connect a device to get started." : "Start sharing to accept connections.")));
@@ -172,19 +172,19 @@ public sealed partial class HostWindow
         }
     }
 
-    string? DiagnosticsAddress() => Uri.TryCreate(previewUrl, UriKind.Absolute, out var uri) &&
-        uri.Scheme == "http" && uri.Host == "127.0.0.1" ? new Uri(uri, "/diagnostics").AbsoluteUri : null;
+    static string? DiagnosticsAddress(string address) => Uri.TryCreate(address, UriKind.Absolute, out var uri) &&
+        uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port > 0 &&
+        uri.UserInfo.Length == 0 && uri.AbsolutePath == "/diagnostics" &&
+        uri.Query.Length == 0 && uri.Fragment.Length == 0 ? uri.AbsoluteUri : null;
 
     static string DiagnosticsLaunchUrl(string address, string token) =>
         address + "#capability=" + Uri.EscapeDataString(token);
 
     async void OpenDiagnostics()
     {
-        var url = DiagnosticsAddress();
-        if (url is null) return;
         try
         {
-            var token = await RequestDiagnosticsCapability();
+            var (url, token) = await RequestDiagnosticsCapability();
             Process.Start(new ProcessStartInfo(DiagnosticsLaunchUrl(url, token)) { UseShellExecute = true });
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)

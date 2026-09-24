@@ -21,7 +21,6 @@ test('without TLS the plaintext addresses are shown exactly as before', () => {
     lan: ['http://192.168.1.5:4382', 'http://10.0.0.7:4382'],
     local: 'http://127.0.0.1:4382',
     urls: ['http://192.168.1.5:4382', 'http://10.0.0.7:4382', 'http://127.0.0.1:4382'],
-    diagnostics: 'http://127.0.0.1:4382/diagnostics',
   });
 });
 
@@ -43,20 +42,16 @@ test('with TLS running the HTTPS addresses and TLS port are shown', () => {
   assert.equal(result.local, 'https://127.0.0.1:4383');
 });
 
-test('the diagnostics address follows the scheme and stays loopback-only in both modes', () => {
+test('public-capable address lists do not advertise a diagnostics endpoint', () => {
   const plain = connectionAddresses({ interfaces, plaintextPort: 4382, tls: off });
   const secure = connectionAddresses({ interfaces, plaintextPort: 4382, tls: on(4383) });
-  assert.equal(plain.diagnostics, 'http://127.0.0.1:4382/diagnostics');
-  assert.equal(secure.diagnostics, 'https://127.0.0.1:4383/diagnostics');
-  for (const { diagnostics } of [plain, secure]) {
-    assert.doesNotMatch(diagnostics, /192\.168|10\.0\.0/);
-  }
+  assert.equal('diagnostics' in plain, false);
+  assert.equal('diagnostics' in secure, false);
 });
 
 test('the HTTPS default port 443 is omitted, any other port is kept', () => {
   const standard = connectionAddresses({ interfaces, plaintextPort: 4382, tls: on(443) });
   assert.deepEqual(standard.urls, ['https://192.168.1.5', 'https://10.0.0.7', 'https://127.0.0.1']);
-  assert.equal(standard.diagnostics, 'https://127.0.0.1/diagnostics');
   const other = connectionAddresses({ interfaces, plaintextPort: 4382, tls: on(8443) });
   assert.equal(other.local, 'https://127.0.0.1:8443');
 });
@@ -64,7 +59,7 @@ test('the HTTPS default port 443 is omitted, any other port is kept', () => {
 test('port 80 is omitted for plaintext, but not port 443 and not 80 under https', () => {
   const plain = connectionAddresses({ interfaces, plaintextPort: 80, tls: off });
   assert.deepEqual(plain.urls, ['http://192.168.1.5', 'http://10.0.0.7', 'http://127.0.0.1']);
-  assert.equal(plain.diagnostics, 'http://127.0.0.1/diagnostics');
+  assert.equal('diagnostics' in plain, false);
   assert.equal(
     connectionAddresses({ interfaces, plaintextPort: 443, tls: off }).local,
     'http://127.0.0.1:443',

@@ -9,6 +9,7 @@ import { StreamRuntime } from '../src/stream-runtime.mjs';
 import { DisplayInventory } from '../src/displays.mjs';
 import { defaultStreamPolicy } from '../src/stream-policy.mjs';
 import { DiagnosticsCapabilities } from '../src/diagnostics-capabilities.mjs';
+import { createDiagnosticsHttp } from '../src/diagnostics-http.mjs';
 
 const videoSdp = [
   'v=0',
@@ -70,8 +71,11 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
     diagnosticsCapabilities,
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const diagnosticsServer = createDiagnosticsHttp({ runtime, diagnosticsCapabilities });
+  await new Promise((resolve) => diagnosticsServer.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => diagnosticsServer.close(resolve));
     await runtime.shutdown();
   });
   const post = (route, body = {}, token) =>
@@ -118,7 +122,7 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
       .status,
     204,
   );
-  const diagnosticsUrl = `http://127.0.0.1:${server.address().port}/api/diagnostics`;
+  const diagnosticsUrl = `http://127.0.0.1:${diagnosticsServer.address().port}/api/diagnostics`;
   const diagnostic = await fetch(diagnosticsUrl + '?stream=' + stream.streamId, {
     headers: { authorization: `Bearer ${diagnosticsToken}` },
   }).then((r) => r.json());

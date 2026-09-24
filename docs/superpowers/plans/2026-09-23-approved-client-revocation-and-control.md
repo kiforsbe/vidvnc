@@ -1,5 +1,7 @@
 # Approved-Client Revocation and Control Implementation Plan
 
+Historical completed plan. The [2026-09-24 follow-up plan](2026-09-24-revocation-diagnostics-isolation.md) extends F2/F5 so every affected active session is disconnected immediately on any approved-client permission edit or removal.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close F2's stale-control authorization and F5's duplicate-session/removal races while retaining the user's copyable approved-browser credential.

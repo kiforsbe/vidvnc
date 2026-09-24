@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
 import { createHttpApp } from '../src/http-app.mjs';
 import { DiagnosticsCapabilities } from '../src/diagnostics-capabilities.mjs';
+import { SessionStore } from '../src/session-store.mjs';
 async function withServer(run, options = {}) {
   const server = createHttpApp({ serverName: 'Test PC', ...options });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -49,11 +50,7 @@ test('serves every browser entry asset through workspace resolution', () =>
       '/style.css',
       '/shell.css',
       '/theme.js',
-      '/diagnostics',
-      '/diagnostics.js',
-      '/diagnostics-auth.js',
       '/profile-labels.js',
-      '/diagnostics.css',
     ]) {
       const response = await fetch(url + asset);
       assert.equal(response.status, 200, asset);
@@ -66,56 +63,29 @@ test('serves every browser entry asset through workspace resolution', () =>
     assert.equal((await fetch(url + '/package.json')).status, 404);
   }));
 
-test('same-host proxy cannot read live diagnostics without an owner capability', () => {
-  let now = 1_000;
-  const capabilities = new DiagnosticsCapabilities({ clock: () => now });
+test('public-capable handler has no diagnostics routes, even for loopback with a valid bearer', () => {
+  const capabilities = new DiagnosticsCapabilities();
   const token = capabilities.issue().token;
   const headers = { host: 'localhost' };
   return withServer(
     async (url) => {
-      const denied = await rawGet(url + '/api/diagnostics', headers);
-      assert.equal(denied.status, 403);
-      assert.equal(denied.headers['cache-control'], 'no-store');
-      assert.doesNotMatch(denied.body, /private-stream-label/);
-      assert.equal(
-        (await rawGet(url + '/api/diagnostics?capability=' + token, headers)).status,
-        403,
-      );
-      assert.equal(
-        (await rawGet(url + '/api/diagnostics', { ...headers, cookie: `capability=${token}` }))
-          .status,
-        403,
-      );
-      assert.equal(
-        (await rawGet(url + '/api/diagnostics', { ...headers, authorization: 'Bearer wrong' }))
-          .status,
-        403,
-      );
-      const allowed = await rawGet(url + '/api/diagnostics', {
-        ...headers,
-        authorization: `Bearer ${token}`,
-      });
-      assert.equal(allowed.status, 200);
-      assert.equal(JSON.parse(allowed.body).label, 'private-stream-label');
-      assert.equal(
-        (
-          await rawGet(url + '/api/diagnostics', {
-            host: 'remote.example',
-            authorization: `Bearer ${token}`,
-          })
-        ).status,
-        403,
-      );
-      now += 900_000;
-      assert.equal(
-        (await rawGet(url + '/api/diagnostics', { ...headers, authorization: `Bearer ${token}` }))
-          .status,
-        403,
-      );
+      for (const route of [
+        '/diagnostics',
+        '/api/diagnostics',
+        '/diagnostics.js',
+        '/diagnostics-auth.js',
+        '/diagnostics.css',
+      ]) {
+        const denied = await rawGet(url + route, { ...headers, authorization: `Bearer ${token}` });
+        assert.equal(denied.status, 404, route);
+        assert.equal(denied.headers.location, undefined, route);
+        assert.doesNotMatch(denied.body, /private-stream-label/);
+      }
     },
     {
       diagnosticsCapabilities: capabilities,
       diagnostics: { snapshot: () => ({ label: 'private-stream-label' }) },
+      tls: { status: () => ({ active: true, port: 443 }) },
     },
   );
 });
@@ -124,6 +94,42 @@ test('accepts a dashless lowercase password through the real HTTP endpoint', () 
     const password = server.sessionStore.password.replace('-', '').toLowerCase();
     assert.equal((await post(url + '/api/key-start', { key: password })).status, 201);
   }));
+
+test('an in-flight protected request cannot return data after its bearer is revoked', async () => {
+  const sessions = new SessionStore();
+  const sessionId = sessions.connectApproved(
+    { id: 'client-1', generation: 0 },
+    '127.0.0.1',
+  ).sessionId;
+  let entered;
+  const started = new Promise((resolve) => {
+    entered = resolve;
+  });
+  let finish;
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  await withServer(
+    async (url) => {
+      const response = post(url + '/api/stream-select', { streamId: 'x' }, sessionId);
+      await started;
+      sessions.disconnect(sessionId);
+      finish({ streamId: 'x', privateLabel: 'must-not-leak' });
+      const result = await response;
+      assert.equal(result.status, 401);
+      assert.doesNotMatch(await result.text(), /must-not-leak/);
+    },
+    {
+      sessionStore: sessions,
+      runtime: {
+        async selectStream() {
+          entered();
+          return pending;
+        },
+      },
+    },
+  );
+});
 test('public listener rejects a standing password even from loopback with localhost and forwarded LAN headers', () =>
   withServer(
     async (url, server) => {

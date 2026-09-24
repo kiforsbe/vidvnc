@@ -15,25 +15,27 @@ may include breaking changes.
   changes to code lifetime, attempt limits, alphabet, and eligible local networks.
 - The host and CLI can explicitly disconnect existing ordinary sessions when immediate
   lockdown is needed. The CLI's `diagnostics open` command and the host's Diagnostics action
-  create a short-lived local diagnostics link on demand.
+  create a short-lived link to a separate loopback-only diagnostics listener on demand.
 
 ### Changed
 
 - Connection codes remain eight characters but no longer encode their purpose and exclude
   easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is accepted only
   from the host PC or an eligible local LAN subnet, not from a public-scoped listener.
-- An approved browser credential can have only one live session at a time. Removing an approved
-  client ends its sessions; changing it to view-only revokes active control before the host
-  reports success.
+- An approved browser/client secret is explicitly described as a copyable credential in addition
+  to username and password, not as device proof. It can have only one live session. Removing or
+  changing permissions immediately invalidates its active sessions and starts stream/control
+  teardown; the host reports success only after teardown and persistence.
 
 ### Fixed
 
 - Removed the anonymous connection-key inspection and legacy connect routes. Key starts and
   approved-client admission now have server-wide and per-source attempt limits, bounded
   password-verification work, and expiring registration state.
-- Control grants and lease renewals now check the client's current permission. Local live
-  diagnostics requires an owner-issued bearer capability, so a loopback reverse proxy alone
-  cannot read it.
+- Control grants and lease renewals check current permission, and in-flight authenticated HTTP
+  responses recheck session validity. Diagnostics pages, API, and diagnostics-only assets are
+  absent from the public-capable HTTP/HTTPS ports; the private listener still requires an
+  owner-issued bearer capability for live data.
 
 ### Known limitations
 

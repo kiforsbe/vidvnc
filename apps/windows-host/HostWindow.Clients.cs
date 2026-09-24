@@ -102,12 +102,14 @@ public sealed partial class HostWindow
         finally { clientReplies.Remove(requestId); }
     }
 
-    async Task<string> RequestDiagnosticsCapability()
+    async Task<(string Url, string Token)> RequestDiagnosticsCapability()
     {
         var result = await SendClientOwnerCommand(new() { ["type"] = "diagnostics-capability-create" });
         var token = Text(result, "token");
         if (token.Length != 43) throw new IOException("The server returned an invalid diagnostics capability.");
-        return token;
+        var url = DiagnosticsAddress(Text(result, "url"));
+        if (url is null) throw new IOException("The server returned an invalid local diagnostics address.");
+        return (url, token);
     }
 
     async Task RequestClientSetupKey(string alphabet)
@@ -171,18 +173,18 @@ public sealed partial class HostWindow
 
     void RenderClients()
     {
-        var connect = new Button { Content = "Connect a device", Tag = "approved-client", IsEnabled = sharing };
+        var connect = new Button { Content = "Connect a browser", Tag = "approved-client", IsEnabled = sharing };
         connect.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         connect.Click += async (_, _) => await ShowConnection("approved-client");
         pageAction.Content = connect;
-        page.Children.Add(Secondary("Manage devices that can sign in to this host", 16));
+        page.Children.Add(Secondary("Manage approved browser/client credentials for this host", 16));
         if (clientError is not null) page.Children.Add(new InfoBar { IsOpen = true, IsClosable = true,
             Severity = InfoBarSeverity.Error, Message = clientError });
 
         var summaryContent = new StackPanel { Spacing = HostSpacing.Small };
         summaryContent.Children.Add(Label($"{approvedClients.Length} approved client{Plural(approvedClients.Length)} · " +
             $"{pendingClients.Length} waiting for approval"));
-        summaryContent.Children.Add(Secondary("New devices must be verified before they can connect."));
+        summaryContent.Children.Add(Secondary("New client credentials require host approval before sign-in."));
         page.Children.Add(Card(IconRow("\uE716", summaryContent)));
 
         var lockdown = new StackPanel { Spacing = HostSpacing.Row };
@@ -201,11 +203,11 @@ public sealed partial class HostWindow
 
         page.Children.Add(Label("Approved clients", 22));
         if (approvedClients.Length == 0)
-            page.Children.Add(Card(Secondary("No approved clients yet. Choose Connect a device to add one.")));
+            page.Children.Add(Card(Secondary("No approved clients yet. Choose Connect a browser to add one.")));
         else
             foreach (var client in approvedClients) page.Children.Add(Card(ApprovedClientRow(client), HostSpacing.Row));
 
-        page.Children.Add(Secondary("An approved browser credential is copyable. Protect it and its password; removal revokes its active session."));
+        page.Children.Add(Secondary("The browser/client secret is an additional, copyable credential alongside username and password—not proof of a physical device. Removing or changing permissions disconnects active sessions immediately."));
     }
 
     static string Plural(int count) => count == 1 ? "" : "s";

@@ -14,9 +14,8 @@ function origin(scheme, host, port) {
 }
 
 // `lan` are the non-loopback IPv4 addresses (each NIC in enumeration order), `local` the
-// loopback preview, `urls` both together (as `connectionUrls` always was), and `diagnostics`
-// the loopback-only diagnostics page: it is never offered on a LAN address, whichever
-// listener serves it.
+// loopback preview and `urls` both together. The separate private diagnostics listener
+// is deliberately not derived from these public-capable addresses.
 export function connectionAddresses({
   interfaces = systemInterfaces,
   plaintextPort,
@@ -30,7 +29,7 @@ export function connectionAddresses({
     .filter((n) => n.family === 'IPv4' && !n.internal)
     .map((n) => origin(scheme, n.address, port));
   const local = origin(scheme, '127.0.0.1', port);
-  return { lan, local, urls: [...lan, local], diagnostics: `${local}/diagnostics` };
+  return { lan, local, urls: [...lan, local] };
 }
 
 // The one follow-up block printed when HTTPS comes up after the plaintext banner. It says

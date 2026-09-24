@@ -44,3 +44,10 @@ test('sign-in explains a credential already in use without promising device bind
   assert.match(app, /This approved browser credential is already in use/);
   assert.doesNotMatch(app, /approved device is already in use/i);
 });
+
+test('registration and sign-in copy identify the transferable browser secret', async () => {
+  const page = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
+  assert.match(page, /Browser\/client label \(not a device credential\)/);
+  assert.match(page, /copyable client secret in addition to your username and password/);
+  assert.match(page, /does not prove a physical device/);
+});

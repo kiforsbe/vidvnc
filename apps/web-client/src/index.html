@@ -75,7 +75,7 @@
             Choose the username and password you’ll use to sign in to
             <span class="server-name">this computer</span>.
           </p>
-          <label for="deviceName">Device name</label>
+          <label for="deviceName">Browser/client label (not a device credential)</label>
           <input
             id="deviceName"
             class="account-input"
@@ -124,8 +124,8 @@
           </svg>
           <h1>Waiting for approval</h1>
           <p class="pairing-intro">
-            Approve this device in Clients on <span class="server-name">your computer</span>. Keep
-            this page open.
+            Approve this browser/client in Clients on
+            <span class="server-name">your computer</span>. Keep this page open.
           </p>
           <button id="cancelPending" class="secondary" type="button">Cancel</button>
         </section>
@@ -135,7 +135,10 @@
             <path d="M8 21h8M12 17v4" />
           </svg>
           <h1>Sign in to <span class="server-name">your computer</span></h1>
-          <p class="pairing-intro">This browser is an approved client.</p>
+          <p class="pairing-intro">
+            This browser holds a copyable client secret in addition to your username and password.
+            It does not prove a physical device.
+          </p>
           <label for="signInUsername">Username</label>
           <input
             id="signInUsername"

@@ -234,11 +234,12 @@ test('the page is GET only', async (t) => {
 
 test('a path the page does not load is still redirected to HTTPS in that same configuration', async (t) => {
   const port = await startApp(t, { tls: activeTls() });
-  for (const path of ['/app.js', '/', '/diagnostics.js', '/approved-client.js', '/api/info']) {
+  for (const path of ['/app.js', '/', '/approved-client.js', '/api/info']) {
     const response = await httpCall(port, path);
     assert.equal(response.status, 307, path);
     assert.equal(response.headers.location, `https://127.0.0.1:8443${path}`, path);
   }
+  assert.equal((await httpCall(port, '/diagnostics.js')).status, 404);
 });
 
 test('the allow-list matches whole paths only: near-misses and prefixes are still redirected', async (t) => {

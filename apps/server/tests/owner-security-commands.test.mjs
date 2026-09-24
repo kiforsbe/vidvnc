@@ -5,6 +5,9 @@ import { createOwnerSecurityCommands } from '../src/owner-security-commands.mjs'
 
 test('owner downgrade invalidates synchronously and waits for native denial before success', async () => {
   const events = [];
+  const sessions = new SessionStore({ maxSessions: 3 });
+  const affected = sessions.connectApproved({ id: 'client-1', generation: 0 }).sessionId;
+  const unrelated = sessions.connect(sessions.password).sessionId;
   let releaseNative;
   const native = new Promise((resolve) => {
     releaseNative = resolve;
@@ -27,18 +30,15 @@ test('owner downgrade invalidates synchronously and waits for native denial befo
       nativeStarted();
       return native;
     },
-    async stopSession() {},
+    async stopSession(id) {
+      events.push(['stop-session', id]);
+    },
     async shutdown() {
       events.push(['shutdown']);
     },
   };
   const commands = createOwnerSecurityCommands({
-    store: {
-      list: () => [],
-      stop() {
-        events.push(['stop']);
-      },
-    },
+    store: sessions,
     approvedClients,
     runtime,
   });
@@ -48,6 +48,8 @@ test('owner downgrade invalidates synchronously and waits for native denial befo
     permission: 'view-only',
   });
   assert.deepEqual(events[0], ['invalidate', 'client-1', 'downgrade']);
+  assert.equal(sessions.get(affected), null, 'old bearer is unusable immediately');
+  assert.ok(sessions.get(unrelated), 'unrelated bearer remains live');
   await started;
   let settled = false;
   void changing
@@ -64,8 +66,8 @@ test('owner downgrade invalidates synchronously and waits for native denial befo
   releaseNative({ nativeAck: true, peerTerminated: false });
   await changing;
   assert.deepEqual(
-    events.slice(0, 3).map(([type]) => type),
-    ['invalidate', 'revoke', 'persist'],
+    events.map(([type]) => type),
+    ['invalidate', 'revoke', 'stop-session', 'persist'],
   );
 });
 

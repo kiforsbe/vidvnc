@@ -119,10 +119,10 @@ four groups:
 
 | Group | Routes | Purpose |
 | --- | --- | --- |
-| Admission | `/api/connect`, `/api/connection-key`, `/api/approved-clients/*` | Authenticate and issue a session token |
+| Admission | `/api/key-start`, `/api/approved-clients/*` | Meter key attempts or authenticate an approved browser/client and issue a session token |
 | Negotiation | `/api/offer`, `/api/stream-offer`, `/api/audio-offer`, `/api/streams`, `/api/stream-select`, `/api/stream-stop` | Start, pick and tear down media |
 | Liveness | `/api/heartbeat`, `/api/reconnect`, `/api/disconnect` | Keep, recover or end a session |
-| Reporting | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info`, `/api/diagnostics` | Client-side metrics in, capability and diagnostics out |
+| Reporting | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info` | Client-side metrics and public-safe status on the normal listener |
 
 Three connection modes are supported, set by the host
 ([access-settings.mjs](../apps/server/src/access-settings.mjs)):
@@ -387,8 +387,11 @@ half-recovered client cannot act on stale state.
 ## Diagnostics
 
 The server keeps a diagnostics snapshot per worker — selected encoder, stream state,
-transport and client-reported metrics — exposed at `/api/diagnostics` and rendered by the
-host UI and by `diagnostics.html`. Encoder facts land there at `ready` and then hold,
+transport and client-reported metrics — exposed at `/api/diagnostics` only on a
+separate `127.0.0.1`-bound listener. The normal HTTP/HTTPS handler does not route
+the diagnostics API, page, or dedicated assets. The host and CLI issue an explicit,
+short-lived local URL and bearer; the browser page sends that bearer only in an
+Authorization header. Encoder facts land there at `ready` and then hold,
 because the worker chooses its encoder once per stream and never switches mid-stream.
 
 Which GPU is encoding is host-facing only. It appears in host status and diagnostics, and

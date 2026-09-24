@@ -31,6 +31,7 @@ import { AdmissionBudget } from './admission-budget.mjs';
 import { createCodeIssuer } from './code-issuance.mjs';
 import { createOwnerSecurityCommands } from './owner-security-commands.mjs';
 import { DiagnosticsCapabilities } from './diagnostics-capabilities.mjs';
+import { createDiagnosticsHttp, diagnosticsUrl } from './diagnostics-http.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -134,7 +135,6 @@ async function serve() {
       sessionStore: store,
       media,
       diagnostics,
-      diagnosticsCapabilities,
       policy,
       inventory,
       profileOrderFile: files.profileOrder,
@@ -143,6 +143,24 @@ async function serve() {
       display: { name: 'Primary display', width: info.width, height: info.height, refreshHz: 30 },
       tls: tlsListener,
     });
+    const diagnosticsServer = createDiagnosticsHttp({
+      diagnostics,
+      diagnosticsCapabilities,
+      runtime,
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        diagnosticsServer.once('error', reject);
+        diagnosticsServer.listen(0, '127.0.0.1', () => {
+          diagnosticsServer.off('error', reject);
+          resolve();
+        });
+      });
+    } catch (error) {
+      await runtime.shutdown();
+      throw error;
+    }
+    const privateDiagnosticsUrl = diagnosticsUrl(diagnosticsServer);
     let releaseInstance = () => {};
     try {
       releaseInstance = registerInstance(files.instances, {
@@ -191,9 +209,12 @@ async function serve() {
       process.stdin.pause();
       const closed = new Promise((resolve) => server.close(resolve));
       server.closeAllConnections();
+      const diagnosticsClosed = new Promise((resolve) => diagnosticsServer.close(resolve));
+      diagnosticsServer.closeAllConnections();
       const tlsClosed = tlsListener.close();
       await runtime.shutdown();
       await closed;
+      await diagnosticsClosed;
       await tlsClosed;
       await diagnostics.writes;
       releaseInstance();
@@ -294,6 +315,7 @@ async function serve() {
                   ok: true,
                   token,
                   expiresAt,
+                  url: privateDiagnosticsUrl,
                 }),
               );
             }
@@ -656,6 +678,7 @@ async function serve() {
             inventory,
             runtime,
             diagnosticsCapabilities,
+            diagnosticsUrl: () => privateDiagnosticsUrl,
             sessionStore: store,
             profileOrderFile: files.profileOrder,
             directory,

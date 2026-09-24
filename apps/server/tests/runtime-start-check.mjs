@@ -50,7 +50,7 @@ async function until(predicate) {
 try {
   const ready = await until((message) => message.type === 'ready');
   assert.doesNotMatch(JSON.stringify(ready), /capability/);
-  assert.equal((await fetch(`http://127.0.0.1:${port}/api/diagnostics`)).status, 403);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/diagnostics`)).status, 404);
   child.stdin.write(
     JSON.stringify({ type: 'diagnostics-capability-create', requestId: 'diagnostics-check' }) +
       '\n',
@@ -61,15 +61,25 @@ try {
   );
   assert.equal(capability.ok, true);
   assert.match(capability.token, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(capability.url, /^http:\/\/127\.0\.0\.1:\d+\/diagnostics$/);
+  assert.notEqual(new URL(capability.url).port, String(port));
   assert.equal(
     (
       await fetch(`http://127.0.0.1:${port}/api/diagnostics`, {
         headers: { authorization: `Bearer ${capability.token}` },
       })
     ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await fetch(new URL('/api/diagnostics', capability.url), {
+        headers: { authorization: `Bearer ${capability.token}` },
+      })
+    ).status,
     200,
   );
-  assert.equal((await fetch(`http://127.0.0.1:${port}/api/diagnostics`)).status, 403);
+  assert.equal((await fetch(new URL('/api/diagnostics', capability.url))).status, 403);
   const instanceFile = join(directory, 'VidVNC', 'instances', `${child.pid}.json`);
   assert.equal(JSON.parse(await readFile(instanceFile, 'utf8')).mode, 'desktop');
   const post = (route, body, token) =>

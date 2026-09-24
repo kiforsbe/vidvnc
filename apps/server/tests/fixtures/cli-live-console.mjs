@@ -109,6 +109,7 @@ export async function liveConsole(
             plaintextPort: 4382,
             tls,
           }),
+        diagnosticsUrl: () => 'http://127.0.0.1:45999/diagnostics',
         confirm,
         tls: tlsListener,
       }),

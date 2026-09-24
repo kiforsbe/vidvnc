@@ -37,6 +37,7 @@ export function createLiveContext({
   codeIssuer = null,
   ownerSecurity = null,
   diagnosticsCapabilities = null,
+  diagnosticsUrl = null,
 }) {
   const issuer = codeIssuer ?? createCodeIssuer({ access, sessionStore });
   const security = ownerSecurity ?? createOwnerSecurityCommands({ store: sessionStore, runtime });
@@ -52,7 +53,8 @@ export function createLiveContext({
     mode: 'live',
     codeIssuer: issuer,
     diagnosticsOpen() {
-      const { diagnostics } = addresses();
+      const diagnostics = diagnosticsUrl?.();
+      if (!diagnostics) throw new Error('Private diagnostics listener is unavailable');
       const { token, expiresAt } = capabilities.issue();
       return {
         text: `${diagnostics}#capability=${encodeURIComponent(token)}\nExpires: ${new Date(expiresAt).toISOString()}\nKeep this link private; open it on this PC.`,

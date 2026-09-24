@@ -22,6 +22,7 @@ try {
     if (message.type === 'diagnostics-capability-create') {
       console.log(JSON.stringify({ type: 'diagnostics-capability-result', requestId: message.requestId,
         ok: true, token: 'A'.repeat(43), expiresAt: Date.now() + 900_000,
+        url: 'http://127.0.0.1:45999/diagnostics',
         received: { type: message.type } }));
       continue;
     }
