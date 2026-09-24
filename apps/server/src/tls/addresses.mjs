@@ -49,23 +49,24 @@ export function connectionAddresses({
       : { lan: [], local: null, urls: [] };
   const preference = hostPreference || '0.0.0.0';
   const wildcard = preference === '0.0.0.0' || preference === '::';
+  const family = preference === '::' || isIP(preference) === 6 ? 'IPv6' : 'IPv4';
   const allHosts = Object.values(interfaces())
     .flat()
     .filter(
       (n) =>
         !n.internal &&
-        (n.family === 'IPv4' ||
-          (n.family === 'IPv6' && !n.address.includes('%') && !/^fe80:/i.test(n.address))),
+        n.family === family &&
+        (family === 'IPv4' || (!n.address.includes('%') && !/^fe80:/i.test(n.address))),
     )
     .map((n) => n.address);
   const hosts = wildcard ? allHosts : allHosts.filter((address) => address === preference);
   if (!wildcard && !isIP(preference) && preference !== 'localhost') hosts.push(preference);
   const lan = hosts.map((host) => origin('https', host, tls.port));
   const localHost =
-    wildcard || preference === '127.0.0.1' || preference === 'localhost'
-      ? '127.0.0.1'
-      : preference === '::1'
-        ? '::1'
+    preference === '::' || preference === '::1'
+      ? '::1'
+      : preference === '0.0.0.0' || preference === '127.0.0.1' || preference === 'localhost'
+        ? '127.0.0.1'
         : null;
   const local = localHost ? origin('https', localHost, tls.port) : null;
   return { lan, local, urls: [...lan, ...(local ? [local] : [])] };

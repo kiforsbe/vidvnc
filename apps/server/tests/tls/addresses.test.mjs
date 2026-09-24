@@ -76,11 +76,21 @@ test('an explicit IPv6 HTTPS bind advertises its bracketed origin', () => {
     connectionAddresses({ interfaces: withUla, tls: on(4383), hostPreference: 'fd12::42' }).urls,
     ['https://[fd12::42]:4383'],
   );
-  assert.ok(
+  assert.equal(
     connectionAddresses({ interfaces: withUla, tls: on(4383) }).urls.includes(
       'https://[fd12::42]:4383',
     ),
+    false,
+    'the default 0.0.0.0 TLS bind is IPv4-only',
   );
+  const ipv6Wildcard = connectionAddresses({
+    interfaces: withUla,
+    tls: on(4383),
+    hostPreference: '::',
+  });
+  assert.ok(ipv6Wildcard.urls.includes('https://[fd12::42]:4383'));
+  assert.equal(ipv6Wildcard.local, 'https://[::1]:4383');
+  assert.equal(ipv6Wildcard.urls.includes('https://192.168.1.5:4383'), false);
 });
 
 test('deliberate HTTP mode shows only the bound plaintext addresses', () => {
