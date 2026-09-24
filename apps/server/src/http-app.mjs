@@ -129,6 +129,7 @@ export function createHttpApp({
   display = null,
   media = null,
   diagnostics = null,
+  diagnosticsCapabilities = null,
   policy = null,
   inventory = null,
   profileOrderFile = null,
@@ -263,6 +264,10 @@ export function createHttpApp({
           return send(response, 403, { error: 'Diagnostics are available on the server PC only.' });
         if (request.method !== 'GET') return send(response, 405, { error: 'GET required' });
         if (route === '/api/diagnostics') {
+          const header = request.headers.authorization;
+          const match = typeof header === 'string' && /^Bearer ([A-Za-z0-9_-]{43})$/.exec(header);
+          if (!match || !diagnosticsCapabilities?.allows(match[1]))
+            return send(response, 403, { error: 'Diagnostics authorization required.' });
           if (!runtime) return send(response, 200, diagnostics?.snapshot() || {});
           const streams = runtime.diagnosticStreams();
           const selectedStreamId =

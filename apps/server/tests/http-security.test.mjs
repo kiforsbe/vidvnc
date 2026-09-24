@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { request as httpRequest } from 'node:http';
 import { createHttpApp } from '../src/http-app.mjs';
+import { DiagnosticsCapabilities } from '../src/diagnostics-capabilities.mjs';
 async function withServer(run, options = {}) {
   const server = createHttpApp({ serverName: 'Test PC', ...options });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -19,6 +21,21 @@ const post = (url, body, token, headers = {}) =>
       ...headers,
     },
     body: JSON.stringify(body),
+  });
+const rawGet = (url, headers = {}) =>
+  new Promise((resolve, reject) => {
+    const request = httpRequest(url, { headers }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+      });
+      response.on('end', () =>
+        resolve({ status: response.statusCode, headers: response.headers, body }),
+      );
+    });
+    request.on('error', reject);
+    request.end();
   });
 
 test('serves every browser entry asset through workspace resolution', () =>
@@ -47,6 +64,60 @@ test('serves every browser entry asset through workspace resolution', () =>
     }
     assert.equal((await fetch(url + '/package.json')).status, 404);
   }));
+
+test('same-host proxy cannot read live diagnostics without an owner capability', () => {
+  let now = 1_000;
+  const capabilities = new DiagnosticsCapabilities({ clock: () => now });
+  const token = capabilities.issue().token;
+  const headers = { host: 'localhost' };
+  return withServer(
+    async (url) => {
+      const denied = await rawGet(url + '/api/diagnostics', headers);
+      assert.equal(denied.status, 403);
+      assert.equal(denied.headers['cache-control'], 'no-store');
+      assert.doesNotMatch(denied.body, /private-stream-label/);
+      assert.equal(
+        (await rawGet(url + '/api/diagnostics?capability=' + token, headers)).status,
+        403,
+      );
+      assert.equal(
+        (await rawGet(url + '/api/diagnostics', { ...headers, cookie: `capability=${token}` }))
+          .status,
+        403,
+      );
+      assert.equal(
+        (await rawGet(url + '/api/diagnostics', { ...headers, authorization: 'Bearer wrong' }))
+          .status,
+        403,
+      );
+      const allowed = await rawGet(url + '/api/diagnostics', {
+        ...headers,
+        authorization: `Bearer ${token}`,
+      });
+      assert.equal(allowed.status, 200);
+      assert.equal(JSON.parse(allowed.body).label, 'private-stream-label');
+      assert.equal(
+        (
+          await rawGet(url + '/api/diagnostics', {
+            host: 'remote.example',
+            authorization: `Bearer ${token}`,
+          })
+        ).status,
+        403,
+      );
+      now += 900_000;
+      assert.equal(
+        (await rawGet(url + '/api/diagnostics', { ...headers, authorization: `Bearer ${token}` }))
+          .status,
+        403,
+      );
+    },
+    {
+      diagnosticsCapabilities: capabilities,
+      diagnostics: { snapshot: () => ({ label: 'private-stream-label' }) },
+    },
+  );
+});
 test('accepts a dashless lowercase password through the real HTTP endpoint', () =>
   withServer(async (url, server) => {
     const password = server.sessionStore.password.replace('-', '').toLowerCase();

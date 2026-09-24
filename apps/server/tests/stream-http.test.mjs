@@ -8,6 +8,7 @@ import { NativeMedia } from '../src/native-media.mjs';
 import { StreamRuntime } from '../src/stream-runtime.mjs';
 import { DisplayInventory } from '../src/displays.mjs';
 import { defaultStreamPolicy } from '../src/stream-policy.mjs';
+import { DiagnosticsCapabilities } from '../src/diagnostics-capabilities.mjs';
 
 const videoSdp = [
   'v=0',
@@ -58,7 +59,16 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
     },
   ];
   const runtime = new StreamRuntime({ sessions, media, inventory, policy, videoBackends });
-  const server = createHttpApp({ sessionStore: sessions, media, inventory, policy, runtime });
+  const diagnosticsCapabilities = new DiagnosticsCapabilities();
+  const diagnosticsToken = diagnosticsCapabilities.issue().token;
+  const server = createHttpApp({
+    sessionStore: sessions,
+    media,
+    inventory,
+    policy,
+    runtime,
+    diagnosticsCapabilities,
+  });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
@@ -109,14 +119,16 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
     204,
   );
   const diagnosticsUrl = `http://127.0.0.1:${server.address().port}/api/diagnostics`;
-  const diagnostic = await fetch(diagnosticsUrl + '?stream=' + stream.streamId).then((r) =>
-    r.json(),
-  );
+  const diagnostic = await fetch(diagnosticsUrl + '?stream=' + stream.streamId, {
+    headers: { authorization: `Bearer ${diagnosticsToken}` },
+  }).then((r) => r.json());
   assert.equal(diagnostic.client.decodeFps, 15);
   assert.equal(diagnostic.selectedStreamId, stream.streamId);
   assert.equal(diagnostic.streams.length, 1);
   assert.equal(JSON.stringify(diagnostic).includes(a.sessionId), false);
-  const absent = await fetch(diagnosticsUrl + '?stream=missing').then((r) => r.json());
+  const absent = await fetch(diagnosticsUrl + '?stream=missing', {
+    headers: { authorization: `Bearer ${diagnosticsToken}` },
+  }).then((r) => r.json());
   assert.equal(
     absent.client,
     undefined,
@@ -146,9 +158,9 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
       .status,
     204,
   );
-  const withAudio = await fetch(diagnosticsUrl + '?stream=' + stream.streamId).then((r) =>
-    r.json(),
-  );
+  const withAudio = await fetch(diagnosticsUrl + '?stream=' + stream.streamId, {
+    headers: { authorization: `Bearer ${diagnosticsToken}` },
+  }).then((r) => r.json());
   assert.equal(withAudio.sessionAudio.client.audioPacketsLost, 3);
   assert.equal(
     withAudio.client.decodeFps,
