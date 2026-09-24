@@ -74,8 +74,8 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
       body: JSON.stringify(body),
     });
   assert.equal((await post('streams')).status, 401);
-  const a = await (await post('connect', { password: sessions.password })).json();
-  const b = await (await post('connect', { password: sessions.password })).json();
+  const a = await (await post('key-start', { key: sessions.password })).json();
+  const b = await (await post('key-start', { key: sessions.password })).json();
   assert.equal(a.mode, 'streams');
   assert.equal(
     (await post('stream-offer', { sdp: videoSdp, profile: 'not-approved' }, a.sessionId)).status,

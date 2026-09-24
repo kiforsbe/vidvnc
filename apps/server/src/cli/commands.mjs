@@ -25,6 +25,47 @@ const generalCommands = [
       return { text: pairs(await context.info()) };
     },
   },
+  ...[
+    ['one-time-code', 'One-time code', 'oneTime'],
+    ['registration-code', 'Registration code', 'setup'],
+    ['session-password rotate', 'Session password', 'rotateSession'],
+  ].map(([name, label, action]) => ({
+    name,
+    usage: `${name} [letters-digits|letters]`,
+    summary: `Explicitly ${action === 'rotateSession' ? 'rotate' : 'issue'} a ${label.toLowerCase()} for new connections.`,
+    where: 'live',
+    run: (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      const alphabet = positionals[0];
+      if (alphabet !== undefined && !['letters-digits', 'letters'].includes(alphabet))
+        throw new UsageError('Choose letters-digits or letters.');
+      const issued = context.codeIssuer[action](alphabet);
+      return {
+        text: `${label}: ${issued.key}\nAlphabet: ${issued.alphabet}${issued.expiresAt === null ? '' : `\nExpires: ${new Date(issued.expiresAt).toISOString()}`}`,
+      };
+    },
+  })),
+  {
+    name: 'code-status',
+    usage: 'code-status',
+    summary: 'Show active-code expiry and attempt lockout without printing any code.',
+    where: 'live',
+    run: (context, { positionals }) => {
+      expectArguments(positionals, 0);
+      const { ephemeral, session } = context.codeIssuer.status();
+      const describe = (label, row) =>
+        row
+          ? `${label}: ${row.locked ? 'locked' : 'active'} · ${row.failures}/${row.globalLimit} failed attempts${row.expiresAt === null ? '' : ` · expires ${new Date(row.expiresAt).toISOString()}`}`
+          : `${label}: none`;
+      const ephemeralLabel =
+        ephemeral?.purpose === 'approved-client-setup' ? 'Registration code' : 'One-time code';
+      return {
+        text: [describe(ephemeralLabel, ephemeral), describe('Session password', session)].join(
+          '\n',
+        ),
+      };
+    },
+  },
   ...['exit', 'quit'].map((name) => ({
     name,
     usage: name,

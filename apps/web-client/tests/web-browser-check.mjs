@@ -143,6 +143,17 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  const authenticationPosts = [];
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      /\/api\/(?:key-start|connect|connection-key|approved-clients\/register)$/.test(request.url())
+    )
+      authenticationPosts.push({
+        route: new URL(request.url()).pathname,
+        body: request.postDataJSON(),
+      });
+  });
   await page.goto(url);
   await page.waitForFunction(() => document.getElementById('serverName').textContent === 'Thor');
   assert.equal(await page.locator('#connectForm input').count(), 1);
@@ -361,6 +372,21 @@ try {
   const pending = approvedStore.status().pending;
   assert.equal(pending.length, 1);
   assert.equal(pending[0].username, 'kim');
+  assert.equal(
+    authenticationPosts.some((entry) => entry.route === '/api/key-start'),
+    true,
+  );
+  assert.equal(
+    authenticationPosts.some((entry) =>
+      ['/api/connect', '/api/connection-key'].includes(entry.route),
+    ),
+    false,
+  );
+  const registrationPost = authenticationPosts.find(
+    (entry) => entry.route === '/api/approved-clients/register',
+  );
+  assert.equal(typeof registrationPost.body.registrationTicket, 'string');
+  assert.equal(Object.hasOwn(registrationPost.body, 'key'), false);
   await approvedStore.approve(pending[0].id);
   await page.locator('#signInForm').waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await page.locator('#signInUsername').inputValue(), 'kim');

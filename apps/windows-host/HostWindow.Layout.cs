@@ -192,20 +192,13 @@ public sealed partial class HostWindow
         {
             var effectiveMode = initialMode == "approved-client" || connectionMode == "approved-only"
                 ? "approved-client" : connectionMode == "one-time-keys" ? "one-time-key" : "session-key";
-            if (effectiveMode == "approved-client" && !HasCurrentClientSetupKey())
-            {
-                try { await RequestClientSetupKey(); }
-                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
-            }
-            if (effectiveMode == "one-time-key")
-            {
-                oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
-                try { await RequestOneTimeConnectionKey(); }
-                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
-            }
+            clientSetupKey = null; clientSetupExpiresAt = null;
+            oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
+            clientError = null;
             await CreateConnectionDialog(effectiveMode).ShowAsync();
         }
-        finally { dialogOpen = false; oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null; }
+        finally { dialogOpen = false; clientSetupKey = null; clientSetupExpiresAt = null;
+            oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null; }
     }
 
     bool HasCurrentClientSetupKey() => !string.IsNullOrWhiteSpace(clientSetupKey) && clientSetupExpiresAt is long expires &&
@@ -231,8 +224,17 @@ public sealed partial class HostWindow
         if (connectionMode != "approved-only") type.Items.Add(new ComboBoxItem { Content = "Create one-time key", Tag = "one-time-key" });
         type.Items.Add(new ComboBoxItem { Content = "Approve this client", Tag = "approved-client" });
         body.Children.Add(type);
+        var alphabet = new ComboBox { Header = "Code characters", Tag = "code-alphabet", HorizontalAlignment = HorizontalAlignment.Stretch };
+        alphabet.Items.Add(new ComboBoxItem { Content = "Letters and numbers (recommended)", Tag = "letters-digits" });
+        alphabet.Items.Add(new ComboBoxItem { Content = "Letters only", Tag = "letters" });
+        alphabet.SelectedIndex = 0;
+        body.Children.Add(alphabet);
+        var generate = new Button { Content = "Generate code", Tag = "generate-code" };
+        generate.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        body.Children.Add(generate);
         var mode = new StackPanel { Spacing = HostSpacing.Row, Tag = "connection-mode" };
         body.Children.Add(mode);
+        TextBlock? expiryText = null;
 
         void AddCopyField(string header, string value, bool prominent = false)
         {
@@ -282,60 +284,92 @@ public sealed partial class HostWindow
 
         void RenderMode()
         {
-            mode.Children.Clear(); AddCopyField("Connection address", address.Text);
+            mode.Children.Clear(); expiryText = null; AddCopyField("Connection address", address.Text);
             var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
+            generate.Content = selectedMode == "session-key" ? "Regenerate session password" :
+                selectedMode == "approved-client" ? "Generate client-registration code" : "Generate one-time code";
             if (selectedMode == "session-key")
             {
                 AddCopyField("Session password", password.Text, true);
                 mode.Children.Add(Secondary("Use this password for an ordinary connection. It remains valid while this sharing instance runs."));
+                if (sessionPasswordLocked) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+                    Severity = InfoBarSeverity.Warning, Message = "Session password attempts are exhausted. Regenerate it to admit new local connections." });
                 AddConnectionQr(password.Text, "Scan this with the device to open VidVNC and enter this password automatically.");
             }
             else if (selectedMode == "one-time-key")
             {
-                AddCopyField("One-time connection key", oneTimeConnectionKey ?? "Unavailable", true);
-                mode.Children.Add(Secondary("This key expires in 10 minutes and is removed after one successful connection."));
+                if (ephemeralCodeLocked) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+                    Severity = InfoBarSeverity.Warning, Message = "Code attempts are exhausted. Generate a new one-time code." });
                 if (HasCurrentOneTimeKey())
+                {
+                    AddCopyField("One-time connection key", oneTimeConnectionKey!, true);
+                    expiryText = Secondary(ExpiryLabel(oneTimeConnectionExpiresAt!.Value));
+                    mode.Children.Add(expiryText);
                     AddConnectionQr(oneTimeConnectionKey!, "Scan this with the device to open VidVNC and connect with this one-time key.");
+                }
+                else mode.Children.Add(Secondary("Select Generate one-time code to create a short-lived, single-use key."));
             }
             else
             {
+                if (ephemeralCodeLocked) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+                    Severity = InfoBarSeverity.Warning, Message = "Code attempts are exhausted. Generate a new client-registration code." });
                 if (HasCurrentClientSetupKey())
                 {
-                    AddCopyField("Client setup key", clientSetupKey ?? "Unavailable", true);
-                    mode.Children.Add(Secondary("This key expires in 10 minutes and can be used once. The client still needs your approval."));
+                    AddCopyField("Client setup key", clientSetupKey!, true);
+                    expiryText = Secondary(ExpiryLabel(clientSetupExpiresAt!.Value) + " The client still needs your approval.");
+                    mode.Children.Add(expiryText);
                     AddConnectionQr(clientSetupKey!, "Scan this with the device to open VidVNC and start client approval with this key.");
                 }
-                else
-                {
-                    mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Error,
-                        Message = clientError ?? "A client setup key could not be created. Start sharing and try again." });
-                }
+                else mode.Children.Add(Secondary("Select Generate client-registration code to create a short-lived, single-use key."));
             }
+            if (clientError is not null) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+                Severity = InfoBarSeverity.Error, Message = clientError });
             mode.Children.Add(Secondary(ConnectionSecurityNote()));
         }
 
-        type.SelectionChanged += async (_, _) =>
+        string ExpiryLabel(long expiresAt) => $"Expires in {Math.Max(0, (expiresAt - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 999) / 1000)} seconds. Single use.";
+
+        type.SelectionChanged += (_, _) => RenderMode();
+        generate.Click += async (_, _) =>
         {
             var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
-            if (selectedMode == "one-time-key" && !HasCurrentOneTimeKey())
+            var selectedAlphabet = (alphabet.SelectedItem as ComboBoxItem)?.Tag as string ?? "letters-digits";
+            generate.IsEnabled = false;
+            try
             {
-                try { await RequestOneTimeConnectionKey(); }
-                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
+                if (selectedMode == "one-time-key") await RequestOneTimeConnectionKey(selectedAlphabet);
+                else if (selectedMode == "approved-client") await RequestClientSetupKey(selectedAlphabet);
+                else await RotateSessionPassword(selectedAlphabet);
             }
-            if (selectedMode == "approved-client" && !HasCurrentClientSetupKey())
+            catch (Exception error) when (error is IOException or InvalidOperationException)
             {
-                try { await RequestClientSetupKey(); }
-                catch (Exception error) when (error is IOException or InvalidOperationException) { clientError = error.Message; }
+                clientError = error.Message;
             }
-            RenderMode();
+            finally { generate.IsEnabled = true; RenderMode(); }
         };
         var selectedMode = initialMode == "connect-once"
             ? connectionMode == "one-time-keys" ? "one-time-key" : connectionMode == "approved-only" ? "approved-client" : "session-key"
             : initialMode;
         type.SelectedItem = type.Items.OfType<ComboBoxItem>().First(item => item.Tag as string == selectedMode);
         RenderMode();
+        refreshConnectionDialog = RenderMode;
         var dialog = new ContentDialog { Title = "Connect a device", Content = body,
             CloseButtonText = "Done", XamlRoot = navigation.XamlRoot };
+        var expiryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        expiryTimer.Tick += (_, _) =>
+        {
+            if (oneTimeConnectionKey is not null && !HasCurrentOneTimeKey())
+            { oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null; RenderMode(); }
+            if (clientSetupKey is not null && !HasCurrentClientSetupKey())
+            { clientSetupKey = null; clientSetupExpiresAt = null; RenderMode(); }
+            var currentExpiry = (type.SelectedItem as ComboBoxItem)?.Tag as string == "approved-client"
+                ? clientSetupExpiresAt : oneTimeConnectionExpiresAt;
+            if (expiryText is not null && currentExpiry is long expires)
+                expiryText.Text = ExpiryLabel(expires) + ((type.SelectedItem as ComboBoxItem)?.Tag as string == "approved-client"
+                    ? " The client still needs your approval." : "");
+        };
+        dialog.Opened += (_, _) => expiryTimer.Start();
+        dialog.Closed += (_, _) => { expiryTimer.Stop(); if (refreshConnectionDialog == RenderMode) refreshConnectionDialog = null; };
         dialog.Resources["ContentDialogMaxWidth"] = 560d;
         return dialog;
     }

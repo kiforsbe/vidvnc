@@ -8,7 +8,6 @@ import {
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
-import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 
 const scrypt = promisify(scryptCallback);
 const EMPTY = Object.freeze({ version: 1, clients: [] });
@@ -126,14 +125,11 @@ export class ApprovedClientStore {
     await this.sweepExpired();
     const live = [...this.#pending.values()].filter((row) => !this.#expired(row)).length;
     if (live + this.#submitting >= MAX_PENDING) throw new Error('Too many pending client requests');
-    const ticketKey =
-      input.registrationTicket === undefined ? null : hash(String(input.registrationTicket));
-    const ticket = ticketKey && this.#tickets.get(ticketKey);
-    if (ticketKey && (!ticket || this.clock() >= ticket.expiresAt || ticket.inUse))
+    const ticketKey = hash(String(input.registrationTicket));
+    const ticket = this.#tickets.get(ticketKey);
+    if (!ticket || this.clock() >= ticket.expiresAt || ticket.inUse)
       throw new Error('Invalid registration ticket');
-    if (!ticketKey && this.keys.inspect(input.key)?.purpose !== CONNECTION_KEY_PURPOSES.setup)
-      throw new Error('Invalid client setup key');
-    if (ticket) ticket.inUse = true;
+    ticket.inUse = true;
     this.#submitting++;
     try {
       const deviceName = text(input.deviceName, 'device name', { max: 120 });
@@ -147,11 +143,8 @@ export class ApprovedClientStore {
       const password = this.admission
         ? await this.admission.withScrypt(() => passwordVerifier(input.password))
         : await passwordVerifier(input.password);
-      if (ticket && this.clock() >= ticket.expiresAt)
-        throw new Error('Invalid registration ticket');
-      if (ticket) this.#tickets.delete(ticketKey);
-      else if (!this.keys.use(input.key, CONNECTION_KEY_PURPOSES.setup))
-        throw new Error('Invalid client setup key');
+      if (this.clock() >= ticket.expiresAt) throw new Error('Invalid registration ticket');
+      this.#tickets.delete(ticketKey);
       const requestId = randomUUID();
       const claimToken = randomBytes(32).toString('base64url');
       this.#pending.set(requestId, {
@@ -168,7 +161,7 @@ export class ApprovedClientStore {
       });
       return { requestId, claimToken };
     } finally {
-      if (ticket) ticket.inUse = false;
+      ticket.inUse = false;
       this.#submitting--;
     }
   }

@@ -57,6 +57,18 @@ test('metered key start returns a one-use ticket for client registration', () =>
     assert.equal(approvedClients.status().pending.length, 1);
   }));
 
+test('legacy key-inspection and connect endpoints are not exposed', () =>
+  withServer(async (url, server) => {
+    assert.equal(
+      (await post(url, 'connection-key', { key: server.sessionStore.password })).status,
+      404,
+    );
+    assert.equal(
+      (await post(url, 'connect', { password: server.sessionStore.password })).status,
+      404,
+    );
+  }));
+
 test('key start rejects a standing password on a public handler but admits a one-time code', () =>
   withServer(
     async (url, server) => {
@@ -83,7 +95,7 @@ test('metered key start keeps an occupied one-time code for retry', () =>
     { connectionMode: 'one-time-keys' },
   ));
 
-test('compatibility key oracle is capped by the same admission budget', async () => {
+test('key-start guesses are capped before a valid code is inspected', async () => {
   const sessionStore = new SessionStore();
   const admission = new AdmissionBudget();
   const server = createHttpApp({ sessionStore, admission });
@@ -91,8 +103,23 @@ test('compatibility key oracle is capped by the same admission budget', async ()
   const url = `http://127.0.0.1:${server.address().port}`;
   try {
     for (let i = 0; i < 5; i++)
-      assert.equal((await post(url, 'connection-key', { key: `AAAA-AAA${i}` })).status, 401);
-    assert.equal((await post(url, 'connection-key', { key: sessionStore.password })).status, 429);
+      assert.equal((await post(url, 'key-start', { key: `AAAA-AAA${i}` })).status, 401);
+    const sessionPolicy = sessionStore.keys.activeSession();
+    sessionStore.keys.activeSession = () => sessionPolicy;
+    let inspected = 0;
+    const inspect = sessionStore.keys.inspect.bind(sessionStore.keys);
+    sessionStore.keys.inspect = (...args) => {
+      inspected++;
+      return inspect(...args);
+    };
+    for (let i = 5; i < 8; i++) {
+      const blocked = await post(url, 'key-start', { key: `AAAA-AAA${i}` });
+      assert.equal(blocked.status, 429);
+      assert.ok(Number(blocked.headers.get('retry-after')) > 0);
+    }
+    const valid = await post(url, 'key-start', { key: sessionStore.password });
+    assert.equal(valid.status, 429);
+    assert.equal(inspected, 0);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -179,17 +206,13 @@ test('registration endpoint enforces its rolling budget before ticket lookup', (
 test('HTTP registration waits for host approval and releases the credential only to its claimant', () =>
   withServer(async (url, server, approvedClients) => {
     const setup = server.sessionStore.keys.createSetup({ ttlMs: 60_000 });
-    const dispatch = await post(url, 'connection-key', { key: setup.key });
-    assert.equal(dispatch.status, 200);
-    assert.deepEqual(await dispatch.json(), {
-      purpose: 'approved-client-setup',
-      usage: 'single-use',
-      expiresAt: setup.expiresAt,
-    });
-    assert.equal((await post(url, 'connect', { password: setup.key })).status, 401);
+    const dispatch = await post(url, 'key-start', { key: setup.key });
+    assert.equal(dispatch.status, 202);
+    const { registrationTicket } = await dispatch.json();
+    assert.equal((await post(url, 'key-start', { key: setup.key })).status, 401);
 
     const registrationResponse = await post(url, 'approved-clients/register', {
-      key: setup.key,
+      registrationTicket,
       deviceName: 'Kim’s iPhone',
       username: 'kim',
       password: 'correct horse battery staple',
@@ -198,7 +221,7 @@ test('HTTP registration waits for host approval and releases the credential only
     });
     assert.equal(registrationResponse.status, 202);
     const registration = await registrationResponse.json();
-    assert.equal((await post(url, 'connection-key', { key: setup.key })).status, 401);
+    assert.equal((await post(url, 'key-start', { key: setup.key })).status, 401);
     assert.equal(
       (await post(url, 'approved-clients/status', { ...registration, claimToken: 'wrong' })).status,
       401,
@@ -239,16 +262,16 @@ test('one-time connection keys admit exactly one ordinary session and are then d
     async (url, server) => {
       const once = server.sessionStore.keys.createOneTimeConnection({ ttlMs: 60_000 });
       const occupiedSession = server.sessionStore.connectApproved({ id: 'occupied' });
-      const busyRequest = await post(url, 'connect', { password: once.key });
+      const busyRequest = await post(url, 'key-start', { key: once.key });
       assert.equal(busyRequest.status, 409);
       assert.equal(server.sessionStore.keys.inspect(once.key).purpose, 'one-time-connection');
       server.sessionStore.disconnect(occupiedSession.sessionId);
-      const connected = await post(url, 'connect', { password: once.key });
+      const connected = await post(url, 'key-start', { key: once.key });
       assert.equal(connected.status, 201);
       const session = await connected.json();
       assert.equal(server.sessionStore.keys.inspect(once.key), null);
       await post(url, 'disconnect', {}, session.sessionId);
-      assert.equal((await post(url, 'connect', { password: once.key })).status, 401);
+      assert.equal((await post(url, 'key-start', { key: once.key })).status, 401);
     },
     { connectionMode: 'one-time-keys' },
   ));
@@ -266,20 +289,18 @@ test('connection mode allows only its ordinary key type while approved-client se
   const url = `http://127.0.0.1:${server.address().port}`;
   try {
     const setup = sessionStore.keys.createSetup({ ttlMs: 60_000 });
-    assert.equal((await post(url, 'connect', { password: sessionStore.password })).status, 401);
-    assert.equal((await post(url, 'connection-key', { key: sessionStore.password })).status, 401);
-    assert.equal((await post(url, 'connection-key', { key: setup.key })).status, 200);
+    assert.equal((await post(url, 'key-start', { key: sessionStore.password })).status, 401);
+    assert.equal((await post(url, 'key-start', { key: setup.key })).status, 202);
     const once = sessionStore.keys.createOneTimeConnection({ ttlMs: 60_000 });
     assert.equal(sessionStore.keys.inspect(setup.key), null);
-    assert.equal((await post(url, 'connect', { password: once.key })).status, 201);
+    assert.equal((await post(url, 'key-start', { key: once.key })).status, 201);
 
     setting.connectionMode = 'approved-only';
     const another = sessionStore.keys.createOneTimeConnection({ ttlMs: 60_000 });
-    assert.equal((await post(url, 'connection-key', { key: another.key })).status, 401);
-    assert.equal((await post(url, 'connect', { password: another.key })).status, 401);
+    assert.equal((await post(url, 'key-start', { key: another.key })).status, 401);
     assert.equal(sessionStore.keys.inspect(another.key).purpose, 'one-time-connection');
     const allowedSetup = sessionStore.keys.createSetup({ ttlMs: 60_000 });
-    assert.equal((await post(url, 'connection-key', { key: allowedSetup.key })).status, 200);
+    assert.equal((await post(url, 'key-start', { key: allowedSetup.key })).status, 202);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -288,7 +309,6 @@ test('connection mode allows only its ordinary key type while approved-client se
 test('session-key mode also permits an explicitly requested one-time connection', () =>
   withServer(async (url, server) => {
     const once = server.sessionStore.keys.createOneTimeConnection({ ttlMs: 60_000 });
-    assert.equal((await post(url, 'connection-key', { key: once.key })).status, 200);
-    assert.equal((await post(url, 'connect', { password: once.key })).status, 201);
+    assert.equal((await post(url, 'key-start', { key: once.key })).status, 201);
     assert.equal(server.sessionStore.keys.inspect(once.key), null);
   }));

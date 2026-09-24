@@ -160,6 +160,31 @@ test('session commands use console numbers and stream IDs and never print sessio
   assert.equal(h.all().includes(laptop), false);
 });
 
+test('live CLI issues codes only on explicit commands and rotates the local password without ejecting sessions', async (t) => {
+  const h = await harness(t);
+  const session = h.connect('192.168.1.20', 'Mozilla/5.0 (iPhone)');
+  const old = h.sessionStore.password;
+  await h.send('info', /Password/);
+  assert.equal(h.sessionStore.keys.activeEphemeral(), null);
+  const once = await h.send('one-time-code letters', /One-time code:/);
+  assert.match(once, /[A-HJKMNPQRSTUVWXYZ]{4}-[A-HJKMNPQRSTUVWXYZ]{4}/);
+  const setup = await h.send('registration-code letters-digits', /Registration code:/);
+  assert.match(setup, /[23456789A-HJKMNPQRSTUVWXYZ]{4}-[23456789A-HJKMNPQRSTUVWXYZ]{4}/);
+  assert.equal(h.sessionStore.keys.activeEphemeral().generation !== null, true);
+  const shown = await h.send('code-status', /Registration code: active/);
+  assert.equal(
+    shown.includes(
+      setup.match(/[23456789A-HJKMNPQRSTUVWXYZ]{4}-[23456789A-HJKMNPQRSTUVWXYZ]{4}/)[0],
+    ),
+    false,
+  );
+  const rotated = await h.send('session-password rotate letters', /Session password:/);
+  assert.match(rotated, /[A-HJKMNPQRSTUVWXYZ]{4}-[A-HJKMNPQRSTUVWXYZ]{4}/);
+  assert.notEqual(h.sessionStore.password, old);
+  assert.equal(h.sessionStore.get(session)?.sessionId, session);
+  await h.send('one-time-code unsafe', /Choose letters-digits or letters/);
+});
+
 test('a settings file changed elsewhere asks for a restart', async (t) => {
   const h = await harness(t);
   const other = await StreamPolicyStore.open(h.policyFile);

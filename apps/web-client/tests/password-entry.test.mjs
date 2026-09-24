@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   formatPasswordEntry,
   normalizePassword,
@@ -63,4 +64,12 @@ test('caps entry at eight letters without pushing out existing letters', () => {
     start: 9,
     end: 9,
   });
+});
+
+test('browser admission uses one key-start request and never resubmits the short code during registration', async () => {
+  const app = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /api\('key-start',\s*\{\s*key:/);
+  assert.doesNotMatch(app, /api\('(connection-key|connect)'/);
+  assert.match(app, /registrationTicket:\s*registrationTicket/);
+  assert.doesNotMatch(app, /registrationKey/);
 });

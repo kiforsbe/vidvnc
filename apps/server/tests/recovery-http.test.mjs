@@ -28,8 +28,8 @@ test('audio-off session and authenticated recovery feedback reach the worker con
     });
   try {
     const session = await (
-      await post('connect', {
-        password: server.sessionStore.password,
+      await post('key-start', {
+        key: server.sessionStore.password,
         profile: 'mobile',
         audio: 'off',
       })

@@ -50,28 +50,28 @@ test('serves every browser entry asset through workspace resolution', () =>
 test('accepts a dashless lowercase password through the real HTTP endpoint', () =>
   withServer(async (url, server) => {
     const password = server.sessionStore.password.replace('-', '').toLowerCase();
-    assert.equal((await post(url + '/api/connect', { password })).status, 201);
+    assert.equal((await post(url + '/api/key-start', { key: password })).status, 201);
   }));
 test('public listener rejects a standing password even from loopback with localhost and forwarded LAN headers', () =>
   withServer(
     async (url, server) => {
       const denied = await post(
-        url + '/api/connect',
-        { password: server.sessionStore.password },
+        url + '/api/key-start',
+        { key: server.sessionStore.password },
         null,
         { host: 'localhost', 'x-forwarded-for': '192.168.10.44' },
       );
       assert.equal(denied.status, 401);
       const once = server.sessionStore.keys.createOneTimeConnection();
-      assert.equal((await post(url + '/api/connect', { password: once.key })).status, 201);
+      assert.equal((await post(url + '/api/key-start', { key: once.key })).status, 201);
     },
     { listenerScope: 'public' },
   ));
 test('returns the selected stream profile without exposing the password', () =>
   withServer(async (url, server) => {
     const response = await post(
-      url + '/api/connect',
-      { password: server.sessionStore.password, profile: 'mobile' },
+      url + '/api/key-start',
+      { key: server.sessionStore.password, profile: 'mobile' },
       null,
       { 'user-agent': 'Mozilla/5.0 (iPhone)' },
     );
@@ -99,12 +99,12 @@ test('reports unavailable hardware honestly and never discloses the password', (
   }));
 test('authenticates, rejects a second owner, and disconnects only with bearer authorization', () =>
   withServer(async (url, server) => {
-    const response = await post(url + '/api/connect', { password: server.sessionStore.password });
+    const response = await post(url + '/api/key-start', { key: server.sessionStore.password });
     assert.equal(response.status, 201);
     const { sessionId, controlEnabled } = await response.json();
     assert.equal(controlEnabled, false);
     assert.equal(
-      (await post(url + '/api/connect', { password: server.sessionStore.password })).status,
+      (await post(url + '/api/key-start', { key: server.sessionStore.password })).status,
       409,
     );
     assert.equal((await post(url + '/api/disconnect', {})).status, 401);
@@ -116,10 +116,10 @@ test('authenticates, rejects a second owner, and disconnects only with bearer au
 test('blocks cross-origin, malformed, oversized and unauthenticated signaling requests', () =>
   withServer(async (url) => {
     assert.equal(
-      (await post(url + '/api/connect', {}, null, { origin: 'https://attacker.example' })).status,
+      (await post(url + '/api/key-start', {}, null, { origin: 'https://attacker.example' })).status,
       403,
     );
-    assert.equal((await post(url + '/api/connect', null)).status, 400);
-    assert.equal((await post(url + '/api/connect', { password: 'x'.repeat(140000) })).status, 413);
+    assert.equal((await post(url + '/api/key-start', null)).status, 400);
+    assert.equal((await post(url + '/api/key-start', { key: 'x'.repeat(140000) })).status, 413);
     assert.equal((await post(url + '/api/offer', { sdp: 'anything' })).status, 401);
   }));

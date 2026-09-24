@@ -20,17 +20,24 @@ try {
   for await (const line of createInterface({ input: process.stdin })) {
     const message = JSON.parse(line);
     if (message.type === 'client-setup-create') {
-      const setup = keys.createSetup({ ttlMs: 10 * 60_000 });
+      const setup = keys.createSetup({ ttlMs: 5 * 60_000, alphabet: message.alphabet });
       console.log(JSON.stringify({ type: 'client-setup-result', requestId: message.requestId,
-        ok: true, key: setup.key, expiresAt: setup.expiresAt,
-        received: { type: message.type } }));
+        ok: true, key: setup.key, expiresAt: setup.expiresAt, alphabet: setup.alphabet,
+        received: { type: message.type, alphabet: message.alphabet } }));
       continue;
     }
     if (message.type === 'connection-once-create') {
-      const once = keys.createOneTimeConnection({ ttlMs: 10 * 60_000 });
+      const once = keys.createOneTimeConnection({ ttlMs: 5 * 60_000, alphabet: message.alphabet });
       console.log(JSON.stringify({ type: 'connection-once-result', requestId: message.requestId,
-        ok: true, key: once.key, expiresAt: once.expiresAt,
-        received: { type: message.type } }));
+        ok: true, key: once.key, expiresAt: once.expiresAt, alphabet: once.alphabet,
+        received: { type: message.type, alphabet: message.alphabet } }));
+      continue;
+    }
+    if (message.type === 'session-password-rotate') {
+      const key = keys.rotateSession(message.alphabet);
+      console.log(JSON.stringify({ type: 'session-password-result', requestId: message.requestId,
+        ok: true, key, alphabet: message.alphabet,
+        received: { type: message.type, alphabet: message.alphabet } }));
       continue;
     }
     if (message.type === 'client-request-command' || message.type === 'approved-client-command') {

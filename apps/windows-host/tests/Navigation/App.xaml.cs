@@ -137,6 +137,12 @@ public partial class App : Application
                                     throw new Exception("Connection QR links must keep the secret out of the request URL");
                                 var onceDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "connect-once" })!;
                                 var onceBody = (StackPanel)onceDialog.Content;
+                                var alphabet = onceBody.Children.OfType<ComboBox>()
+                                    .Single(control => Equals(control.Tag, "code-alphabet"));
+                                var generate = onceBody.Children.OfType<Button>()
+                                    .Single(control => Equals(control.Tag, "generate-code"));
+                                if (alphabet.SelectedIndex != 0) throw new Exception("Letters and numbers must be the default");
+                                if (!generate.IsEnabled) throw new Exception("Code issuance requires an owner action");
                                 var onceSelector = onceBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
                                 var oncePanel = onceBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
                                 if (!onceSelector.Items.OfType<ComboBoxItem>().Select(item => item.Tag as string).SequenceEqual(new[] { "session-key", "one-time-key", "approved-client" }) ||
@@ -149,6 +155,21 @@ public partial class App : Application
                                 if (Descendants(oncePanel).OfType<Button>().Count(button =>
                                     Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button)?.StartsWith("Copy ") == true && button.Content is FontIcon) != 2)
                                     throw new Exception("Copy actions must be compact accessible icon buttons beside their fields");
+                                onceSelector.SelectedItem = onceSelector.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, "one-time-key"));
+                                if (Descendants(oncePanel).OfType<TextBox>().Any(control => Equals(control.Tag, "One-time connection key")) ||
+                                    Descendants(oncePanel).OfType<Image>().Any(image => Equals(image.Tag, "connection-qr-image")))
+                                    throw new Exception("Switching to a one-time key must not issue a code");
+                                var updateCodeStatus = typeof(HostWindow).GetMethod("UpdateCodeStatus", flags)!;
+                                using (var lockedCode = JsonDocument.Parse("{\"codes\":{\"ephemeral\":{\"locked\":true},\"session\":{\"locked\":false}}}"))
+                                    updateCodeStatus.Invoke(window, new object[] { lockedCode.RootElement });
+                                if (!oncePanel.Children.OfType<InfoBar>().Any(bar => bar.Message.Contains("attempts are exhausted")))
+                                    throw new Exception("A locked code needs a visible warning and regeneration path");
+                                using (var unlockedCode = JsonDocument.Parse("{\"codes\":{\"ephemeral\":{\"locked\":false},\"session\":{\"locked\":false}}}"))
+                                    updateCodeStatus.Invoke(window, new object[] { unlockedCode.RootElement });
+                                onceSelector.SelectedItem = onceSelector.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, "approved-client"));
+                                if (Descendants(oncePanel).OfType<TextBox>().Any(control => Equals(control.Tag, "Client setup key")) ||
+                                    Descendants(oncePanel).OfType<Image>().Any(image => Equals(image.Tag, "connection-qr-image")))
+                                    throw new Exception("Switching to client registration must not issue a code");
 
                                 var ownerStart = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
                                     RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -156,12 +177,14 @@ public partial class App : Application
                                 using var clientOwner = System.Diagnostics.Process.Start(ownerStart)!;
                                 var clientServerField = typeof(HostWindow).GetField("server", flags)!;
                                 clientServerField.SetValue(window, clientOwner);
-                                var setupTask = (Task)requestClientSetup.Invoke(window, null)!;
+                                var setupTask = (Task)requestClientSetup.Invoke(window, new object[] { "letters" })!;
                                 var setupLine = await clientOwner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
                                 using (var setupResult = JsonDocument.Parse(setupLine!))
                                 {
                                     if (setupResult.RootElement.GetProperty("received").GetProperty("type").GetString() != "client-setup-create")
                                         throw new Exception("Host requested the wrong client setup operation");
+                                    if (setupResult.RootElement.GetProperty("received").GetProperty("alphabet").GetString() != "letters")
+                                        throw new Exception("Host did not send its selected alphabet");
                                     receiveClientResult.Invoke(window, new object[] { setupResult.RootElement });
                                 }
                                 await setupTask;
@@ -173,7 +196,7 @@ public partial class App : Application
                                 if (((approvalSelector.SelectedItem as ComboBoxItem)?.Tag as string) != "approved-client" || setupKey is null || !setupKey.IsReadOnly ||
                                     !System.Text.RegularExpressions.Regex.IsMatch(setupKey.Text, "^[A-Z]{4}-[A-Z]{4}$") ||
                                     Descendants(approvalPanel).OfType<TextBox>().Any(control => control.Text == "NLYJ-LGFN") ||
-                                    !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("used once")) ||
+                                    !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("Single use")) ||
                                     !Descendants(approvalPanel).OfType<Image>().Any(image => image.Tag as string == "connection-qr-image"))
                                     throw new Exception("Approved-client mode must hide the Session password and show its server-issued single-use key");
                                 clientServerField.SetValue(window, null);

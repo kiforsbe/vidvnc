@@ -103,6 +103,9 @@ export class ConnectionKeyRegistry {
       generation: record.generation,
       globalLimit: record.globalLimit,
       sourceLimit: record.sourceLimit,
+      purpose: record.purpose,
+      expiresAt: record.expiresAt,
+      alphabet: record.alphabet,
     };
   }
   #create(purpose, ttlMs, usage, alphabet, limits) {

@@ -67,6 +67,24 @@ test('expires idle sessions and invalidates all sessions when stopped', () => {
   assert.notEqual(store.password, previousPassword);
 });
 
+test('explicit session-password rotation selects letters without disconnecting an existing session', () => {
+  const store = new SessionStore({ maxSessions: 2 });
+  const old = store.password;
+  const connected = store.connect(old, '192.168.1.20');
+  const next = store.rotateConnectionKey('letters', { globalLimit: 10, sourceLimit: 3 });
+  assert.match(next, /^[A-HJKMNPQRSTUVWXYZ]{4}-[A-HJKMNPQRSTUVWXYZ]{4}$/);
+  assert.notEqual(next, old);
+  assert.equal(store.get(connected.sessionId)?.sessionId, connected.sessionId);
+  assert.equal(store.connect(old, '192.168.1.21').ok, false);
+  assert.deepEqual(
+    store.keys.activeSession() && {
+      globalLimit: store.keys.activeSession().globalLimit,
+      sourceLimit: store.keys.activeSession().sourceLimit,
+    },
+    { globalLimit: 10, sourceLimit: 3 },
+  );
+});
+
 test('rate-limits repeated failed passwords per client key', () => {
   const store = new SessionStore({ maxAttempts: 2, windowMs: 1_000 });
 

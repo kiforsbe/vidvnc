@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { ApprovedClientStore } from '../src/approved-clients.mjs';
 import { ConnectionKeyRegistry } from '../src/connection-keys.mjs';
 import { AdmissionBudget } from '../src/admission-budget.mjs';
+const ticket = (store) => store.issueRegistrationTicket().registrationTicket;
 
 test('setup claim is isolated, single-use, and approval persists only verifiers', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'vidvnc-approved-'));
@@ -14,8 +15,10 @@ test('setup claim is isolated, single-use, and approval persists only verifiers'
   const keys = new ConnectionKeyRegistry();
   const store = await ApprovedClientStore.open(filename, { keys });
   const setup = keys.createSetup({ ttlMs: 60_000 });
+  assert.ok(keys.use(setup.key, 'approved-client-setup'));
+  const registrationTicket = ticket(store);
   const registration = await store.submit({
-    key: setup.key,
+    registrationTicket,
     deviceName: 'Kim’s iPhone',
     username: 'kim',
     password: 'correct horse battery staple',
@@ -24,7 +27,7 @@ test('setup claim is isolated, single-use, and approval persists only verifiers'
     network: 'Local network',
   });
   assert.equal(keys.inspect(setup.key), null);
-  await assert.rejects(() => store.submit({ key: setup.key }), /invalid/i);
+  await assert.rejects(() => store.submit({ registrationTicket }), /ticket/i);
   assert.deepEqual(store.registrationStatus(registration.requestId, 'wrong-claim'), {
     state: 'invalid',
   });
@@ -72,9 +75,8 @@ test('setup claim is isolated, single-use, and approval persists only verifiers'
 test('rejected requests never receive a client secret', async () => {
   const keys = new ConnectionKeyRegistry();
   const store = await ApprovedClientStore.open(null, { keys });
-  const setup = keys.createSetup({ ttlMs: 60_000 });
   const registration = await store.submit({
-    key: setup.key,
+    registrationTicket: ticket(store),
     deviceName: 'Unknown phone',
     username: 'visitor',
     password: 'a sufficiently long password',
@@ -96,9 +98,8 @@ test('approved-client password attempts are rate limited per client and source',
     maxAttempts: 2,
     windowMs: 5_000,
   });
-  const setup = keys.createSetup({ ttlMs: 60_000 });
   const registration = await store.submit({
-    key: setup.key,
+    registrationTicket: ticket(store),
     deviceName: 'Browser',
     username: 'kim',
     password: 'correct horse battery staple',
@@ -123,7 +124,7 @@ test('rotating unknown client IDs cannot block a valid approved client at the ma
   const keys = new ConnectionKeyRegistry();
   const store = await ApprovedClientStore.open(null, { keys });
   const registration = await store.submit({
-    key: keys.createSetup({ ttlMs: 60_000 }).key,
+    registrationTicket: ticket(store),
     deviceName: 'Browser',
     username: 'kim',
     password: 'correct horse battery staple',
@@ -150,7 +151,7 @@ test('approved-client sign-in refuses a fifth concurrent password derivation', a
   const admission = new AdmissionBudget();
   const store = await ApprovedClientStore.open(null, { keys, admission });
   const registration = await store.submit({
-    key: keys.createSetup({ ttlMs: 60_000 }).key,
+    registrationTicket: ticket(store),
     deviceName: 'Browser',
     username: 'kim',
     password: 'correct horse battery staple',
@@ -175,7 +176,7 @@ test('approved clients follow the Access default until given an override', async
   const keys = new ConnectionKeyRegistry();
   const store = await ApprovedClientStore.open(filename, { keys });
   const registration = await store.submit({
-    key: keys.createSetup({ ttlMs: 60_000 }).key,
+    registrationTicket: ticket(store),
     deviceName: 'Work laptop',
     username: 'kim',
     password: 'correct horse battery staple',
@@ -227,7 +228,7 @@ test('registration ticket is one-use, expires in ten minutes, and does not spend
   );
 });
 
-test('invalid legacy setup code is rejected before password derivation', async () => {
+test('a short setup code cannot be submitted in place of a ticket or trigger password derivation', async () => {
   let derivations = 0;
   const store = await ApprovedClientStore.open(null, {
     keys: new ConnectionKeyRegistry(),
@@ -247,7 +248,7 @@ test('invalid legacy setup code is rejected before password derivation', async (
       installationId: 'browser-1',
       client: 'Safari',
     }),
-    /setup key/i,
+    /ticket/i,
   );
   assert.equal(derivations, 0);
 });
@@ -289,7 +290,7 @@ test('pending claims cap at 64, expire after ten minutes, and unclaimed approval
   const store = await ApprovedClientStore.open(filename, { keys, clock: () => now });
   const register = async (n) =>
     store.submit({
-      key: keys.createSetup().key,
+      registrationTicket: ticket(store),
       deviceName: `Phone ${n}`,
       username: 'kim',
       password: 'correct horse battery staple',
@@ -317,7 +318,7 @@ test('expiry removes only old claims and also clears rejected requests', async (
   const store = await ApprovedClientStore.open(null, { keys, clock: () => now });
   const register = async (n) =>
     store.submit({
-      key: keys.createSetup().key,
+      registrationTicket: ticket(store),
       deviceName: `Phone ${n}`,
       username: 'kim',
       password: 'correct horse battery staple',

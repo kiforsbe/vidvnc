@@ -101,7 +101,7 @@ let token,
   reconnecting = false,
   connectionAttempt = 0,
   registrationAttempt = 0,
-  registrationKey = null,
+  registrationTicket = null,
   approvedCredential = null,
   connectionMode = 'session-key',
   catalog = null,
@@ -417,7 +417,7 @@ $('connectForm').addEventListener('submit', async (event) => {
   if (connecting) return;
   const password = normalizePassword($('password').value);
   if (!password) {
-    $('passwordError').textContent = 'Enter the eight-letter connection key.';
+    $('passwordError').textContent = 'Enter the eight-character connection key.';
     $('password').setAttribute('aria-invalid', 'true');
     $('password').focus();
     return;
@@ -428,9 +428,13 @@ $('connectForm').addEventListener('submit', async (event) => {
   try {
     $('passwordError').textContent = '';
     $('password').removeAttribute('aria-invalid');
-    const key = await api('connection-key', { key: password });
-    if (key.purpose === 'approved-client-setup') {
-      registrationKey = password;
+    if (!window.RTCPeerConnection) throw new Error('This browser does not support WebRTC.');
+    status('Connecting to your desktop…');
+    currentRequest = { profile: 'auto', audio: 'on' };
+    const started = await api('key-start', { key: password, ...currentRequest });
+    if (started.registrationTicket) {
+      registrationTicket = started.registrationTicket;
+      $('password').value = '';
       $('deviceName').value = browserPlatform();
       $('registerUsername').value = approvedCredential?.username || '';
       $('registerPassword').value = '';
@@ -439,11 +443,7 @@ $('connectForm').addEventListener('submit', async (event) => {
       status('Create the sign-in for this browser, then request approval.');
       return;
     }
-    if (!window.RTCPeerConnection) throw new Error('This browser does not support WebRTC.');
-    status('Connecting to your desktop…');
-    currentRequest = { profile: 'auto', audio: 'on' };
-    const result = await api('connect', { password, ...currentRequest });
-    await startStream(result, attempt);
+    await startStream(started, attempt);
   } catch (error) {
     if (attempt === connectionAttempt) {
       await disconnect(error.message);
@@ -461,14 +461,14 @@ $('connectForm').addEventListener('submit', async (event) => {
 });
 
 $('cancelRegistration').onclick = () => {
-  registrationKey = null;
+  registrationTicket = null;
   showAuthentication('connectForm');
   status('Ready to connect.');
 };
 
 $('registerForm').addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (connecting || !registrationKey) return;
+  if (connecting || !registrationTicket) return;
   const password = $('registerPassword').value;
   if (password.length < 10) {
     $('registerError').textContent = 'Use at least 10 characters for the password.';
@@ -483,14 +483,14 @@ $('registerForm').addEventListener('submit', async (event) => {
   try {
     $('registerError').textContent = '';
     const registration = await api('approved-clients/register', {
-      key: registrationKey,
+      registrationTicket: registrationTicket,
       deviceName: $('deviceName').value,
       username: $('registerUsername').value,
       password,
       installationId: await browserInstallationId(),
       client: browserDescription(),
     });
-    registrationKey = null;
+    registrationTicket = null;
     $('registerPassword').value = '';
     $('confirmPassword').value = '';
     showAuthentication('approvalPending');

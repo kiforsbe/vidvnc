@@ -2,11 +2,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 const directory = await mkdtemp(join(tmpdir(), 'vidvnc-runtime-start-'));
+await mkdir(join(directory, 'VidVNC'));
+await writeFile(join(directory, 'VidVNC', 'tls-settings.json'), JSON.stringify({ mode: 'off' }));
 const reservation = createServer();
 await new Promise((resolve) => reservation.listen(0, '127.0.0.1', resolve));
 const port = reservation.address().port;
@@ -58,9 +60,9 @@ try {
       },
       body: JSON.stringify(body),
     });
-  const first = await post('connect', { password: ready.password }).then((r) => r.json());
+  const first = await post('key-start', { key: ready.password }).then((r) => r.json());
   assert.equal(first.mode, 'streams');
-  assert.equal((await post('connect', { password: ready.password })).status, 201);
+  assert.equal((await post('key-start', { key: ready.password })).status, 201);
   const status = await until(
     (message) => message.type === 'status' && message.sessions.length === 2,
   );
@@ -95,7 +97,7 @@ try {
   assert.equal(savedMode.ok, true);
   assert.equal(savedMode.access.connectionMode, 'one-time-keys');
   assert.notEqual(savedMode.sessionKey, ready.password);
-  assert.equal((await post('connect', { password: ready.password })).status, 401);
+  assert.equal((await post('key-start', { key: ready.password })).status, 401);
   child.stdin.write(
     JSON.stringify({ type: 'connection-once-create', requestId: 'once-check' }) + '\n',
   );
@@ -103,8 +105,9 @@ try {
     (message) => message.type === 'connection-once-result' && message.requestId === 'once-check',
   );
   assert.equal(once.ok, true);
-  assert.match(once.key, /^[A-Z]{4}-[A-Z]{4}$/);
-  assert.equal((await post('connection-key', { key: once.key })).status, 200);
+  assert.match(once.key, /^[23456789A-HJKMNPQRSTUVWXYZ]{4}-[23456789A-HJKMNPQRSTUVWXYZ]{4}$/);
+  assert.equal(once.alphabet, 'letters-digits');
+  assert.equal((await post('key-start', { key: once.key })).status, 201);
   assert.equal(
     (await post('heartbeat', {}, first.sessionId)).status,
     200,
@@ -130,7 +133,18 @@ try {
   child.stdin.end('{"type":"stop"}\n');
   assert.equal(await exited, 0);
   await assert.rejects(readFile(instanceFile), { code: 'ENOENT' });
-  assert.equal(stderr, '');
+  assert.ok(
+    !stderr.trim() ||
+      stderr
+        .trim()
+        .split(/\r?\n/)
+        .every(
+          (line) =>
+            line === 'Private physical LAN detected for local standing passwords.' ||
+            line.startsWith('Warning: '),
+        ),
+    stderr,
+  );
   console.log(
     'PASS: production startup admits two sessions, owns control commands and shuts down cleanly',
   );

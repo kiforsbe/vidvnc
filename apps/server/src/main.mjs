@@ -28,6 +28,7 @@ import { createServerLog } from './server-log.mjs';
 import { createLocalSessionScopeController } from './local-session-scope.mjs';
 import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
+import { createCodeIssuer } from './code-issuance.mjs';
 
 // TLS renews inside a 30-day window (certificate-facts.mjs's default) and this only needs
 // to notice an address change or an approaching expiry before that window closes, not
@@ -93,6 +94,7 @@ async function serve() {
       keys: store.keys,
       admission,
     });
+    const codeIssuer = createCodeIssuer({ access, sessionStore: store, admission });
     runtime = new StreamRuntime({
       sessions: store,
       media,
@@ -261,7 +263,9 @@ async function serve() {
         });
       statusTimer = setInterval(() => {
         if (!stopping && !process.stdout.writableNeedDrain) {
-          console.log(JSON.stringify({ ...runtime.status(), tls: tlsField() }));
+          console.log(
+            JSON.stringify({ ...runtime.status(), tls: tlsField(), codes: codeIssuer.status() }),
+          );
           console.log(JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }));
         }
       }, 1000).unref();
@@ -278,9 +282,7 @@ async function serve() {
               !stopping
             ) {
               try {
-                if (access.snapshot().connectionMode === 'approved-only')
-                  throw new Error('Ordinary connection keys are not enabled');
-                const once = store.keys.createOneTimeConnection({ ttlMs: 10 * 60_000 });
+                const once = codeIssuer.oneTime(command.alphabet);
                 console.log(
                   JSON.stringify({
                     type: 'connection-once-result',
@@ -288,6 +290,7 @@ async function serve() {
                     ok: true,
                     key: once.key,
                     expiresAt: once.expiresAt,
+                    alphabet: once.alphabet,
                   }),
                 );
               } catch (error) {
@@ -308,7 +311,7 @@ async function serve() {
               !stopping
             ) {
               try {
-                const setup = store.keys.createSetup({ ttlMs: 10 * 60_000 });
+                const setup = codeIssuer.setup(command.alphabet);
                 console.log(
                   JSON.stringify({
                     type: 'client-setup-result',
@@ -316,12 +319,41 @@ async function serve() {
                     ok: true,
                     key: setup.key,
                     expiresAt: setup.expiresAt,
+                    alphabet: setup.alphabet,
                   }),
                 );
               } catch (error) {
                 console.log(
                   JSON.stringify({
                     type: 'client-setup-result',
+                    requestId: command.requestId,
+                    ok: false,
+                    error: error.message,
+                  }),
+                );
+              }
+            }
+            if (
+              command.type === 'session-password-rotate' &&
+              typeof command.requestId === 'string' &&
+              command.requestId.length <= 64 &&
+              !stopping
+            ) {
+              try {
+                const rotated = codeIssuer.rotateSession(command.alphabet);
+                console.log(
+                  JSON.stringify({
+                    type: 'session-password-result',
+                    requestId: command.requestId,
+                    ok: true,
+                    key: rotated.key,
+                    alphabet: rotated.alphabet,
+                  }),
+                );
+              } catch (error) {
+                console.log(
+                  JSON.stringify({
+                    type: 'session-password-result',
                     requestId: command.requestId,
                     ok: false,
                     error: error.message,
@@ -435,7 +467,7 @@ async function serve() {
                   let sessionKey;
                   if (access.snapshot().connectionMode !== previousMode) {
                     store.keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
-                    sessionKey = store.rotateConnectionKey();
+                    sessionKey = codeIssuer.rotateSession().key;
                   }
                   reply(true, undefined, sessionKey);
                 },
@@ -591,6 +623,7 @@ async function serve() {
             confirm,
             hostCodecs,
             tls: tlsListener,
+            codeIssuer,
           }),
       });
     });

@@ -9,6 +9,7 @@ import { accessLabel, connectionModeLabel, promptState } from './format.mjs';
 import { CONNECTION_KEY_PURPOSES } from '../connection-keys.mjs';
 import { SessionNumbers } from './resolve.mjs';
 import { createTerminal } from './terminal.mjs';
+import { createCodeIssuer } from '../code-issuance.mjs';
 
 const RESTART = 'Restart the server to reload settings.';
 
@@ -31,7 +32,9 @@ export function createLiveContext({
   confirm,
   hostCodecs = [],
   tls,
+  codeIssuer = null,
 }) {
+  const issuer = codeIssuer ?? createCodeIssuer({ access, sessionStore });
   const saving = async (write) => {
     try {
       return await write();
@@ -41,6 +44,7 @@ export function createLiveContext({
   };
   return {
     mode: 'live',
+    codeIssuer: issuer,
     policy: () => policy.snapshot(),
     async updatePolicy(summary, edit, { yes = false } = {}) {
       // Dry run before counting sessions or asking anything: a validation error surfaces
@@ -83,7 +87,7 @@ export function createLiveContext({
         const result = await access.replace(changes, current.revision);
         if (result.connectionMode !== current.connectionMode) {
           sessionStore.keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
-          sessionStore.rotateConnectionKey();
+          issuer.rotateSession();
         }
         return result;
       }),

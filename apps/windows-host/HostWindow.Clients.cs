@@ -18,6 +18,22 @@ public sealed partial class HostWindow
     string? oneTimeConnectionKey;
     long? oneTimeConnectionExpiresAt;
     string? clientError;
+    bool ephemeralCodeLocked;
+    bool sessionPasswordLocked;
+    Action? refreshConnectionDialog;
+
+    void UpdateCodeStatus(JsonElement status)
+    {
+        if (!status.TryGetProperty("codes", out var codes)) return;
+        static bool Locked(JsonElement codes, string name) =>
+            codes.TryGetProperty(name, out var row) && row.ValueKind == JsonValueKind.Object &&
+            row.TryGetProperty("locked", out var locked) && locked.ValueKind == JsonValueKind.True;
+        var ephemeral = Locked(codes, "ephemeral");
+        var session = Locked(codes, "session");
+        if (ephemeral == ephemeralCodeLocked && session == sessionPasswordLocked) return;
+        ephemeralCodeLocked = ephemeral; sessionPasswordLocked = session;
+        refreshConnectionDialog?.Invoke();
+    }
 
     void UpdateClients(JsonElement status)
     {
@@ -86,21 +102,28 @@ public sealed partial class HostWindow
         finally { clientReplies.Remove(requestId); }
     }
 
-    async Task RequestClientSetupKey()
+    async Task RequestClientSetupKey(string alphabet)
     {
-        var result = await SendClientOwnerCommand(new() { ["type"] = "client-setup-create" });
+        var result = await SendClientOwnerCommand(new() { ["type"] = "client-setup-create", ["alphabet"] = alphabet });
         clientSetupKey = Text(result, "key");
         clientSetupExpiresAt = result.TryGetProperty("expiresAt", out var expires) && expires.TryGetInt64(out var timestamp)
             ? timestamp : null;
         clientError = null;
     }
 
-    async Task RequestOneTimeConnectionKey()
+    async Task RequestOneTimeConnectionKey(string alphabet)
     {
-        var result = await SendClientOwnerCommand(new() { ["type"] = "connection-once-create" });
+        var result = await SendClientOwnerCommand(new() { ["type"] = "connection-once-create", ["alphabet"] = alphabet });
         oneTimeConnectionKey = Text(result, "key");
         oneTimeConnectionExpiresAt = result.TryGetProperty("expiresAt", out var expires) && expires.TryGetInt64(out var timestamp)
             ? timestamp : null;
+        clientError = null;
+    }
+
+    async Task RotateSessionPassword(string alphabet)
+    {
+        var result = await SendClientOwnerCommand(new() { ["type"] = "session-password-rotate", ["alphabet"] = alphabet });
+        password.Text = Text(result, "key");
         clientError = null;
     }
 

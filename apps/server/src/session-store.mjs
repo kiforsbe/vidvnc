@@ -60,8 +60,8 @@ export class SessionStore {
     return this.rotateConnectionKey();
   }
 
-  rotateConnectionKey() {
-    this._password = this.keys.rotateSession();
+  rotateConnectionKey(alphabet, limits) {
+    this._password = this.keys.rotateSession(alphabet, limits);
     return this._password;
   }
 

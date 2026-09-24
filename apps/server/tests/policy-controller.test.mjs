@@ -58,11 +58,11 @@ test('HTTP denies unavailable profiles, applies audio policy, and rejects stale 
     });
   assert.equal((await post('profiles', {})).status, 401);
   assert.equal(
-    (await post('connect', { password: sessions.password, profile: 'desktop' })).status,
+    (await post('key-start', { key: sessions.password, profile: 'desktop' })).status,
     403,
   );
-  const result = await post('connect', {
-    password: sessions.password,
+  const result = await post('key-start', {
+    key: sessions.password,
     profile: 'balanced',
     audio: 'on',
   });
@@ -86,10 +86,10 @@ test('HTTP custom stream requests obey persisted mode and approved option lists'
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const connect = (custom) =>
-    fetch(`http://127.0.0.1:${server.address().port}/api/connect`, {
+    fetch(`http://127.0.0.1:${server.address().port}/api/key-start`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: sessions.password, custom }),
+      body: JSON.stringify({ key: sessions.password, custom }),
     });
   const approved = { width: 1600, height: 900, fps: 24, bitrateKbps: 3000 };
   assert.equal((await connect(approved)).status, 403);

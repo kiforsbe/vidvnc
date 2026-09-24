@@ -54,7 +54,7 @@ test('display switching is authenticated, validated before teardown, and bound t
       body: JSON.stringify(body),
     });
   assert.equal((await post('profiles')).status, 401);
-  const first = await (await post('connect', { password: server.sessionStore.password })).json();
+  const first = await (await post('key-start', { key: server.sessionStore.password })).json();
   assert.equal(first.display.id, primary.id);
   assert.equal((await post('reconnect', { displayId: secondary.id }, first.sessionId)).status, 403);
   assert.equal((await post('heartbeat', {}, first.sessionId)).status, 204);

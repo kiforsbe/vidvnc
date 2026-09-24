@@ -65,7 +65,7 @@ test('one reconnect cannot block another owner or lose its reserved session slot
       },
       body: JSON.stringify(body),
     });
-  const connect = () => post('connect', { password: store.password });
+  const connect = () => post('key-start', { key: store.password });
   const a = await (await connect()).json();
   const b = await (await connect()).json();
   pauseId = a.sessionId;

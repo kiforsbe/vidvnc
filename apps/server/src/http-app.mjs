@@ -22,6 +22,7 @@ function send(response, status, body) {
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    ...(status === 429 ? { 'retry-after': '60' } : {}),
   });
   response.end(body === undefined ? undefined : JSON.stringify(body));
 }
@@ -381,9 +382,7 @@ export function createHttpApp({
       if (
         request.method !== 'POST' ||
         ![
-          '/api/connect',
           '/api/key-start',
-          '/api/connection-key',
           '/api/approved-clients/register',
           '/api/approved-clients/status',
           '/api/approved-clients/sign-in',
@@ -404,13 +403,13 @@ export function createHttpApp({
       )
         return send(response, 404, { error: 'Not found' });
       const peer = request.socket.remoteAddress;
-      const keyRoute = ['/api/key-start', '/api/connect', '/api/connection-key'].includes(route);
-      keyAttempt = keyRoute
-        ? admission.beginKeyStart(peer, {
-            ephemeral: sessionStore.keys.activeEphemeral(),
-            session: sessionStore.keys.activeSession(),
-          })
-        : null;
+      keyAttempt =
+        route === '/api/key-start'
+          ? admission.beginKeyStart(peer, {
+              ephemeral: sessionStore.keys.activeEphemeral(),
+              session: sessionStore.keys.activeSession(),
+            })
+          : null;
       const rollingAttempt =
         route === '/api/approved-clients/sign-in'
           ? admission.beginSignIn(peer)
@@ -486,66 +485,21 @@ export function createHttpApp({
         keyAttempt.finish(record.purpose, result.ok || result.reason === 'busy');
         return sendAdmission(response, result, plan);
       }
-      if (route === '/api/connection-key') {
-        const record =
-          typeof body.key === 'string' && body.key.length <= 64
-            ? sessionStore.keys.inspect(body.key)
-            : null;
-        if (
-          !record ||
-          !keyAttempt.allowsPurpose(record.purpose) ||
-          (record.purpose !== 'approved-client-setup' && !ordinaryKeyAllowed(record.purpose)) ||
-          (record.purpose === CONNECTION_KEY_PURPOSES.session &&
-            !localSessionScope.allows(peer, listenerScope))
-        ) {
-          keyAttempt.finish(null, false);
-          return send(response, 401, { error: 'Connection key is invalid or expired.' });
-        }
-        keyAttempt.finish(record.purpose, true);
-        return send(response, 200, {
-          purpose: record.purpose,
-          usage: record.usage,
-          expiresAt: record.expiresAt,
-        });
-      }
       if (route === '/api/approved-clients/register') {
         if (!approvedClients)
           return send(response, 503, { error: 'Approved-client setup is unavailable.' });
-        let legacyAttempt = null;
-        if (body.registrationTicket === undefined) {
-          legacyAttempt = admission.beginKeyStart(peer, {
-            ephemeral: sessionStore.keys.activeEphemeral(),
-            session: sessionStore.keys.activeSession(),
-          });
-          if (!legacyAttempt.ok)
-            return send(response, 429, { error: 'Try again later or request a new host code.' });
-          const record = sessionStore.keys.inspect(body.key);
-          if (
-            record?.purpose !== 'approved-client-setup' ||
-            !legacyAttempt.allowsPurpose(record.purpose)
-          ) {
-            legacyAttempt.finish(null, false);
-            return send(response, 401, { error: 'Connection key is invalid or expired.' });
-          }
-        }
         try {
           const result = await approvedClients.submit({
             ...body,
             network: listenerScope === 'public' ? 'Remote network' : 'Local network',
           });
-          legacyAttempt?.finish(CONNECTION_KEY_PURPOSES.setup, true);
           return send(response, 202, result);
         } catch (error) {
-          legacyAttempt?.finish(null, false);
-          return send(
-            response,
-            /setup key|ticket/i.test(error.message) ? 401 : error.status || 400,
-            {
-              error: /setup key|ticket/i.test(error.message)
-                ? 'Connection key is invalid or expired.'
-                : error.message,
-            },
-          );
+          return send(response, /ticket/i.test(error.message) ? 401 : error.status || 400, {
+            error: /ticket/i.test(error.message)
+              ? 'Connection key is invalid or expired.'
+              : error.message,
+          });
         }
       }
       if (route === '/api/approved-clients/status') {
@@ -584,43 +538,6 @@ export function createHttpApp({
           }
         }
         return sendAdmission(response, admission, plan);
-      }
-      if (route === '/api/connect') {
-        if (policy?.busy) {
-          keyAttempt.cancel();
-          return send(response, 409, { error: 'Host settings are being applied. Retry shortly.' });
-        }
-        if (typeof body.password !== 'string' || body.password.length > 64)
-          return (
-            keyAttempt.finish(null, false),
-            send(response, 400, { error: 'Password is required' })
-          );
-        const key = sessionStore.keys.inspect(body.password);
-        if (!key || !keyAttempt.allowsPurpose(key.purpose) || !ordinaryKeyAllowed(key.purpose)) {
-          keyAttempt.finish(null, false);
-          return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
-        }
-        if (
-          key.purpose === 'session' &&
-          !localSessionScope.allows(request.socket.remoteAddress, listenerScope)
-        ) {
-          keyAttempt.finish(null, false);
-          return send(response, 401, { error: 'Unable to authenticate. Try again later.' });
-        }
-        let plan;
-        try {
-          plan = connectionPlan(body, request);
-        } catch (error) {
-          keyAttempt.finish(null, false);
-          return send(response, 403, { error: error.message });
-        }
-        const result = sessionStore.connect(
-          body.password.trim().toUpperCase(),
-          request.socket.remoteAddress,
-          request.headers['user-agent'] || '',
-        );
-        keyAttempt.finish(key.purpose, result.ok || result.reason === 'busy');
-        return sendAdmission(response, result, plan);
       }
       const token = request.headers.authorization?.match(/^Bearer ([a-f0-9-]{36})$/)?.[1];
       const session = sessionStore.get(token);

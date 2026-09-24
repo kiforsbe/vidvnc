@@ -43,9 +43,7 @@ test('authenticated catalog and reconnect enforce host settings before stopping 
   assert.equal((await post('reconnect', { profile: 'balanced' })).status, 401);
   const info = await (await fetch(url + '/api/info')).json();
   assert.equal(info.display, null, 'display inventory is not public');
-  const connected = await (
-    await post('connect', { password: server.sessionStore.password })
-  ).json();
+  const connected = await (await post('key-start', { key: server.sessionStore.password })).json();
   const catalog = await (await post('profiles', {}, connected.sessionId)).json();
   assert.equal(catalog.clientMode, 'options');
   assert.equal(catalog.allowAudio, false);

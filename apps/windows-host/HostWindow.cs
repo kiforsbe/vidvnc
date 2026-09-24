@@ -62,12 +62,12 @@ public sealed partial class HostWindow : Window
                 if (ready.GetProperty("type").GetString() == "policy-result") { ReceivePolicyResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "access-result") { ReceiveAccessResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "session-result") { ReceiveSessionResult(ready); continue; }
-                if (ready.GetProperty("type").GetString() is "client-setup-result" or "connection-once-result" or "client-command-result") { ReceiveClientResult(ready); continue; }
+                if (ready.GetProperty("type").GetString() is "client-setup-result" or "connection-once-result" or "session-password-result" or "client-command-result") { ReceiveClientResult(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "clients") { UpdateClients(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "tls-regenerate-result") { ReceiveTlsRegenerateResult(ready); continue; }
                 // The status tick carries the TLS report alongside the sessions; both are
                 // views of the same snapshot, so they are read from the same message.
-                if (ready.GetProperty("type").GetString() == "status") { UpdateSessions(ready); UpdateTlsStatus(ready); continue; }
+                if (ready.GetProperty("type").GetString() == "status") { UpdateSessions(ready); UpdateTlsStatus(ready); UpdateCodeStatus(ready); continue; }
                 if (ready.GetProperty("type").GetString() == "displays") { UpdateDisplays(ready.GetProperty("displays")); continue; }
                 if (ready.GetProperty("type").GetString() != "ready") continue;
                 if (ready.TryGetProperty("codecs", out var readyCodecs) && readyCodecs.ValueKind == JsonValueKind.Array)
