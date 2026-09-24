@@ -1,6 +1,6 @@
 # Selected Internet-exposure hardening design
 
-Date: 2026-09-23. Status: design for review; no product controls in this document are implemented yet.
+Date: 2026-09-23. Status: selected design; see the [implementation status](../../security/internet-exposure-hardening-status-2026-09-24.md) for current controls and remaining verification.
 
 This design addresses the selected concerns F1, F2, F4, F5, and F7 from the [Internet exposure review](../../security/internet-exposure-review-2026-09-23.md) and its [remediation proposals](../../security/internet-exposure-remediation-proposals-2026-09-23.md). It hardens the existing LAN-oriented service before any remote deployment profile is chosen. It does **not** authorize Internet exposure: F3 (HTTPS failure and trust enrollment) and F6 (WebRTC media/network policy) remain open, and F5 remains a transferable credential by the owner's explicit choice.
 
