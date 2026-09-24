@@ -406,3 +406,21 @@ test('permission change invalidates immediately and only restores after a durabl
   await assert.rejects(store.setPermission(clientId, 'available'));
   assert.equal(store.authorization(clientId), null);
 });
+
+test('queued connection bookkeeping rejects a removed authorization generation', async () => {
+  const store = await ApprovedClientStore.open(null, { keys: new ConnectionKeyRegistry() });
+  const registration = await store.submit({
+    registrationTicket: ticket(store),
+    deviceName: 'Phone',
+    username: 'kim',
+    password: 'correct horse battery staple',
+    installationId: 'browser-1',
+    client: 'Safari',
+  });
+  await store.approve(registration.requestId);
+  const { clientId } = store.registrationStatus(registration.requestId, registration.claimToken);
+  const authorization = store.authorization(clientId);
+  const recording = store.markConnected(clientId, authorization.generation);
+  store.invalidate(clientId, 'remove');
+  await assert.rejects(recording, /stale|revoked|unknown/i);
+});

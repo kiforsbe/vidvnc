@@ -98,6 +98,10 @@ export class SessionStore {
   connectApproved(approvedClient, clientKey = 'unknown', userAgent = '') {
     this.sweep();
     if (!approvedClient?.id) return { ok: false, reason: 'invalid-client' };
+    if (
+      [...this._sessions.values()].some((session) => session.approvedClientId === approvedClient.id)
+    )
+      return { ok: false, reason: 'already-in-use' };
     if (this._sessions.size >= this.maxSessions) return { ok: false, reason: 'busy' };
     return this.#createSession(clientKey, userAgent, approvedClient);
   }
@@ -109,6 +113,7 @@ export class SessionStore {
       sessionId,
       clientKey,
       approvedClientId: approvedClient?.id ?? null,
+      approvedGeneration: approvedClient?.generation ?? null,
       device: /iPhone/i.test(userAgent)
         ? 'iPhone'
         : /iPad/i.test(userAgent)

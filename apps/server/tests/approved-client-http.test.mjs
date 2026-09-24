@@ -15,8 +15,11 @@ const post = (url, route, body, token) =>
     body: JSON.stringify(body),
   });
 
-async function withServer(run, { connectionMode = 'session-key', listenerScope = 'local' } = {}) {
-  const sessionStore = new SessionStore();
+async function withServer(
+  run,
+  { connectionMode = 'session-key', listenerScope = 'local', maxSessions = 1 } = {},
+) {
+  const sessionStore = new SessionStore({ maxSessions });
   const approvedClients = await ApprovedClientStore.open(null, {
     keys: sessionStore.keys,
   });
@@ -204,58 +207,70 @@ test('registration endpoint enforces its rolling budget before ticket lookup', (
   }));
 
 test('HTTP registration waits for host approval and releases the credential only to its claimant', () =>
-  withServer(async (url, server, approvedClients) => {
-    const setup = server.sessionStore.keys.createSetup({ ttlMs: 60_000 });
-    const dispatch = await post(url, 'key-start', { key: setup.key });
-    assert.equal(dispatch.status, 202);
-    const { registrationTicket } = await dispatch.json();
-    assert.equal((await post(url, 'key-start', { key: setup.key })).status, 401);
+  withServer(
+    async (url, server, approvedClients) => {
+      const setup = server.sessionStore.keys.createSetup({ ttlMs: 60_000 });
+      const dispatch = await post(url, 'key-start', { key: setup.key });
+      assert.equal(dispatch.status, 202);
+      const { registrationTicket } = await dispatch.json();
+      assert.equal((await post(url, 'key-start', { key: setup.key })).status, 401);
 
-    const registrationResponse = await post(url, 'approved-clients/register', {
-      registrationTicket,
-      deviceName: 'Kim’s iPhone',
-      username: 'kim',
-      password: 'correct horse battery staple',
-      installationId: 'browser-installation-1',
-      client: 'Safari on iOS',
-    });
-    assert.equal(registrationResponse.status, 202);
-    const registration = await registrationResponse.json();
-    assert.equal((await post(url, 'key-start', { key: setup.key })).status, 401);
-    assert.equal(
-      (await post(url, 'approved-clients/status', { ...registration, claimToken: 'wrong' })).status,
-      401,
-    );
-    assert.deepEqual(await (await post(url, 'approved-clients/status', registration)).json(), {
-      state: 'pending',
-    });
+      const registrationResponse = await post(url, 'approved-clients/register', {
+        registrationTicket,
+        deviceName: 'Kim’s iPhone',
+        username: 'kim',
+        password: 'correct horse battery staple',
+        installationId: 'browser-installation-1',
+        client: 'Safari on iOS',
+      });
+      assert.equal(registrationResponse.status, 202);
+      const registration = await registrationResponse.json();
+      assert.equal((await post(url, 'key-start', { key: setup.key })).status, 401);
+      assert.equal(
+        (await post(url, 'approved-clients/status', { ...registration, claimToken: 'wrong' }))
+          .status,
+        401,
+      );
+      assert.deepEqual(await (await post(url, 'approved-clients/status', registration)).json(), {
+        state: 'pending',
+      });
 
-    await approvedClients.approve(registration.requestId);
-    const credential = await (await post(url, 'approved-clients/status', registration)).json();
-    assert.equal(credential.state, 'approved');
-    assert.equal(credential.username, 'kim');
-    assert.equal(JSON.stringify(credential).includes('correct horse'), false);
-    assert.equal(
-      (
-        await post(url, 'approved-clients/sign-in', {
-          ...credential,
-          username: 'wrong',
-          password: 'correct horse battery staple',
-        })
-      ).status,
-      401,
-    );
-    const signedIn = await post(url, 'approved-clients/sign-in', {
-      ...credential,
-      username: 'kim',
-      password: 'correct horse battery staple',
-    });
-    assert.equal(signedIn.status, 201);
-    const session = await signedIn.json();
-    assert.match(session.sessionId, /^[a-f0-9-]{36}$/);
-    assert.equal(JSON.stringify(session).includes(credential.clientSecret), false);
-    assert.equal(typeof approvedClients.status().approved[0].lastConnectedAt, 'number');
-  }));
+      await approvedClients.approve(registration.requestId);
+      const credential = await (await post(url, 'approved-clients/status', registration)).json();
+      assert.equal(credential.state, 'approved');
+      assert.equal(credential.username, 'kim');
+      assert.equal(JSON.stringify(credential).includes('correct horse'), false);
+      assert.equal(
+        (
+          await post(url, 'approved-clients/sign-in', {
+            ...credential,
+            username: 'wrong',
+            password: 'correct horse battery staple',
+          })
+        ).status,
+        401,
+      );
+      const signedIn = await post(url, 'approved-clients/sign-in', {
+        ...credential,
+        username: 'kim',
+        password: 'correct horse battery staple',
+      });
+      assert.equal(signedIn.status, 201);
+      const session = await signedIn.json();
+      assert.match(session.sessionId, /^[a-f0-9-]{36}$/);
+      assert.equal(JSON.stringify(session).includes(credential.clientSecret), false);
+      assert.equal(typeof approvedClients.status().approved[0].lastConnectedAt, 'number');
+      const duplicate = await post(url, 'approved-clients/sign-in', {
+        ...credential,
+        username: 'kim',
+        password: 'correct horse battery staple',
+      });
+      assert.equal(duplicate.status, 409);
+      assert.equal((await duplicate.json()).code, 'approved-client-in-use');
+      assert.equal((await post(url, 'heartbeat', {}, session.sessionId)).status, 204);
+    },
+    { maxSessions: 2 },
+  ));
 
 test('one-time connection keys admit exactly one ordinary session and are then deleted', () =>
   withServer(

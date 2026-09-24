@@ -175,10 +175,13 @@ async function api(route, body = {}) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(20000),
   });
-  if (!response.ok)
-    throw Object.assign(new Error((await response.json()).error || 'Connection failed'), {
+  if (!response.ok) {
+    const failure = await response.json();
+    throw Object.assign(new Error(failure.error || 'Connection failed'), {
       status: response.status,
+      code: failure.code,
     });
+  }
   return response.status === 204 ? null : response.json();
 }
 function send(message) {
@@ -562,7 +565,11 @@ $('signInForm').addEventListener('submit', async (event) => {
     if (attempt === connectionAttempt) {
       await disconnect(error.message);
       $('signInError').textContent =
-        error.status === 401 ? 'Username or password not recognized.' : error.message;
+        error.code === 'approved-client-in-use'
+          ? 'This approved browser credential is already in use. Disconnect its current session or ask the host to revoke it.'
+          : error.status === 401
+            ? 'Username or password not recognized.'
+            : error.message;
     }
   } finally {
     connecting = false;

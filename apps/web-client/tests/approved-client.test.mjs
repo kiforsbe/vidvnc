@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   createInstallationId,
   loadApprovedCredential,
@@ -34,4 +35,12 @@ test('installation IDs fall back to getRandomValues when randomUUID is unavailab
     },
   });
   assert.match(id, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+});
+
+test('sign-in explains a credential already in use without promising device binding', async () => {
+  const app = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.match(app, /code: failure\.code/);
+  assert.match(app, /error\.code === 'approved-client-in-use'/);
+  assert.match(app, /This approved browser credential is already in use/);
+  assert.doesNotMatch(app, /approved device is already in use/i);
 });

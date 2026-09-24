@@ -85,6 +85,18 @@ test('explicit session-password rotation selects letters without disconnecting a
   );
 });
 
+test('one approved browser credential owns at most one live session', () => {
+  const sessions = new SessionStore({ maxSessions: 2 });
+  const approved = { id: 'client-1', generation: 0, permission: 'available' };
+  const first = sessions.connectApproved(approved);
+  const second = sessions.connectApproved(approved);
+  assert.equal(first.ok, true);
+  assert.deepEqual(second, { ok: false, reason: 'already-in-use' });
+  assert.ok(sessions.get(first.sessionId));
+  sessions.disconnect(first.sessionId);
+  assert.equal(sessions.connectApproved(approved).ok, true);
+});
+
 test('rate-limits repeated failed passwords per client key', () => {
   const store = new SessionStore({ maxAttempts: 2, windowMs: 1_000 });
 

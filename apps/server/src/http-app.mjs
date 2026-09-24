@@ -524,17 +524,29 @@ export function createHttpApp({
         } catch (error) {
           return send(response, 403, { error: error.message });
         }
+        if (!approvedClients.stillAuthorized(approved))
+          return send(response, 401, { error: 'Unable to authenticate.' });
         const admission = sessionStore.connectApproved(
           approved,
           request.socket.remoteAddress,
           request.headers['user-agent'] || '',
         );
+        if (admission.reason === 'already-in-use')
+          return send(response, 409, {
+            code: 'approved-client-in-use',
+            error: 'This approved browser credential is already in use.',
+          });
         if (admission.ok) {
           try {
-            await approvedClients.markConnected(approved.id);
+            await approvedClients.markConnected(approved.id, approved.generation);
+            if (!approvedClients.stillAuthorized(approved))
+              throw new Error('Stale approved-client authorization');
           } catch (error) {
             sessionStore.disconnect(admission.sessionId);
-            throw error;
+            await runtime?.stopSession(admission.sessionId);
+            return send(response, /stale/i.test(error.message) ? 401 : 503, {
+              error: 'Unable to authenticate.',
+            });
           }
         }
         return sendAdmission(response, admission, plan);

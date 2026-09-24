@@ -324,13 +324,17 @@ export class ApprovedClientStore {
       generation: authorization.generation,
     };
   }
-  markConnected(clientId) {
+  markConnected(clientId, generation) {
     const operation = this.#queue.then(async () => {
       await this.#sweepExpiredInner();
+      if (!this.stillAuthorized({ id: clientId, generation }))
+        throw new Error('Stale approved-client authorization');
       const row = this.#value.clients.find((candidate) => candidate.id === clientId);
       if (!row) throw new Error('Unknown approved client');
       row.lastConnectedAt = this.clock();
       await this.#write();
+      if (!this.stillAuthorized({ id: clientId, generation }))
+        throw new Error('Stale approved-client authorization');
     });
     this.#queue = operation.catch(() => {});
     return operation;
