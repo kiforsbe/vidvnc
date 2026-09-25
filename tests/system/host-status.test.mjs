@@ -3,13 +3,20 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { isolatedDataDirectory } from './isolated-data.mjs';
 
 test('owned host pipe reports real sessions and disconnects them without stopping sharing', async (t) => {
+  const localAppData = await isolatedDataDirectory(t);
   const child = spawn(
     process.execPath,
     [fileURLToPath(new URL('../../apps/server/src/main.mjs', import.meta.url)), '--desktop'],
     {
-      env: { ...process.env, VIDVNC_PORT: '4392', VIDVNC_HOST: '127.0.0.1' },
+      env: {
+        ...process.env,
+        LOCALAPPDATA: localAppData,
+        VIDVNC_PORT: '4392',
+        VIDVNC_HOST: '127.0.0.1',
+      },
       windowsHide: true,
     },
   );
@@ -38,10 +45,11 @@ test('owned host pipe reports real sessions and disconnects them without stoppin
     throw new Error('Host protocol message did not arrive');
   }
   const ready = await waitFor((m) => m.type === 'ready');
-  const response = await fetch('http://127.0.0.1:4392/api/connect', {
+  // The standing password is accepted from loopback through the metered key start.
+  const response = await fetch('http://127.0.0.1:4392/api/key-start', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: ready.password }),
+    body: JSON.stringify({ key: ready.password }),
   });
   assert.equal(response.status, 201);
   const { sessionId } = await response.json();

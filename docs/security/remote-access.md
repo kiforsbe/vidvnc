@@ -167,9 +167,14 @@ The [security analysis](internet-exposure.md) lists what is still open. In short
 
 Before relying on it:
 
-1. Build and run `npm run test:hardware` on Windows.
-2. Check that the worker's sockets stay inside the range, for example with
-   `netstat -ano -p udp` while a stream runs.
+1. Build and run `npm run test:hardware` on Windows. It checks that the worker accepts a
+   valid range and refuses to start with a malformed one.
+2. Run the acceptance check, which connects headless Chromium through the worker with a
+   range set. It asserts that every candidate is UDP inside the range, and uses `netstat`
+   to confirm that every worker UDP socket is in the range and no TCP port is listening:
+   ```
+   node native/media-worker/tests/media-ports-check.mjs <path to playwright>
+   ```
 3. Connect from a phone on mobile data, which also covers the source-address check.
 
 ## The alternative: a VPN

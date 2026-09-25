@@ -9,7 +9,7 @@ function run(...args) {
   }
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
-      env: workerEnvironment(),
+      env: { ...workerEnvironment(), ...options.env },
       windowsHide: true,
     });
     let stdout = '',
@@ -92,8 +92,11 @@ test('adapter affinity resolves the capture adapter and picks an encoder on it',
     assert.ok(info.encoder.length > 0);
     return;
   }
+  // Element name prefixes per backend (encoder-backend.hpp): NVENC uses nvd3d11*, Media
+  // Foundation mf*; Quick Sync and AMF elements start with their backend id.
+  const prefix = { nvenc: 'nvd3d11', mediafoundation: 'mf' };
   const chosen = info.backends.find((backend) =>
-    info.encoder.startsWith(backend.id === 'nvenc' ? 'nvd3d11' : backend.id),
+    info.encoder.startsWith(prefix[backend.id] ?? backend.id),
   );
   assert.ok(chosen, `no backend matches the chosen element ${info.encoder}`);
   assert.ok(chosen.onCaptureAdapter, 'selection preferred an encoder off the capture adapter');
@@ -138,6 +141,23 @@ test('native session fails a malformed peer without failing its source or starti
       .map((line) => JSON.parse(line)),
     [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
   );
+});
+test('a media port range is accepted, and a malformed one stops the worker before it starts', async () => {
+  const valid = await run('--session', { env: { VIDVNC_ICE_PORTS: '41000-41049' } });
+  assert.equal(valid.code, 0, valid.stderr);
+  assert.deepEqual(
+    valid.stdout
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line)),
+    [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
+  );
+  for (const value of ['41049-41000', '41000-41003', '80-100', 'any']) {
+    const invalid = await run('--session', { env: { VIDVNC_ICE_PORTS: value } });
+    assert.equal(invalid.code, 2, value);
+    assert.match(invalid.stderr, /Invalid VIDVNC_ICE_PORTS/);
+    assert.equal(invalid.stdout.trim(), '', 'nothing starts on a malformed range');
+  }
 });
 test('video codec is validated against the codec table', async () => {
   const result = await run('--session', {

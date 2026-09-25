@@ -241,14 +241,19 @@ A failure fails safe:
   exposure;
 - neither makes anything reachable that wasn't before.
 
-**Before release:**
+**Checks now in place, still to be run on Windows:**
 
-- run the Windows build and `npm run test:hardware`;
-- confirm with `netstat -ano -p udp` and `-p tcp` that the worker's sockets stay inside
-  the range and that nothing listens on TCP;
-- connect from mobile data;
-- capture packets to confirm there are no ICE checks toward client-chosen internal
-  addresses.
+- `npm run test:hardware` includes a worker test: a valid range starts, and a malformed
+  one exits with code 2 before anything starts.
+- `node native/media-worker/tests/media-ports-check.mjs <playwright>` connects headless
+  Chromium through the worker with a range. It asserts UDP-only candidates inside the range,
+  that every worker UDP socket is in the range per `netstat`, and that no TCP port is
+  listening.
+
+**Still needed:**
+
+- a connection from mobile data through a real router;
+- a packet capture showing no ICE checks toward client-chosen internal addresses.
 
 ### R4: native parsing is reachable before authentication on the media ports (open, reduced)
 
@@ -326,9 +331,8 @@ the public host avoids the rest.
 ## Recommended next steps
 
 1. **Validation (R8):**
-   - Windows host build and `npm run test:host`;
-   - native worker build and `npm run test:hardware`;
-   - `netstat` checks of the media range (UDP inside the range, no TCP listeners);
+   - rerun `npm run test:hardware` with the fixed tests, and run `media-ports-check.mjs`;
+   - `npm run test:host`;
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
 2. **Host UI:** a screen for `remote-access`, `public-hosts`, `public-port` and `media-ports`.
@@ -358,6 +362,20 @@ the public host avoids the rest.
     - internet-session disconnect (R6), certificate names (R7);
     - the native port-range parser, compiled with g++ on Linux.
   - The R1 probe drove `AdmissionBudget` directly before the fix.
+- **2026-09-25, owner's Windows machine, `npm run test:hardware`:** 14 of 17 passed,
+  including real hardware encoding (Media Foundation H.264, H.265 and AV1), the native
+  session and the probe.
+  - The 3 failures were tests left behind by earlier `main` changes, not product defects:
+    - the adapter-affinity test didn't map Media Foundation's `mf*` element names to their
+      backend;
+    - the desktop-host test expected letters-only codes, from before the letters-and-digits
+      alphabet;
+    - the host-status test still used the removed `/api/connect`, and ran against the
+      owner's real settings, where HTTPS is active.
+  - All three are fixed. The system tests now run with a throwaway `%LOCALAPPDATA%` with
+    HTTPS off, so they never touch the user's settings.
+  - That run didn't exercise the media port range: the new worker test and
+    `media-ports-check.mjs` were added afterwards.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
   - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware
