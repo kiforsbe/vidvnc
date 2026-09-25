@@ -24,9 +24,10 @@ may include breaking changes.
 
 - Removed the browser-credential explanation from the web sign-in form; registration still
   asks for a browser/client label, and the credential's security behavior is unchanged.
-- Refreshed the Internet-exposure security review against the current code, including the
-  approved browser/client credential and revocation boundaries, HTTPS sub-pages, diagnostics
-  isolation, F1/F3 code-level closure, and the still-open F6/remote-deployment blockers.
+- Re-audited Internet exposure through `8308b55` using a correctly configured,
+  SecRAC-compliant external interface as the primary scenario. The review separates actual
+  HTTPS/WebRTC exposure from conditional misconfiguration risks and identifies public-`Host`
+  compatibility and F8's unfixed “Local network” approval label.
 - Connection codes remain eight characters but no longer encode their purpose and exclude
   easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is intended for
   the host PC or an eligible local LAN subnet, not a public-scoped listener. The live server
