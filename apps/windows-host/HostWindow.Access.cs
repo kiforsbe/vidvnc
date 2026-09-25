@@ -35,9 +35,12 @@ public sealed partial class HostWindow
         remoteAccess = value.TryGetProperty("remoteAccess", out var remote) && remote.ValueKind == JsonValueKind.True;
         publicHostnames = value.TryGetProperty("publicHostnames", out var hosts) && hosts.ValueKind == JsonValueKind.Array
             ? hosts.EnumerateArray().Select(host => host.GetString() ?? "").Where(host => host.Length > 0).ToArray() : [];
-        publicPort = value.TryGetProperty("publicPort", out var port) && port.TryGetInt32(out var portNumber) ? portNumber : null;
+        // TryGetInt32 throws on anything but a number, and the server sends null for "not set".
+        publicPort = value.TryGetProperty("publicPort", out var port) && port.ValueKind == JsonValueKind.Number &&
+            port.TryGetInt32(out var portNumber) ? portNumber : null;
         mediaPorts = value.TryGetProperty("mediaPorts", out var ports) && ports.ValueKind == JsonValueKind.Object &&
-            ports.TryGetProperty("min", out var min) && ports.TryGetProperty("max", out var max) &&
+            ports.TryGetProperty("min", out var min) && min.ValueKind == JsonValueKind.Number &&
+            ports.TryGetProperty("max", out var max) && max.ValueKind == JsonValueKind.Number &&
             min.TryGetInt32(out var minPort) && max.TryGetInt32(out var maxPort) ? (minPort, maxPort) : null;
         UpdateSharingIndicator();
         accessRevision = value.GetProperty("revision").GetInt64();
