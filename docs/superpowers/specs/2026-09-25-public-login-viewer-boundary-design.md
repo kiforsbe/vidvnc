@@ -1,6 +1,6 @@
 # Public login and protected viewer boundary
 
-Design agreed in conversation on 2026-09-25; written specification awaiting owner review. This addresses the public-web-page information exposure identified in the [Internet exposure review](../../security/internet-exposure-review-2026-09-24.md). It does not, by itself, approve Internet deployment.
+Approved in conversation on 2026-09-25 for implementation planning. This addresses the public-web-page information exposure identified in the [Internet exposure review](../../security/internet-exposure-review-2026-09-24.md). It does not, by itself, approve Internet deployment.
 
 ## The remaining problem
 
