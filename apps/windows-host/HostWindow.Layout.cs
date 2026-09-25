@@ -225,28 +225,39 @@ public sealed partial class HostWindow
         return new UriBuilder(uri) { Path = "/", Query = "", Fragment = $"key={Uri.EscapeDataString(key)}" }.Uri.AbsoluteUri;
     }
 
+    // Two views in one dialog, sized to fit without scrolling. The setup view picks the kind of
+    // code and generates it; the code view then shows its QR code large until Back returns to
+    // setup or Done closes the dialog.
     ContentDialog CreateConnectionDialog(string initialMode)
     {
-        var body = new StackPanel { Spacing = HostSpacing.Row };
-        body.Children.Add(Label("Use Safari on your iPhone, or a browser on another device on your local network."));
+        var body = new StackPanel { Spacing = HostSpacing.Row, Tag = "connection-setup" };
+        body.Children.Add(Secondary("Use Safari on your iPhone, or a browser on another device on your local network."));
         var type = new ComboBox { Header = "Connection type", Tag = "connection-type", HorizontalAlignment = HorizontalAlignment.Stretch };
         if (connectionMode == "session-key") type.Items.Add(new ComboBoxItem { Content = "Use session key", Tag = "session-key" });
         if (connectionMode != "approved-only") type.Items.Add(new ComboBoxItem { Content = "Create one-time key", Tag = "one-time-key" });
         type.Items.Add(new ComboBoxItem { Content = "Approve this client", Tag = "approved-client" });
-        body.Children.Add(type);
         var alphabet = new ComboBox { Header = "Code characters", Tag = "code-alphabet", HorizontalAlignment = HorizontalAlignment.Stretch };
         alphabet.Items.Add(new ComboBoxItem { Content = "Letters and numbers (recommended)", Tag = "letters-digits" });
         alphabet.Items.Add(new ComboBoxItem { Content = "Letters only", Tag = "letters" });
         alphabet.SelectedIndex = 0;
-        body.Children.Add(alphabet);
+        var choices = new Grid { ColumnSpacing = HostSpacing.Row };
+        choices.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        choices.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        choices.Children.Add(type);
+        Grid.SetColumn(alphabet, 1); choices.Children.Add(alphabet);
+        body.Children.Add(choices);
         var generate = new Button { Content = "Generate code", Tag = "generate-code" };
         generate.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        body.Children.Add(generate);
-        var mode = new StackPanel { Spacing = HostSpacing.Row, Tag = "connection-mode" };
+        var showQr = new Button { Content = "Show QR code", Tag = "show-qr" };
+        var mode = new StackPanel { Spacing = HostSpacing.Related, Tag = "connection-mode" };
         body.Children.Add(mode);
+        var dialog = new ContentDialog { Title = "Connect a device", Content = body,
+            CloseButtonText = "Done", XamlRoot = navigation.XamlRoot };
         TextBlock? expiryText = null;
+        // The code on screen, for the code view: key, what scanning does, and when it expires.
+        (string Key, string Description, long? Expires)? current = null;
 
-        void AddCopyField(string header, string value, bool prominent = false)
+        void AddCopyField(Panel target, string header, string value, bool prominent = false)
         {
             var row = new Grid { ColumnSpacing = HostSpacing.Related, RowSpacing = HostSpacing.Small };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -264,47 +275,67 @@ public sealed partial class HostWindow
             var copy = CopyButton($"Copy {header.ToLowerInvariant()}", () => field.Text ?? "");
             copy.Height = fieldHeight; copy.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(copy, 1); Grid.SetRow(copy, 1); row.Children.Add(copy);
-            mode.Children.Add(row);
+            target.Children.Add(row);
         }
 
-        void AddConnectionQr(string key, string description)
+        string ExpiryLabel(long expiresAt) => $"Expires in {Math.Max(0, (expiresAt - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 999) / 1000)} seconds. Single use.";
+        string CurrentExpiryLabel(long expires) => ExpiryLabel(expires) +
+            ((type.SelectedItem as ComboBoxItem)?.Tag as string == "approved-client" ? " The client still needs your approval." : "");
+
+        void ShowSetup() { dialog.Content = body; RenderMode(); }
+
+        // The code view: the QR code large, the key beside the address it opens, and Back.
+        void ShowCode()
         {
-            string url;
-            try { url = ConnectionQrUrl(address.Text, key); }
-            catch (ArgumentException)
-            {
-                mode.Children.Add(Secondary("Could not generate a QR code because the connection address is unavailable."));
-                return;
-            }
-            mode.Children.Add(Secondary(description));
-            var image = new Image
-            {
-                Width = 236,
-                Height = 236,
-                Tag = "connection-qr-image",
-                HorizontalAlignment = HorizontalAlignment.Center,
-            };
-            mode.Children.Add(image);
-            var qrFailure = Secondary("Could not generate the QR code. Open the address above and enter the key instead.");
+            if (current is not { } code) { ShowSetup(); return; }
+            var view = new StackPanel { Spacing = HostSpacing.Row, Tag = "qr-view" };
+            var columns = new Grid { ColumnSpacing = HostSpacing.Page };
+            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var qr = new StackPanel { Spacing = HostSpacing.Related };
+            string? url = null;
+            try { url = ConnectionQrUrl(address.Text, code.Key); } catch (ArgumentException) { }
+            var qrFailure = Secondary("Could not generate the QR code. Open the address and enter the key instead.");
             qrFailure.Tag = "connection-qr-failure";
-            qrFailure.Visibility = Visibility.Collapsed;
-            mode.Children.Add(qrFailure);
-            _ = ApplyQrSource(image, url, qrFailure);
+            if (url is not null)
+            {
+                var image = new Image { Width = 280, Height = 280, Tag = "connection-qr-image" };
+                qr.Children.Add(image);
+                qrFailure.Visibility = Visibility.Collapsed;
+                _ = ApplyQrSource(image, url, qrFailure);
+            }
+            qr.Children.Add(qrFailure);
+            columns.Children.Add(qr);
+            var details = new StackPanel { Spacing = HostSpacing.Related, VerticalAlignment = VerticalAlignment.Center };
+            details.Children.Add(Label(code.Description, 15));
+            AddCopyField(details, "Key", code.Key, true);
+            AddCopyField(details, "Connection address", address.Text);
+            expiryText = code.Expires is long expires ? Secondary(CurrentExpiryLabel(expires), 12) : null;
+            if (expiryText is not null) details.Children.Add(expiryText);
+            Grid.SetColumn(details, 1); columns.Children.Add(details);
+            view.Children.Add(columns);
+            var back = new Button { Content = "Back", Tag = "qr-back" };
+            back.Click += (_, _) => ShowSetup();
+            view.Children.Add(back);
+            dialog.Content = view;
         }
 
         void RenderMode()
         {
-            mode.Children.Clear(); expiryText = null; AddCopyField("Connection address", address.Text);
+            if (dialog.Content != body) { if (current is not null) ShowCode(); return; }
+            mode.Children.Clear(); expiryText = null; current = null;
             var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
             generate.Content = selectedMode == "session-key" ? "Regenerate session password" :
                 selectedMode == "approved-client" ? "Generate client-registration code" : "Generate one-time code";
+            AddCopyField(mode, "Connection address", address.Text);
             if (selectedMode == "session-key")
             {
-                AddCopyField("Session password", password.Text, true);
-                mode.Children.Add(Secondary("Use this password for an ordinary connection. It remains valid while this sharing instance runs."));
+                AddCopyField(mode, "Session password", password.Text, true);
+                mode.Children.Add(Secondary("Reusable while this sharing instance runs.", 12));
                 if (sessionPasswordLocked) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
                     Severity = InfoBarSeverity.Warning, Message = "Session password attempts are exhausted. Regenerate it to admit new local connections." });
-                AddConnectionQr(password.Text, "Scan this with the device to open VidVNC and enter this password automatically.");
+                if (!string.IsNullOrEmpty(password.Text))
+                    current = (password.Text, "Scan to open VidVNC with this session password filled in.", null);
             }
             else if (selectedMode == "one-time-key")
             {
@@ -312,12 +343,12 @@ public sealed partial class HostWindow
                     Severity = InfoBarSeverity.Warning, Message = "Code attempts are exhausted. Generate a new one-time code." });
                 if (HasCurrentOneTimeKey())
                 {
-                    AddCopyField("One-time connection key", oneTimeConnectionKey!, true);
-                    expiryText = Secondary(ExpiryLabel(oneTimeConnectionExpiresAt!.Value));
+                    AddCopyField(mode, "One-time connection key", oneTimeConnectionKey!, true);
+                    expiryText = Secondary(ExpiryLabel(oneTimeConnectionExpiresAt!.Value), 12);
                     mode.Children.Add(expiryText);
-                    AddConnectionQr(oneTimeConnectionKey!, "Scan this with the device to open VidVNC and connect with this one-time key.");
+                    current = (oneTimeConnectionKey!, "Scan to open VidVNC and connect with this one-time key.", oneTimeConnectionExpiresAt);
                 }
-                else mode.Children.Add(Secondary("Select Generate one-time code to create a short-lived, single-use key."));
+                else mode.Children.Add(Secondary("Generate a short-lived, single-use key.", 12));
             }
             else
             {
@@ -325,37 +356,48 @@ public sealed partial class HostWindow
                     Severity = InfoBarSeverity.Warning, Message = "Code attempts are exhausted. Generate a new client-registration code." });
                 if (HasCurrentClientSetupKey())
                 {
-                    AddCopyField("Client setup key", clientSetupKey!, true);
-                    expiryText = Secondary(ExpiryLabel(clientSetupExpiresAt!.Value) + " The client still needs your approval.");
+                    AddCopyField(mode, "Client setup key", clientSetupKey!, true);
+                    expiryText = Secondary(ExpiryLabel(clientSetupExpiresAt!.Value) + " The client still needs your approval.", 12);
                     mode.Children.Add(expiryText);
-                    AddConnectionQr(clientSetupKey!, "Scan this with the device to open VidVNC and start client approval with this key.");
+                    current = (clientSetupKey!, "Scan to open VidVNC and start client approval with this key.", clientSetupExpiresAt);
                 }
-                else mode.Children.Add(Secondary("Select Generate client-registration code to create a short-lived, single-use key."));
+                else mode.Children.Add(Secondary("Generate a short-lived, single-use key. The client still needs your approval.", 12));
             }
             if (clientError is not null) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
                 Severity = InfoBarSeverity.Error, Message = clientError });
-            mode.Children.Add(Secondary(ConnectionSecurityNote()));
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related,
+                Margin = new Thickness(0, HostSpacing.Small, 0, 0) };
+            (generate.Parent as Panel)?.Children.Remove(generate);
+            (showQr.Parent as Panel)?.Children.Remove(showQr);
+            actions.Children.Add(generate);
+            showQr.IsEnabled = current is not null;
+            actions.Children.Add(showQr);
+            mode.Children.Add(actions);
+            mode.Children.Add(Secondary(ConnectionSecurityNote(), 12));
         }
 
-        string ExpiryLabel(long expiresAt) => $"Expires in {Math.Max(0, (expiresAt - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 999) / 1000)} seconds. Single use.";
-
         type.SelectionChanged += (_, _) => RenderMode();
+        showQr.Click += (_, _) => ShowCode();
         generate.Click += async (_, _) =>
         {
             var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
             var selectedAlphabet = (alphabet.SelectedItem as ComboBoxItem)?.Tag as string ?? "letters-digits";
             generate.IsEnabled = false;
+            var generated = false;
             try
             {
                 if (selectedMode == "one-time-key") await RequestOneTimeConnectionKey(selectedAlphabet);
                 else if (selectedMode == "approved-client") await RequestClientSetupKey(selectedAlphabet);
                 else await RotateSessionPassword(selectedAlphabet);
+                generated = true;
             }
             catch (Exception error) when (error is IOException or InvalidOperationException)
             {
                 clientError = error.Message;
             }
             finally { generate.IsEnabled = true; RenderMode(); }
+            // A newly generated code goes straight to its QR code.
+            if (generated && current is not null) ShowCode();
         };
         var selectedMode = initialMode == "connect-once"
             ? connectionMode == "one-time-keys" ? "one-time-key" : connectionMode == "approved-only" ? "approved-client" : "session-key"
@@ -363,24 +405,20 @@ public sealed partial class HostWindow
         type.SelectedItem = type.Items.OfType<ComboBoxItem>().First(item => item.Tag as string == selectedMode);
         RenderMode();
         refreshConnectionDialog = RenderMode;
-        var dialog = new ContentDialog { Title = "Connect a device", Content = body,
-            CloseButtonText = "Done", XamlRoot = navigation.XamlRoot };
         var expiryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         expiryTimer.Tick += (_, _) =>
         {
+            // An expired code is useless, so its QR code goes too.
             if (oneTimeConnectionKey is not null && !HasCurrentOneTimeKey())
-            { oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null; RenderMode(); }
+            { oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null; ShowSetup(); }
             if (clientSetupKey is not null && !HasCurrentClientSetupKey())
-            { clientSetupKey = null; clientSetupExpiresAt = null; RenderMode(); }
-            var currentExpiry = (type.SelectedItem as ComboBoxItem)?.Tag as string == "approved-client"
-                ? clientSetupExpiresAt : oneTimeConnectionExpiresAt;
-            if (expiryText is not null && currentExpiry is long expires)
-                expiryText.Text = ExpiryLabel(expires) + ((type.SelectedItem as ComboBoxItem)?.Tag as string == "approved-client"
-                    ? " The client still needs your approval." : "");
+            { clientSetupKey = null; clientSetupExpiresAt = null; ShowSetup(); }
+            if (expiryText is not null && current is { Expires: long expires })
+                expiryText.Text = CurrentExpiryLabel(expires);
         };
         dialog.Opened += (_, _) => expiryTimer.Start();
         dialog.Closed += (_, _) => { expiryTimer.Stop(); if (refreshConnectionDialog == RenderMode) refreshConnectionDialog = null; };
-        dialog.Resources["ContentDialogMaxWidth"] = 560d;
+        dialog.Resources["ContentDialogMaxWidth"] = 720d;
         return dialog;
     }
 

@@ -154,27 +154,42 @@ public partial class App : Application
                                     throw new Exception("Connection QR links must keep the secret out of the request URL");
                                 var onceDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "connect-once" })!;
                                 var onceBody = (StackPanel)onceDialog.Content;
-                                var alphabet = onceBody.Children.OfType<ComboBox>()
+                                var alphabet = Descendants(onceBody).OfType<ComboBox>()
                                     .Single(control => Equals(control.Tag, "code-alphabet"));
-                                var generate = onceBody.Children.OfType<Button>()
+                                var generate = Descendants(onceBody).OfType<Button>()
                                     .Single(control => Equals(control.Tag, "generate-code"));
                                 if (alphabet.SelectedIndex != 0) throw new Exception("Letters and numbers must be the default");
                                 if (!generate.IsEnabled) throw new Exception("Code issuance requires an owner action");
-                                var onceSelector = onceBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
-                                var oncePanel = onceBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
+                                var onceSelector = Descendants(onceBody).OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
+                                var oncePanel = Descendants(onceBody).OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
                                 if (!onceSelector.Items.OfType<ComboBoxItem>().Select(item => item.Tag as string).SequenceEqual(new[] { "session-key", "one-time-key", "approved-client" }) ||
                                     ((onceSelector.SelectedItem as ComboBoxItem)?.Tag as string) != "session-key" ||
                                     !Descendants(oncePanel).OfType<TextBox>().Any(control => control.Tag as string == "Connection address" && control.Text == "http://192.168.50.47:4382") ||
                                     !Descendants(oncePanel).OfType<TextBox>().Any(control => control.Tag as string == "Session password" && control.Text == "NLYJ-LGFN"))
                                     throw new Exception("Connect-once mode lost the current address or Session password");
-                                if (!Descendants(oncePanel).OfType<Image>().Any(image => image.Tag as string == "connection-qr-image"))
-                                    throw new Exception("Connect-once mode must offer a scannable connection QR code");
+                                if (Descendants(onceBody).OfType<Image>().Any())
+                                    throw new Exception("The setup view must stay compact; the QR code has its own view");
+                                var showQr = Descendants(oncePanel).OfType<Button>().Single(button => Equals(button.Tag, "show-qr"));
+                                if (!showQr.IsEnabled) throw new Exception("A current session password must offer its QR code");
+                                var showQrPeer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(showQr);
+                                ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)showQrPeer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                                await Task.Delay(80);
+                                if (onceDialog.Content is not StackPanel qrView || !Equals(qrView.Tag, "qr-view") ||
+                                    !Descendants(qrView).OfType<Image>().Any(image => Equals(image.Tag, "connection-qr-image")) ||
+                                    !Descendants(qrView).OfType<TextBox>().Any(control => Equals(control.Tag, "Key") && control.Text == "NLYJ-LGFN"))
+                                    throw new Exception("Show QR code must replace the setup view with a prominent QR code and its key");
+                                var qrBack = Descendants(qrView).OfType<Button>().Single(button => Equals(button.Tag, "qr-back"));
+                                var qrBackPeer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(qrBack);
+                                ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)qrBackPeer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                                await Task.Delay(80);
+                                if (onceDialog.Content != onceBody)
+                                    throw new Exception("Back must close only the QR code and return to the setup view");
                                 if (Descendants(oncePanel).OfType<Button>().Count(button =>
                                     Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button)?.StartsWith("Copy ") == true && button.Content is FontIcon) != 2)
                                     throw new Exception("Copy actions must be compact accessible icon buttons beside their fields");
                                 onceSelector.SelectedItem = onceSelector.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, "one-time-key"));
                                 if (Descendants(oncePanel).OfType<TextBox>().Any(control => Equals(control.Tag, "One-time connection key")) ||
-                                    Descendants(oncePanel).OfType<Image>().Any(image => Equals(image.Tag, "connection-qr-image")))
+                                    Descendants(oncePanel).OfType<Button>().Single(button => Equals(button.Tag, "show-qr")).IsEnabled)
                                     throw new Exception("Switching to a one-time key must not issue a code");
                                 var updateCodeStatus = typeof(HostWindow).GetMethod("UpdateCodeStatus", flags)!;
                                 using (var lockedCode = JsonDocument.Parse("{\"codes\":{\"ephemeral\":{\"locked\":true},\"session\":{\"locked\":false}}}"))
@@ -185,7 +200,7 @@ public partial class App : Application
                                     updateCodeStatus.Invoke(window, new object[] { unlockedCode.RootElement });
                                 onceSelector.SelectedItem = onceSelector.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, "approved-client"));
                                 if (Descendants(oncePanel).OfType<TextBox>().Any(control => Equals(control.Tag, "Client setup key")) ||
-                                    Descendants(oncePanel).OfType<Image>().Any(image => Equals(image.Tag, "connection-qr-image")))
+                                    Descendants(oncePanel).OfType<Button>().Single(button => Equals(button.Tag, "show-qr")).IsEnabled)
                                     throw new Exception("Switching to client registration must not issue a code");
 
                                 var ownerStart = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
@@ -207,14 +222,14 @@ public partial class App : Application
                                 await setupTask;
                                 var approvalDialog = (ContentDialog)createConnectionDialog.Invoke(window, new object[] { "approved-client" })!;
                                 var approvalBody = (StackPanel)approvalDialog.Content;
-                                var approvalSelector = approvalBody.Children.OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
-                                var approvalPanel = approvalBody.Children.OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
+                                var approvalSelector = Descendants(approvalBody).OfType<ComboBox>().Single(control => control.Tag as string == "connection-type");
+                                var approvalPanel = Descendants(approvalBody).OfType<StackPanel>().Single(panel => panel.Tag as string == "connection-mode");
                                 var setupKey = Descendants(approvalPanel).OfType<TextBox>().SingleOrDefault(control => control.Tag as string == "Client setup key");
                                 if (((approvalSelector.SelectedItem as ComboBoxItem)?.Tag as string) != "approved-client" || setupKey is null || !setupKey.IsReadOnly ||
                                     !System.Text.RegularExpressions.Regex.IsMatch(setupKey.Text, "^[A-Z]{4}-[A-Z]{4}$") ||
                                     Descendants(approvalPanel).OfType<TextBox>().Any(control => control.Text == "NLYJ-LGFN") ||
                                     !approvalPanel.Children.OfType<TextBlock>().Any(text => text.Text.Contains("Single use")) ||
-                                    !Descendants(approvalPanel).OfType<Image>().Any(image => image.Tag as string == "connection-qr-image"))
+                                    !Descendants(approvalPanel).OfType<Button>().Single(button => Equals(button.Tag, "show-qr")).IsEnabled)
                                     throw new Exception("Approved-client mode must hide the Session password and show its server-issued single-use key");
                                 var disconnectOrdinary = typeof(HostWindow).GetMethod("DisconnectOrdinarySessions", flags)!;
                                 var disconnectTask = (Task)disconnectOrdinary.Invoke(window, null)!;
