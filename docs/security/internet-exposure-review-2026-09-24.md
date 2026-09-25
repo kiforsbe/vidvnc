@@ -1,5 +1,9 @@
 # Internet exposure security review — current implementation
 
+> Superseded for branch `claude/remote-access-on-main` by the
+> [2026-09-25 review](internet-exposure-review-2026-09-25.md), which covers the remote access
+> mode and its media path.
+
 Reviewed 2026-09-25 through `8308b55`. This is a source and regression review of the Windows host, Node HTTP/HTTPS and diagnostics servers, browser client, and native WebRTC worker. The primary assessment below assumes a competent operator satisfies the [Security-Related Application Conditions (SecRACs)](internet-exposure-remediation-proposals-2026-09-23.md); configuration failures are separated from defects that remain under that assumption. This is **not** an Internet penetration test or approval to expose the service remotely. The [2026-09-23 review](internet-exposure-review-2026-09-23.md) is a historical baseline. The [implementation status](internet-exposure-hardening-status-2026-09-24.md) records selected hardening; [remediation proposals](internet-exposure-remediation-proposals-2026-09-23.md) are options, not a selected remote deployment profile.
 
 ## Bottom line

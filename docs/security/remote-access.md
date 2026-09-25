@@ -98,6 +98,11 @@ Windows asks when the first stream starts, allow it on the network profile your 
 
 ## Limits you should know
 
+The [2026-09-25 security review](internet-exposure-review-2026-09-25.md) lists what is still
+open. Two of those findings matter most in practice: an outsider can temporarily block
+approved-device sign-in by flooding it (R1), and a router that rewrites the source address of
+forwarded connections makes internet clients look local (R2).
+
 - **Device credentials can be copied.** An approved device's secret lives in the browser.
   Someone with that secret **and** the password can sign in as that device. Use a strong
   password, and remove devices you've lost.
