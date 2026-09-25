@@ -22,6 +22,10 @@ import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
 import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
+import { ensureCertificate } from './tls/ensure-certificate.mjs';
+import { localAddresses } from './tls/local-addresses.mjs';
+import { createPeerNetwork } from './peer-network.mjs';
+import { isIP } from 'node:net';
 import {
   attemptAndAnnounce,
   connectionAddresses,
@@ -104,7 +108,9 @@ async function serve() {
       admission,
     });
     const codeIssuer = createCodeIssuer({ access, sessionStore: store, admission });
+    const peerNetwork = createPeerNetwork();
     runtime = new StreamRuntime({
+      isInternet: (address) => peerNetwork.isInternet(address),
       sessions: store,
       media,
       inventory,
@@ -128,7 +134,24 @@ async function serve() {
     // TLS and the narrow HTTP listeners share one handler and admission state. The TLS
     // callback is invoked only after HTTP stack construction, so the reference is lazy.
     let httpStack;
+    // With remote access on, the certificate must also name the public hosts, or internet
+    // devices get a name mismatch. Every strategy reads its names through `localAddresses`,
+    // so adding them there is enough; a certificate that no longer covers them is reissued.
+    const certificateAddresses = () => {
+      const local = localAddresses();
+      const settings = access.snapshot();
+      if (!settings.remoteAccess) return local;
+      return {
+        ...local,
+        hostnames: [
+          ...new Set([...local.hostnames, ...settings.publicHostnames.filter((n) => !isIP(n))]),
+        ],
+        ips: [...new Set([...local.ips, ...settings.publicHostnames.filter((n) => isIP(n))])],
+      };
+    };
     const tlsListener = createTlsListener({
+      ensureCertificate: (settings, deps) =>
+        ensureCertificate(settings, { ...deps, localAddresses: certificateAddresses }),
       settings: tlsSettings,
       requestListener: (request, response) => httpStack.app.requestListener(request, response),
       host: hostPreference,
@@ -157,6 +180,7 @@ async function serve() {
         },
         tls: tlsListener,
         plaintextMode,
+        peerNetwork,
       },
       log: serverLog,
     });
@@ -253,6 +277,26 @@ async function serve() {
         },
         log: serverLog,
       });
+    // Remote access and its public names change what the certificate must cover, so a change
+    // re-checks it now rather than at the next six-hourly re-check. Remote access with HTTPS
+    // off serves no internet device at all, which the log says plainly.
+    const warnRemoteWithoutTls = () => {
+      if (access.snapshot().remoteAccess && tlsSettings.mode === 'off')
+        serverLog(
+          'Remote access is on but HTTPS is off, so internet devices cannot connect. Set tls-mode to auto or provided.',
+        );
+    };
+    access.onChange((next, previous) => {
+      if (
+        stopping ||
+        (next.remoteAccess === previous.remoteAccess &&
+          JSON.stringify(next.publicHostnames) === JSON.stringify(previous.publicHostnames))
+      )
+        return;
+      warnRemoteWithoutTls();
+      if (next.remoteAccess && tlsSettings.mode !== 'off') attemptTls();
+    });
+    warnRemoteWithoutTls();
     inventoryTimer = setInterval(async () => {
       if (stopping || refreshing) return;
       refreshing = true;
@@ -535,7 +579,14 @@ async function serve() {
                   }),
                 );
               const changes = Object.fromEntries(
-                ['defaultControl', 'connectionMode', 'maxSessions', 'publicName']
+                [
+                  'defaultControl',
+                  'connectionMode',
+                  'maxSessions',
+                  'publicName',
+                  'remoteAccess',
+                  'publicHostnames',
+                ]
                   .filter((key) => command[key] !== undefined)
                   .map((key) => [key, command[key]]),
               );

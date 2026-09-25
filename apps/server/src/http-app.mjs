@@ -15,6 +15,7 @@ import {
   ENROLMENT_UNKNOWN,
 } from './tls/anchor.mjs';
 import { applyServerLimits } from './server-limits.mjs';
+import { createPeerNetwork } from './peer-network.mjs';
 import { createLocalSessionScope } from './local-session-scope.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
@@ -142,6 +143,13 @@ async function readJson(request) {
     throw Object.assign(new Error('Expected JSON object'), { status: 400 });
   return value;
 }
+// Routes an internet client never reaches, even with remote access on: `/api/key-start`
+// takes a short code (the standing password, a one-time code or a setup code), so internet
+// admission is approved-device sign-in only. Device setup therefore happens on the local
+// network, like certificate enrolment (already local-only through TRUST_ONLY_PATHS).
+export const INTERNET_REFUSED_PATHS = Object.freeze(['/api/key-start']);
+const HSTS_MAX_AGE_SECONDS = 180 * 24 * 60 * 60;
+
 export function createHttpApp({
   serverName = 'This PC',
   display = null,
@@ -169,6 +177,8 @@ export function createHttpApp({
   // only reads whatever status it is handed.
   tls = null,
   plaintextMode = tls ? 'https-required' : 'lan-http',
+  // Tells internet clients from local and private-network ones (peer-network.mjs).
+  peerNetwork = createPeerNetwork({ interfaces }),
 } = {}) {
   if (!['local', 'public'].includes(listenerScope)) throw new Error('Invalid listener scope');
   if (!['lan-http', 'https-required'].includes(plaintextMode))
@@ -182,8 +192,24 @@ export function createHttpApp({
   const ordinaryKeyAllowed = (purpose) =>
     (purpose === 'session' && connectionMode() === 'session-key') ||
     (purpose === 'one-time-connection' && connectionMode() !== 'approved-only');
+  const remoteAccess = () => access?.snapshot().remoteAccess === true;
+  // A configured public name, as a parsed URL hostname (lowercase, IPv6 in brackets). They
+  // count only while remote access is on.
+  const isPublicHost = (host) =>
+    remoteAccess() &&
+    access
+      .snapshot()
+      .publicHostnames.some((name) => (isIP(name) === 6 ? `[${name}]` : name) === host);
+  // What the owner sees next to a pending registration's approve button.
+  const registrationNetwork = (peer) =>
+    localSessionScope.allows(peer, 'local')
+      ? 'Local network'
+      : peerNetwork.isInternet(peer)
+        ? 'Internet'
+        : 'Private network (not this LAN)';
   const allowedHost = (host) => {
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
+    if (isPublicHost(host)) return true;
     for (const row of Object.values(interfaces()).flat()) {
       if (!row?.address) continue;
       const candidate = isIP(row.address) === 6 ? `[${row.address}]` : row.address;
@@ -256,6 +282,14 @@ export function createHttpApp({
       "default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     );
     try {
+      // Internet clients first, so a refused one learns nothing else about the server. With
+      // remote access off they get nothing at all; with it on, nothing that takes a short
+      // code (they sign in as approved devices, set up on the local network). Private
+      // networks that are not this LAN, such as a VPN, are not the internet: they keep the
+      // ordinary rules below.
+      const internet = peerNetwork.isInternet(request.socket.remoteAddress);
+      if (internet && !remoteAccess())
+        return send(response, 403, { error: 'Remote access is off.' });
       const host = new URL(`http://${request.headers.host}`).hostname;
       if (!allowedHost(host)) return send(response, 403, { error: 'Use the server IP address.' });
       // The scheme is read from the socket, not from a client-supplied header (e.g.
@@ -306,6 +340,13 @@ export function createHttpApp({
       }
       if (!isAllowedOrigin(scheme, request.headers.host, request.headers.origin))
         return send(response, 403, { error: 'Cross-origin request denied' });
+      if (scheme === 'https' && isPublicHost(host))
+        response.setHeader('strict-transport-security', `max-age=${HSTS_MAX_AGE_SECONDS}`);
+      if (internet && INTERNET_REFUSED_PATHS.includes(route))
+        return send(response, 403, {
+          error:
+            'Codes and device setup work on the local network only. From the internet, sign in with an approved device.',
+        });
       const viewerFile = VIEWER_ASSETS.get(route);
       if (request.method === 'GET' && viewerFile) {
         const peer = request.socket.remoteAddress;
@@ -522,7 +563,9 @@ export function createHttpApp({
         try {
           const result = await approvedClients.submit({
             ...body,
-            network: listenerScope === 'public' ? 'Remote network' : 'Local network',
+            // From the peer actually registering, never from which listener it used: both
+            // listeners share this handler, so the listener says nothing about the peer.
+            network: registrationNetwork(peer),
           });
           return send(response, 202, result);
         } catch (error) {

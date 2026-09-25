@@ -203,6 +203,8 @@ test('access shows and saves the default for new connections', async (t) => {
     defaultCodeAlphabet: 'letters-digits',
     localSessionNetworks: 'auto',
     publicName: 'VidVNC host',
+    remoteAccess: false,
+    publicHostnames: [],
   });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
 });
@@ -777,4 +779,22 @@ test('live-only session commands are rejected offline with a hint', async (t) =>
     /^Usage: grant <session>\n.+\nAvailable only in the running server console\.$/,
   );
   assert.doesNotMatch((await run('help')).text, /^ {2}config sessions$/m);
+});
+
+test('remote-access needs a public name first, and public-hosts cannot clear it while on', async (t) => {
+  const { run } = await offline(t);
+  assert.match((await run('remote-access')).text, /^Remote access: off/);
+  await assert.rejects(run('remote-access on'), usage(/^Set the name or address/));
+  await assert.rejects(
+    run('public-hosts http://x.example'),
+    usage(/is not a DNS name or IP address/),
+  );
+  assert.equal(
+    (await run('public-hosts VNC.example.com 203.0.113.10')).text,
+    'Public names: vnc.example.com, 203.0.113.10',
+  );
+  assert.match((await run('remote-access on')).text, /https:\/\/vnc\.example\.com:/);
+  await assert.rejects(run('public-hosts clear'), usage(/^Turn remote access off first/));
+  await run('remote-access off');
+  assert.equal((await run('public-hosts clear')).text, 'Public names: none');
 });

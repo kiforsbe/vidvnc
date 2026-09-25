@@ -30,6 +30,8 @@ const script = [
   'code-alphabet letters',
   'local-session-networks 192.168.50.0/24',
   'public-name "Office PC"',
+  'public-hosts vnc.example.com 203.0.113.10',
+  'remote-access on',
   'profile add "Office desk"',
   'profile edit office-desk --name Office --description "Desk monitor" --size 2560x1440 --fps 60 --bitrate 12000',
   'profile edit office-desk --bitrate-mode vbr --quality high',

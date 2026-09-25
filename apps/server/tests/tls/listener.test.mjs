@@ -652,6 +652,7 @@ test('the TLS server carries the same connection limits as the plaintext server,
     requestTimeout: 15000,
     headersTimeout: 10000,
     maxConnections: 32,
+    maxConnectionsPerSource: 12,
   });
   // ...and parity with what the plaintext server actually carries, so the two cannot drift.
   assert.equal(secure.requestTimeout, app.requestTimeout);

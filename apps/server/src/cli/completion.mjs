@@ -54,6 +54,8 @@ const ARGUMENTS = {
   codecs: [() => ['set'], () => VIDEO_CODECS],
   'encoder-backend': [() => [...ENCODER_BACKEND_CHOICES]],
   access: [() => ['approval', 'available']],
+  'remote-access': [() => ON_OFF],
+  'public-hosts': [() => ['clear']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],
   'code-alphabet': [() => ['letters-digits', 'letters']],
   'local-session-networks': [() => ['auto']],

@@ -10,7 +10,12 @@ import {
   formatDisplays,
   formatMaxSessions,
 } from '../format.mjs';
-import { MAX_SESSIONS_LIMIT, validNetworkCidr } from '../../access-settings.mjs';
+import {
+  MAX_PUBLIC_HOSTNAMES,
+  MAX_SESSIONS_LIMIT,
+  normalizePublicHostname,
+  validNetworkCidr,
+} from '../../access-settings.mjs';
 import { CODEC_LABELS, VIDEO_CODECS } from '../../video-codecs.mjs';
 import { BACKEND_LABELS, ENCODER_BACKEND_CHOICES } from '../../encoder-backends.mjs';
 import { resolveDisplay, resolveProfile } from '../resolve.mjs';
@@ -41,7 +46,66 @@ function numberSetting(name, field, label, minimum, maximum) {
   };
 }
 
+const formatPublicHostnames = (access) =>
+  `Public names: ${access.publicHostnames.length ? access.publicHostnames.join(', ') : 'none'}`;
+const formatRemoteAccess = (access) =>
+  access.remoteAccess
+    ? [
+        'Remote access: on',
+        `Internet devices use https://${access.publicHostnames[0]}:<HTTPS port>/ and must be approved devices.`,
+        'Codes, device setup and certificate enrolment still work on the local network only.',
+      ].join('\n')
+    : 'Remote access: off. Devices with an internet address are refused.';
+
 const securitySettingsCommands = [
+  {
+    name: 'public-hosts',
+    usage: 'public-hosts [clear|<name-or-ip>...]',
+    summary: 'Show or set the names and addresses internet devices use to reach this PC.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, MAX_PUBLIC_HOSTNAMES);
+      let access = context.access();
+      if (positionals.length) {
+        const names =
+          positionals.length === 1 && positionals[0] === 'clear'
+            ? []
+            : positionals.map((value) => {
+                const name = normalizePublicHostname(value);
+                if (!name)
+                  throw new UsageError(
+                    `${clean(value)} is not a DNS name or IP address. Use a name like vnc.example.com or an address like 203.0.113.10.`,
+                  );
+                return name;
+              });
+        if (!names.length && access.remoteAccess)
+          throw new UsageError('Turn remote access off first: it needs at least one public name.');
+        access = await context.saveAccess({ publicHostnames: [...new Set(names)] });
+      }
+      return { text: formatPublicHostnames(access), data: access };
+    },
+  },
+  {
+    name: 'remote-access',
+    usage: 'remote-access [on|off]',
+    summary: 'Show or set whether devices on the internet may connect.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      let access = context.access();
+      if (positionals.length) {
+        const enabled = onOff(positionals[0]);
+        if (enabled && !access.publicHostnames.length)
+          throw new UsageError(
+            'Set the name or address internet devices will use first, for example: public-hosts vnc.example.com',
+          );
+        access = await context.saveAccess({ remoteAccess: enabled });
+      }
+      return { text: formatRemoteAccess(access), data: access };
+    },
+  },
   {
     name: 'public-name',
     usage: 'public-name [name]',

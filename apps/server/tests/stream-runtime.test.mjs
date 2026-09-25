@@ -71,7 +71,13 @@ async function setup(
   t,
   defaultControl = 'approval',
   approvedClients = undefined,
-  { registry, videoCodecs = ['av1', 'h265', 'h264'], videoBackends, ...mediaOptions } = {},
+  {
+    registry,
+    videoCodecs = ['av1', 'h265', 'h264'],
+    videoBackends,
+    isInternet,
+    ...mediaOptions
+  } = {},
 ) {
   const { StreamRuntime } = await import('../src/stream-runtime.mjs');
   const sessions = new SessionStore({ maxSessions: 2 });
@@ -111,6 +117,7 @@ async function setup(
     ...(registry ? { registry } : {}),
     videoCodecs,
     videoBackends: videoBackends ?? nvencBackends(videoCodecs),
+    ...(isInternet ? { isInternet } : {}),
   });
   t.after(() => runtime.shutdown());
   const a = sessions.connect(sessions.password, 'a').sessionId;
@@ -189,6 +196,34 @@ test('approved-client overrides replace the Access default for that client', asy
   const stream = await offer(allowed);
   await runtime.selectStream(allowed, stream.streamId);
   assert.equal(runtime.control.owner?.sessionId, allowed);
+});
+
+test('an internet client asks for control despite the available default, unless its device allows it', async (t) => {
+  const permissions = { plain: 'default', trusted: 'available' };
+  const approvedClients = {
+    authorization: (id) =>
+      permissions[id] ? { id, generation: 0, permission: permissions[id] } : null,
+  };
+  const { runtime, sessions, a, b, offer } = await setup(t, 'available', approvedClients, {
+    isInternet: (address) => address.startsWith('internet'),
+  });
+  for (const id of [a, b]) {
+    sessions.disconnect(id);
+    await runtime.stopSession(id);
+  }
+  const plain = sessions.connectApproved({ id: 'plain', generation: 0 }, 'internet-1').sessionId;
+  const stream = await offer(plain);
+  await runtime.selectStream(plain, stream.streamId);
+  assert.equal(runtime.control.owner, null);
+  sessions.disconnect(plain);
+  await runtime.stopSession(plain);
+  const trusted = sessions.connectApproved(
+    { id: 'trusted', generation: 0 },
+    'internet-2',
+  ).sessionId;
+  const trustedStream = await offer(trusted);
+  await runtime.selectStream(trusted, trustedStream.streamId);
+  assert.equal(runtime.control.owner?.sessionId, trusted);
 });
 
 test('downgrade before first selection cancels an approved client automatic grant', async (t) => {

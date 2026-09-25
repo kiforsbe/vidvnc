@@ -47,6 +47,8 @@ test('the connected-device limit is saved alone and bounded to what the host can
     defaultCodeAlphabet: 'letters-digits',
     localSessionNetworks: 'auto',
     publicName: 'VidVNC host',
+    remoteAccess: false,
+    publicHostnames: [],
   });
   assert.equal((await AccessSettings.open(file)).snapshot().maxSessions, 8);
   for (const maxSessions of [0, 9, 2.5, '3', null])
@@ -72,6 +74,8 @@ test('old access settings default to session-key admission and four devices', as
     defaultCodeAlphabet: 'letters-digits',
     localSessionNetworks: 'auto',
     publicName: 'VidVNC host',
+    remoteAccess: false,
+    publicHostnames: [],
   });
 });
 
@@ -132,4 +136,46 @@ test('short-code policy defaults and rejects settings that weaken its fixed boun
   assert.deepEqual((await AccessSettings.open(file)).snapshot(), saved);
   saved.localSessionNetworks.push('10.0.0.0/8');
   assert.deepEqual(store.snapshot().localSessionNetworks, ['192.168.50.0/24', 'fd12::/64']);
+});
+
+test('public names are normalized, and anything else is refused', async () => {
+  const { normalizePublicHostname } = await import('../src/access-settings.mjs');
+  assert.equal(normalizePublicHostname(' VNC.Example.com. '), 'vnc.example.com');
+  assert.equal(normalizePublicHostname('203.0.113.10'), '203.0.113.10');
+  assert.equal(normalizePublicHostname('[2001:DB8::1]'), '2001:db8::1');
+  for (const value of [
+    'localhost',
+    'bad_name.example',
+    '-x.example.com',
+    'a..b',
+    'http://vnc.example.com',
+    'vnc.example.com:4383',
+    '999.1.1.1',
+    '',
+    7,
+  ])
+    assert.equal(normalizePublicHostname(value), null, String(value));
+});
+
+test('remote access needs a public name, and saved changes reach listeners', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vidvnc-access-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await AccessSettings.open(join(dir, 'access.json'));
+  await assert.rejects(store.replace({ remoteAccess: true }, 0), /Invalid access settings/);
+  await assert.rejects(
+    store.replace({ publicHostnames: ['VNC.example.com'] }, 0),
+    /Invalid access settings/,
+    'callers store the normalized form',
+  );
+  const seen = [];
+  store.onChange((next, previous) => seen.push([previous.remoteAccess, next.remoteAccess]));
+  await store.replace({ publicHostnames: ['vnc.example.com'] }, 0);
+  const saved = await store.replace({ remoteAccess: true }, 1);
+  assert.equal(saved.remoteAccess, true);
+  assert.deepEqual(seen, [
+    [false, false],
+    [false, true],
+  ]);
+  saved.publicHostnames.push('changed.example.com');
+  assert.deepEqual(store.snapshot().publicHostnames, ['vnc.example.com'], 'snapshots are copies');
 });

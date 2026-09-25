@@ -21,7 +21,11 @@ export class StreamRuntime {
     clock = Date.now,
     videoCodecs = ['h264'],
     videoBackends = [],
+    // Whether a session's address is on the internet (peer-network.mjs). The default treats
+    // every client as local, which is what every caller without remote access means.
+    isInternet = () => false,
   }) {
+    this.isInternet = isInternet;
     Object.assign(this, {
       sessions,
       media,
@@ -50,11 +54,8 @@ export class StreamRuntime {
       const auth = approvedClientId ? approvedClients?.authorization(approvedClientId) : null;
       const current = !approvedClientId || (auth && auth.generation === session.approvedGeneration);
       const control = approvedClientId
-        ? effectivePermission(
-            current ? auth : null,
-            access?.snapshot().defaultControl ?? 'view-only',
-          )
-        : (access?.snapshot().defaultControl ?? 'view-only');
+        ? effectivePermission(current ? auth : null, this.#defaultControl(session))
+        : this.#defaultControl(session);
       if (control === 'available') this.automaticControl.add(id);
     };
     // The lease addresses subscriptions; the worker it talks to is the subscription's source.
@@ -127,12 +128,16 @@ export class StreamRuntime {
     const current =
       !session.approvedClientId || (auth && auth.generation === session.approvedGeneration);
     const permission = session.approvedClientId
-      ? effectivePermission(
-          current ? auth : null,
-          this.access?.snapshot().defaultControl ?? 'view-only',
-        )
-      : (this.access?.snapshot().defaultControl ?? 'view-only');
+      ? effectivePermission(current ? auth : null, this.#defaultControl(session))
+      : this.#defaultControl(session);
     return explicitOwner ? permission !== 'view-only' : permission === 'available';
+  }
+  // The Access page default for this session. Keyboard and mouse without asking is for the
+  // local network: from the internet a blanket "available" default still means asking, and
+  // only a per-device "available" set on that approved client grants it automatically.
+  #defaultControl(session) {
+    const value = this.access?.snapshot().defaultControl ?? 'view-only';
+    return value === 'available' && this.isInternet(session?.clientKey) ? 'approval' : value;
   }
   async revokeApprovedClient(clientId) {
     const affected = this.sessions.list().filter((row) => row.approvedClientId === clientId);

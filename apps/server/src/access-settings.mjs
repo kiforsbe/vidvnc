@@ -5,6 +5,7 @@ import { isIP } from 'node:net';
 
 // Each connected device may run two video encoders; eight devices already exceed the host stream budget.
 export const MAX_SESSIONS_LIMIT = 8;
+export const MAX_PUBLIC_HOSTNAMES = 8;
 const DEFAULTS = Object.freeze({
   revision: 0,
   defaultControl: 'approval',
@@ -17,7 +18,42 @@ const DEFAULTS = Object.freeze({
   defaultCodeAlphabet: 'letters-digits',
   localSessionNetworks: 'auto',
   publicName: 'VidVNC host',
+  // Remote access (peer-network.mjs). Off, clients with an internet source address are
+  // refused outright. On, they may reach HTTPS, sign in only as approved devices, and use
+  // the names below; setup, one-time codes and trust enrolment stay on the local network.
+  remoteAccess: false,
+  // The DNS names or public IP addresses internet clients use for this PC: accepted as HTTP
+  // Host values and added to the generated certificate while remote access is on.
+  publicHostnames: Object.freeze([]),
 });
+
+// A DNS name (dot-separated letters, digits and hyphens) or an IP address, lowercase and
+// without brackets so it compares directly with a parsed Host header. null if neither.
+export function normalizePublicHostname(value) {
+  if (typeof value !== 'string') return null;
+  let text = value.trim().toLowerCase();
+  if (text.startsWith('[') && text.endsWith(']')) text = text.slice(1, -1);
+  if (text.endsWith('.')) text = text.slice(0, -1);
+  if (isIP(text)) return text;
+  const labels = text.split('.');
+  if (
+    text.length > 253 ||
+    labels.length < 2 ||
+    !labels.every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) ||
+    /^\d+$/.test(labels.at(-1))
+  )
+    return null;
+  return text;
+}
+
+function validPublicHostnames(list) {
+  return (
+    Array.isArray(list) &&
+    list.length <= MAX_PUBLIC_HOSTNAMES &&
+    list.every((name) => normalizePublicHostname(name) === name) &&
+    new Set(list).size === list.length
+  );
+}
 
 function bounded(value, minimum, maximum) {
   return Number.isInteger(value) && value >= minimum && value <= maximum;
@@ -64,10 +100,13 @@ function validate(value) {
         next.localSessionNetworks.length < 1 ||
         next.localSessionNetworks.length > 16 ||
         !next.localSessionNetworks.every(validNetworkCidr))) ||
+    typeof next.remoteAccess !== 'boolean' ||
+    !validPublicHostnames(next.publicHostnames) ||
+    (next.remoteAccess && next.publicHostnames.length === 0) ||
     Object.keys(value).some((key) => !Object.hasOwn(DEFAULTS, key))
   )
     throw new Error('Invalid access settings');
-  return next;
+  return { ...next, publicHostnames: [...next.publicHostnames] };
 }
 async function read(filename) {
   try {
@@ -83,6 +122,7 @@ export class AccessSettings {
   #value;
   #filename;
   #queue = Promise.resolve();
+  #listeners = new Set();
   constructor(filename, value) {
     this.#filename = filename;
     this.#value = value;
@@ -92,6 +132,11 @@ export class AccessSettings {
   }
   snapshot() {
     return structuredClone(this.#value);
+  }
+  // Called with (next, previous) after every saved change, whoever saved it.
+  onChange(listener) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
   // Changes are merged over the current settings, so callers send only the fields they edit.
   replace(changes, revision) {
@@ -119,7 +164,15 @@ export class AccessSettings {
         }
         await rename(temporary, this.#filename);
         created = false;
+        const previous = this.snapshot();
         this.#value = next;
+        for (const listener of this.#listeners) {
+          try {
+            listener(this.snapshot(), previous);
+          } catch {
+            // A listener's failure must not turn a saved change into a reported failure.
+          }
+        }
         return this.snapshot();
       } finally {
         try {

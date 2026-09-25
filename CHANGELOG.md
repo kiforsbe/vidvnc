@@ -19,6 +19,13 @@ may include breaking changes.
 - The host and CLI can explicitly disconnect existing ordinary sessions when immediate
   lockdown is needed. The CLI's `diagnostics open` command and the host's Diagnostics action
   create a short-lived link to a separate loopback-only diagnostics listener on demand.
+- An opt-in remote access mode: `public-hosts <name-or-ip>...`, then `remote-access on`
+  (also accepted from the host over its settings pipe). While it is off, clients with an
+  internet source address are refused outright; private networks that are not this LAN, such
+  as a VPN, keep today's rules. While it is on, internet clients reach only HTTPS, sign in only
+  as approved devices (short codes, device setup and certificate enrolment stay on the local
+  network), get HSTS on the public names, and have those names accepted as HTTP `Host`
+  values and added to the generated certificate.
 
 ### Changed
 
@@ -39,6 +46,13 @@ may include breaking changes.
 
 ### Fixed
 
+- F8: a pending device registration is labelled from the address that actually sent it
+  (`Local network`, `Private network (not this LAN)` or `Internet`), not from the listener,
+  which both HTTP and HTTPS share.
+- A blanket `available` keyboard-and-mouse default no longer grants control automatically to a
+  session from the internet; it still asks. An approved device set to `available` keeps it.
+- One source address can hold at most 12 connections per listener (IPv6 grouped by /64), so a
+  single machine can no longer take every connection slot.
 - Anonymous visitors can no longer fetch viewer markup, viewer-specific CSS/JavaScript,
   or the stream helper modules. The browser loads them only after admission, using a
   session-bound viewer cookie that is invalidated immediately on revocation.
