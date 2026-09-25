@@ -2,6 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionStore } from '../src/session-store.mjs';
 
+test('peek checks expiry without extending the session idle lifetime', () => {
+  let now = 0;
+  const revoked = [];
+  const store = new SessionStore({
+    clock: () => now,
+    sessionTtlMs: 20_000,
+    onRevoke: (id) => revoked.push(id),
+  });
+  const id = store.connectApproved({ id: 'client-1', generation: 0 }, '127.0.0.1').sessionId;
+  now = 19_000;
+  assert.equal(store.peek(id).sessionId, id);
+  assert.equal(store.peek(id).lastSeenAt, 0);
+  now = 20_000;
+  assert.equal(store.peek(id), null);
+  assert.deepEqual(revoked, [id]);
+});
+
 test('bounded sessions admit independent owners and reclaim only expired or disconnected slots', () => {
   let now = 0;
   const revoked = [];

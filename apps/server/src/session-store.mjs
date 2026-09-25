@@ -141,7 +141,7 @@ export class SessionStore {
     };
   }
 
-  get(sessionId) {
+  peek(sessionId) {
     const session = this._sessions.get(sessionId);
     if (!session) return null;
 
@@ -149,6 +149,13 @@ export class SessionStore {
       this.disconnect(sessionId);
       return null;
     }
+
+    return { ...session };
+  }
+
+  get(sessionId) {
+    if (!this.peek(sessionId)) return null;
+    const session = this._sessions.get(sessionId);
 
     session.lastSeenAt = this.clock();
     return { ...session };
