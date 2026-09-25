@@ -218,7 +218,7 @@ review of the remote access mode.
 | R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
 | R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
 | R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
-| R8  | The native media changes are not compiled or run                              | Assurance gap           | **Open**                                                                 |
+| R8  | The native media changes are not validated on a live peer                     | Assurance gap           | **Open**; compiles, and range parsing passes on hardware                 |
 | F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only) |
 | F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                    |
 | F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                     |
@@ -232,19 +232,22 @@ review of the remote access mode.
 
 ## Open and residual findings
 
-### R8: the media changes are untested (open)
+### R8: the media changes are partly validated (open)
 
-The worker's `min-rtp-port`/`max-rtp-port` and `ice-tcp` handling is not compiled or run.
-A failure fails safe:
+The worker's `min-rtp-port`/`max-rtp-port` and `ice-tcp` handling compiles, and range
+parsing works in the real binary. It has not yet been shown on a live peer that sockets
+stay inside the range. A failure fails safe:
 
 - ports outside the forwarded range, or ICE-TCP left on, mean media fails or keeps its old
   exposure;
 - neither makes anything reachable that wasn't before.
 
-**Checks now in place, still to be run on Windows:**
+**Passed on Windows:** the worker compiles with these changes, and `npm run test:hardware`
+confirms that a valid range starts while a malformed one exits with code 2 before anything
+starts.
 
-- `npm run test:hardware` includes a worker test: a valid range starts, and a malformed
-  one exits with code 2 before anything starts.
+**Next, on Windows:**
+
 - `node native/media-worker/tests/media-ports-check.mjs <playwright>` connects headless
   Chromium through the worker with a range. It asserts UDP-only candidates inside the range,
   that every worker UDP socket is in the range per `netstat`, and that no TCP port is
@@ -331,7 +334,8 @@ the public host avoids the rest.
 ## Recommended next steps
 
 1. **Validation (R8):**
-   - `npm run test:hardware` and `media-ports-check.mjs`; both rebuild a stale worker first;
+   - `media-ports-check.mjs` (UDP-only candidates and sockets inside the range, per
+     `netstat`); `npm run test:hardware` already passes;
    - `npm run test:host`;
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
@@ -388,6 +392,14 @@ the public host avoids the rest.
     - the hardware suite and the acceptance scripts rebuild a worker older than its
       sources;
     - the GStreamer SDK version is checked against the pinned 1.28.6.
+- **2026-09-25, third Windows run: `npm run test:hardware` 18/18.**
+  - The run rebuilt the stale worker by itself, including the port-range and ICE-TCP
+    changes.
+  - All 13 C++ unit tests passed, including `ice-ports`.
+  - The real worker accepts a valid `VIDVNC_ICE_PORTS` range and exits with code 2 on a
+    malformed one.
+  - Hardware encoding (Media Foundation H.264, H.265, AV1), the native session and both
+    host-pipe system tests passed.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
   - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware
