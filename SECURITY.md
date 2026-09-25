@@ -1,7 +1,10 @@
 # Security policy
 
 VidVNC is a development preview for trusted local networks. It has not had production
-security hardening, so don't expose it to the internet or forward its port.
+security hardening or an external test, so don't expose it to the internet or forward its
+ports unless you accept that. An opt-in [remote access mode](docs/security/remote-access.md)
+exists (off by default), but it hasn't been validated on real networks yet. A self-hosted
+VPN, with remote access left off, remains the recommended way to reach VidVNC from outside.
 
 ## Supported versions
 

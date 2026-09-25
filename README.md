@@ -151,6 +151,9 @@ server print above the prompt. Type `help` for the full list:
   `options add|remove size WxH|framerate N|bitrate KBPS`
 - Access: `access [approval|available]`
 - Public login label: `public-name [name]`
+- Remote access (off by default; see [remote access](docs/security/remote-access.md)):
+  `public-hosts [clear|<name-or-ip>...]`, `public-port [same|<port>]`,
+  `media-ports [auto|<first>-<last>]`, `remote-access [on|off]`
 - Devices: `sessions`, `grant <session>`, `revoke [session]`, `stop <stream-id>`,
   `disconnect <session>`
 - `info` shows connection addresses, the password, and the data and log folders.
