@@ -86,10 +86,15 @@ export function createViewer({ onExit }) {
       document.fullscreenElement ? 'collapse' : 'expand',
     );
   }
+  // Safari can leave videoWidth at 0 for a WebRTC track and skip its resize event, so the
+  // receiver's decoded frame size from getStats stands in until the element reports one.
+  let statsSize = null;
   function fitVideo() {
     const video = $('video');
-    if (!video.videoWidth || !video.videoHeight) return;
-    const ratio = video.videoWidth / video.videoHeight;
+    const width = video.videoWidth || statsSize?.width;
+    const height = video.videoHeight || statsSize?.height;
+    if (!width || !height) return;
+    const ratio = width / height;
     $('stage').style.setProperty('--video-ratio', String(ratio));
     $('stage').style.setProperty(
       '--video-fit-width',
@@ -100,9 +105,16 @@ export function createViewer({ onExit }) {
   // the properties too, not only the markup attributes.
   Object.assign($('video'), { muted: true, defaultMuted: true, playsInline: true, autoplay: true });
   $('video').setAttribute('webkit-playsinline', '');
+  function fitStatsSize(width, height) {
+    if (!(width > 0 && height > 0)) return;
+    if (statsSize?.width === width && statsSize?.height === height) return;
+    statsSize = { width, height };
+    fitVideo();
+  }
   $('video').addEventListener('loadedmetadata', fitVideo);
   $('video').addEventListener('loadedmetadata', renderPictureInPicture);
   $('video').addEventListener('resize', fitVideo);
+  $('video').addEventListener('playing', fitVideo);
   window.addEventListener('resize', fitVideo, { signal: events.signal });
   window.visualViewport?.addEventListener('resize', fitVideo, { signal: events.signal });
   const headerObserver = new ResizeObserver(fitVideo);
@@ -495,6 +507,7 @@ export function createViewer({ onExit }) {
                 (r) => r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded',
               );
             const metrics = summarizeReceiver(report, previousReceiver, pair);
+            fitStatsSize(report.frameWidth, report.frameHeight);
             previousReceiver = report;
             const text = (value) => (value === null ? 'unavailable' : value.toFixed(1));
             $('connectionMetrics').textContent =
@@ -548,6 +561,7 @@ export function createViewer({ onExit }) {
         pc = row?.pc;
         channel = row?.channel;
         $('video').srcObject = row?.stream ?? null;
+        statsSize = null;
         renderPictureInPicture();
         if (row?.profile) {
           currentRequest = row.request;
@@ -579,6 +593,7 @@ export function createViewer({ onExit }) {
       },
       onMetrics: (metrics) => {
         if (subscriptions !== peers) return;
+        fitStatsSize(metrics.frameWidth, metrics.frameHeight);
         const text = (value) => (typeof value === 'number' ? value.toFixed(1) : 'unavailable');
         $('connectionMetrics').textContent =
           `Received: ${text(metrics.receiveMbps)} Mbit/s · Decoded: ${text(metrics.decodeFps)} fps · Dropped: ${metrics.framesDropped ?? 'unavailable'} · Jitter: ${text(metrics.jitterMs)} ms · Decode: ${text(metrics.decodeMs)} ms`;
