@@ -172,6 +172,19 @@ try {
   assert.equal(await page.locator('.code-cells span').count(), 8);
   assert.equal(await page.locator('.code-dash').isVisible(), true);
   assert.equal(await page.locator('#streamProfile').isVisible(), false);
+  const unsupportedContext = await browser.newContext();
+  const unsupportedPage = await unsupportedContext.newPage();
+  await unsupportedPage.addInitScript(() => {
+    window.RTCPeerConnection = undefined;
+  });
+  await unsupportedPage.goto(url);
+  await unsupportedPage.locator('#password').fill(sessionPassword);
+  await unsupportedPage.locator('#connect').click();
+  await unsupportedPage.waitForFunction(() =>
+    document.getElementById('status')?.textContent.includes('does not support WebRTC'),
+  );
+  assert.equal(sessionStore.list().length, 0, 'failed browser bootstrap retires its admission');
+  await unsupportedContext.close();
   await page.locator('#password').fill(' abcd-efgh ');
   assert.equal(await page.locator('#password').inputValue(), 'ABCD-EFGH');
   assert.deepEqual(await page.locator('.code-cells span').allTextContents(), [...'ABCDEFGH']);

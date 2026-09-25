@@ -155,7 +155,8 @@ async function enterViewer(result, attempt) {
     const active = viewer;
     viewer = null;
     if (active) await active.disconnect(error.message).catch(() => {});
-    else await retireAdmission(result.sessionId);
+    // The protected module can fail before taking ownership of this bearer.
+    await retireAdmission(result.sessionId);
     pendingSessionId = null;
     clearViewerMounts();
     throw error;
