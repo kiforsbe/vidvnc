@@ -129,6 +129,25 @@ try {
   assert.equal(savedMode.ok, true);
   assert.equal(savedMode.access.connectionMode, 'one-time-keys');
   assert.notEqual(savedMode.sessionKey, ready.password);
+  child.stdin.write(
+    JSON.stringify({
+      type: 'access-set',
+      requestId: 'public-name-check',
+      revision: savedMode.access.revision,
+      publicName: '  Living room PC  ',
+    }) + '\n',
+  );
+  const savedPublicName = await until(
+    (message) => message.type === 'access-result' && message.requestId === 'public-name-check',
+  );
+  assert.equal(savedPublicName.ok, true);
+  assert.equal(savedPublicName.access.publicName, 'Living room PC');
+  assert.deepEqual(
+    await fetch(`http://127.0.0.1:${port}/api/info`).then((response) => response.json()),
+    {
+      publicName: 'Living room PC',
+    },
+  );
   assert.equal((await post('key-start', { key: ready.password })).status, 401);
   child.stdin.write(
     JSON.stringify({ type: 'connection-once-create', requestId: 'once-check' }) + '\n',

@@ -10,7 +10,8 @@ may include breaking changes.
 ### Added
 
 - A configurable `public-name` login label (default `VidVNC host`); the anonymous
-  `/api/info` response now contains only that owner-chosen label.
+  `/api/info` response now contains only that owner-chosen label. The native host can edit it
+  in Settings and displays it on Overview alongside the computer name.
 - The host and CLI now issue one-time connection and client-registration codes only on explicit
   request. Codes expire after five minutes by default and can be used once. The host offers
   letters-and-numbers or letters-only codes; the CLI and configuration file allow bounded
@@ -21,6 +22,8 @@ may include breaking changes.
 
 ### Changed
 
+- Removed the browser-credential explanation from the web sign-in form; registration still
+  asks for a browser/client label, and the credential's security behavior is unchanged.
 - Refreshed the Internet-exposure security review against the current code, including the
   approved browser/client credential and revocation boundaries, HTTPS sub-pages, diagnostics
   isolation, F1/F3 code-level closure, and the still-open F6/remote-deployment blockers.
@@ -28,8 +31,8 @@ may include breaking changes.
   easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is intended for
   the host PC or an eligible local LAN subnet, not a public-scoped listener. The live server
   now injects the detected Private-LAN scope into its HTTP admission path.
-- An approved browser/client secret is explicitly described as a copyable credential in addition
-  to username and password, not as device proof. It can have only one live session. Removing or
+- An approved browser/client secret remains a copyable credential in addition to username and
+  password, not device proof. It can have only one live session. Removing or
   changing permissions immediately invalidates its active sessions and starts stream/control
   teardown; the host reports success only after teardown and persistence.
 

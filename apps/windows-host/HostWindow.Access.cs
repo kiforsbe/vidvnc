@@ -8,6 +8,8 @@ public sealed partial class HostWindow
 {
     string defaultControl = "approval";
     string connectionMode = "session-key";
+    string publicName = "VidVNC host";
+    string? publicNameDraft;
     int maxSessions = 4;
     const int MaxSessionsLimit = 8;
     long accessRevision;
@@ -21,11 +23,12 @@ public sealed partial class HostWindow
     {
         defaultControl = value.GetProperty("defaultControl").GetString()!;
         connectionMode = value.TryGetProperty("connectionMode", out var mode) ? mode.GetString() ?? "session-key" : "session-key";
+        publicName = value.TryGetProperty("publicName", out var name) ? name.GetString() ?? "VidVNC host" : "VidVNC host";
         oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
         maxSessions = value.TryGetProperty("maxSessions", out var limit) && limit.TryGetInt32(out var count) ? count : 4;
         accessRevision = value.GetProperty("revision").GetInt64();
         accessReady = true;
-        if (currentPage == "Access") RenderPage();
+        if (currentPage is "Access" or "Settings" or "Overview") RenderPage();
     }
 
     void ReceiveAccessResult(JsonElement value)
@@ -106,28 +109,62 @@ public sealed partial class HostWindow
         page.Children.Add(Secondary("Approved clients can sign in with their saved credential, username, and password."));
     }
 
-    async Task SaveAccess(string? defaultControl = null, string? connectionMode = null, int? maxSessions = null)
+    void RenderPublicNameSettings()
+    {
+        var content = new StackPanel { Spacing = HostSpacing.Row };
+        content.Children.Add(Label("Public login name", 16));
+        content.Children.Add(Secondary("Shown before sign-in so visitors can recognize this host. Avoid private details."));
+        var name = new TextBox { Tag = "public-name", Text = publicNameDraft ?? publicName,
+            MaxLength = 160, IsEnabled = accessReady && server is not null && !accessSaving };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(name, "Public login name");
+        content.Children.Add(name);
+        content.Children.Add(Secondary("Use 1–80 characters."));
+        var save = Command("Save public login name", async () => await SaveAccess(publicName: name.Text));
+        save.Tag = "save-public-name";
+        void UpdateSaveState()
+        {
+            var trimmed = name.Text.Trim();
+            var length = 0;
+            foreach (var _ in trimmed.EnumerateRunes()) length++;
+            save.IsEnabled = name.IsEnabled && length is >= 1 and <= 80 && trimmed != publicName;
+        }
+        UpdateSaveState();
+        name.TextChanged += (_, _) =>
+        {
+            publicNameDraft = name.Text;
+            UpdateSaveState();
+        };
+        content.Children.Add(save);
+        if (accessError is not null) content.Children.Add(new InfoBar { IsOpen = true,
+            Severity = InfoBarSeverity.Error, Message = accessError });
+        page.Children.Add(Card(content));
+    }
+
+    async Task SaveAccess(string? defaultControl = null, string? connectionMode = null, int? maxSessions = null, string? publicName = null)
     {
         var nextControl = defaultControl ?? this.defaultControl;
         var nextMode = connectionMode ?? this.connectionMode;
         var nextLimit = maxSessions ?? this.maxSessions;
-        if (accessSaving || (nextControl == this.defaultControl && nextMode == this.connectionMode && nextLimit == this.maxSessions)) return;
+        var nextName = publicName ?? this.publicName;
+        if (accessSaving || (nextControl == this.defaultControl && nextMode == this.connectionMode && nextLimit == this.maxSessions && nextName == this.publicName)) return;
         accessSaving = true; accessError = null;
         accessRequestId = Guid.NewGuid().ToString();
         accessReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (currentPage == "Access") RenderPage();
+        if (currentPage is "Access" or "Settings") RenderPage();
         try
         {
             var child = server ?? throw new InvalidOperationException("Start sharing before changing access defaults.");
             await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new {
                 type = "access-set", requestId = accessRequestId, revision = accessRevision,
-                defaultControl = nextControl, connectionMode = nextMode, maxSessions = nextLimit }));
+                defaultControl = nextControl, connectionMode = nextMode, maxSessions = nextLimit,
+                publicName = nextName }));
             await child.StandardInput.FlushAsync();
             var reply = await accessReply.Task.WaitAsync(TimeSpan.FromSeconds(10));
             UpdateAccess(reply.GetProperty("access"));
             if (reply.TryGetProperty("sessionKey", out var key) && key.ValueKind == JsonValueKind.String)
                 password.Text = key.GetString() ?? "";
             if (!reply.GetProperty("ok").GetBoolean()) throw new InvalidOperationException(reply.GetProperty("error").GetString());
+            if (publicName is not null) publicNameDraft = null;
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or TimeoutException)
         {
@@ -138,7 +175,7 @@ public sealed partial class HostWindow
         finally
         {
             accessSaving = false; accessReply = null; accessRequestId = null;
-            if (currentPage == "Access") RenderPage();
+            if (currentPage is "Access" or "Settings") RenderPage();
         }
     }
 }

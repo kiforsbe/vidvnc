@@ -297,6 +297,42 @@ public partial class App : Application
                             }
                             if (name == "Settings" && cycle == 0)
                             {
+                                var publicNameStart = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
+                                    RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                                publicNameStart.ArgumentList.Add(Path.GetFullPath("apps/windows-host/tests/Navigation/owner-fixture.mjs"));
+                                using var publicNameOwner = System.Diagnostics.Process.Start(publicNameStart)!;
+                                var publicNameServer = typeof(HostWindow).GetField("server", flags)!;
+                                try
+                                {
+                                    publicNameServer.SetValue(window, publicNameOwner);
+                                    using var publicNameAccess = JsonDocument.Parse("{\"revision\":0,\"defaultControl\":\"approval\",\"connectionMode\":\"session-key\",\"maxSessions\":4,\"publicName\":\"Friendly test host\"}");
+                                    typeof(HostWindow).GetMethod("UpdateAccess", flags)!.Invoke(window, new object[] { publicNameAccess.RootElement });
+                                    var publicNameField = Descendants(shell).OfType<TextBox>().SingleOrDefault(box => box.Tag as string == "public-name");
+                                    var savePublicName = Descendants(shell).OfType<Button>().SingleOrDefault(button => button.Tag as string == "save-public-name");
+                                    if (publicNameField?.Text != "Friendly test host" || !publicNameField.IsEnabled || savePublicName?.IsEnabled != false)
+                                        throw new Exception("Settings must show an editable saved public login name");
+                                    publicNameField.Text = new string('A', 81);
+                                    await Task.Delay(80);
+                                    if (savePublicName.IsEnabled || !Descendants(shell).OfType<TextBlock>().Any(text => text.Text == "Use 1–80 characters."))
+                                        throw new Exception("Settings must explain and block public login names longer than 80 characters");
+                                    publicNameField.Text = "  Living room PC  ";
+                                    await Task.Delay(80);
+                                    if (!savePublicName.IsEnabled) throw new Exception($"Editing the public login name must enable Save (text='{publicNameField.Text}', fieldEnabled={publicNameField.IsEnabled}, saveEnabled={savePublicName.IsEnabled})");
+                                    var publicNamePeer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(savePublicName);
+                                    ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)publicNamePeer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                                    var publicNameLine = await publicNameOwner.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                                    using var publicNameReply = JsonDocument.Parse(publicNameLine!);
+                                    if (!publicNameReply.RootElement.GetProperty("ok").GetBoolean() ||
+                                        publicNameReply.RootElement.GetProperty("access").GetProperty("publicName").GetString() != "Living room PC")
+                                        throw new Exception("Public login name was not persisted through the owner pipe");
+                                    typeof(HostWindow).GetMethod("ReceiveAccessResult", flags)!.Invoke(window, new object[] { publicNameReply.RootElement });
+                                    await Task.Delay(80);
+                                    publicNameField = Descendants(shell).OfType<TextBox>().SingleOrDefault(box => box.Tag as string == "public-name");
+                                    if (publicNameField?.Text != "Living room PC")
+                                        throw new Exception("Settings did not show the saved public login name");
+                                }
+                                finally { publicNameServer.SetValue(window, null); publicNameOwner.StandardInput.Close(); if (!publicNameOwner.WaitForExit(5000)) publicNameOwner.Kill(); }
+
                                 // The HTTPS section. Everything asserted here is driven by one
                                 // input — the `tls` object the server puts on its periodic status
                                 // message — so this exercises the same path the running host uses,
@@ -714,6 +750,8 @@ public partial class App : Application
                             }
                             if (name == "Overview")
                             {
+                                if (cycle > 0 && !Descendants(shell).OfType<TextBlock>().Any(text => text.Text == "Public login name: Living room PC"))
+                                    throw new Exception("Overview does not show the saved public login name");
                                 var statusRow = Descendants(window.Content).OfType<Grid>().Single(g => g.Name == "OverviewStatusRow");
                                 var statusCards = statusRow.Children.OfType<Border>().ToArray();
                                 if (statusCards.Length != 2 || Grid.GetRow(statusCards[0]) != Grid.GetRow(statusCards[1]) ||

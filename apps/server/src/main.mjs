@@ -535,7 +535,7 @@ async function serve() {
                   }),
                 );
               const changes = Object.fromEntries(
-                ['defaultControl', 'connectionMode', 'maxSessions']
+                ['defaultControl', 'connectionMode', 'maxSessions', 'publicName']
                   .filter((key) => command[key] !== undefined)
                   .map((key) => [key, command[key]]),
               );

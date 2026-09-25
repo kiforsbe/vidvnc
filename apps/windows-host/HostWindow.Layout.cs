@@ -164,6 +164,7 @@ public sealed partial class HostWindow
                 theme.SelectedIndex = (int)shell.RequestedTheme;
                 theme.SelectionChanged += (_, _) => shell.RequestedTheme = (ElementTheme)theme.SelectedIndex;
                 page.Children.Add(Card(theme));
+                RenderPublicNameSettings();
                 RenderTls();
                 page.Children.Add(Card(Label("When the window closes\nSharing stops and the application exits. Automatic startup is off.")));
                 page.Children.Add(Card(Label("Connection\nDesigned for trusted local networks. Remote connection setup is not available. Firewall permissions remain under your control.")));

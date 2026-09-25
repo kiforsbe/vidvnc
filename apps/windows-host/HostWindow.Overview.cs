@@ -51,6 +51,7 @@ public sealed partial class HostWindow
         var host = new StackPanel { Spacing = 8 };
         var name = Label(Environment.MachineName, 24); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         host.Children.Add(name);
+        host.Children.Add(Secondary($"Public login name: {publicName}"));
         host.Children.Add(Secondary(sharing
             ? tlsReport?.ViewerReady == true ? "Available on your local network" : "Viewer waiting for HTTPS — check Settings"
             : heading.Text));
