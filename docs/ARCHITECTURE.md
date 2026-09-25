@@ -41,9 +41,11 @@ media only. The server never carries pixels; the worker never authenticates anyo
 
 Signaling is HTTP request/response over HTTPS by default, not WebSocket. The browser POSTs an offer and
 receives the answer in the same response, after ICE gathering completes. There is no
-STUN or TURN server and no trickle ICE: this is a same-subnet product, so host-local
-candidates are all there are. That is a deliberate scope limit, not an omission — a
-relay for remote clients is future work.
+STUN or TURN server and no trickle ICE: on the LAN, host-local candidates are all there
+are. With remote access on, an internet client's answer instead names the router's public
+address on a fixed, forwarded media port range, and its offer keeps only public-address
+candidates ([sdp-candidates.mjs](../apps/server/src/sdp-candidates.mjs)). A relay or
+rendezvous hub is future work.
 
 ## Process lifetime and ownership
 
@@ -411,9 +413,20 @@ Stated plainly, because the scope limit is a design decision rather than an over
   viewer/auth/session/signaling requests receive no-store `503`, not a plaintext fallback.
   The one case where the old description — plain HTTP, no TLS, nothing readable-in-transit protection —
   still holds exactly is **`off` mode**, an explicit opt-out that restores today's
-  LAN-only HTTP viewer behaviour with no redirect. This is still a same-subnet product either
-  way; exposing a port to an untrusted network is not a supported configuration regardless
-  of scheme.
+  LAN-only HTTP viewer behaviour with no redirect. Exposing a port to an untrusted network
+  is supported only through remote access (next point).
+- **Internet clients are decided by the socket's source address, never a header**
+  ([peer-network.mjs](../apps/server/src/peer-network.mjs)). With remote access off (the
+  default) they are refused. With it on, which requires `approved-only` mode, they get
+  HTTPS only and approved-device sign-in only, with their own admission budget
+  ([admission-budget.mjs](../apps/server/src/admission-budget.mjs)). The operator's steps
+  and the open findings are in [remote access](security/remote-access.md) and the
+  [security analysis](security/internet-exposure.md).
+- **The viewer is served only after admission.** Its markup, script and styles under
+  `/viewer/` need a session-bound cookie that revocation invalidates; the API still needs
+  the bearer token. The login page imports the viewer into the live document, not by
+  adopting nodes from a template: WebKit sets a media element's inline-playback policy when
+  the element is created.
 - **The media plane is encrypted regardless**, since WebRTC mandates DTLS-SRTP. Pixels
   and audio are not in the clear; signaling uses HTTPS by default or deliberate LAN HTTP.
 - **Approved-client credentials are stored hashed**, with a per-client salt, scrypt, and

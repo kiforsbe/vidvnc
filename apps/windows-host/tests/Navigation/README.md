@@ -1,7 +1,8 @@
 # Native navigation regression
 
 This WinUI integration executable compiles the real host window and exercises
-navigation between all five pages, including session arrival, expansion and
+navigation between every page, the Connect a device dialog and the sharing
+indicator, including session arrival, expansion and
 removal. It uses an absent runtime manifest so it never starts a media server.
 It also verifies title-bar integration and shared light/dark/system themes.
 Interactive dragging, caption-button hit testing and Snap Layouts remain manual checks.

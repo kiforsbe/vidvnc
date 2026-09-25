@@ -5,9 +5,10 @@ service. The router forwards two things to the PC: the HTTPS port and a fixed ra
 media ports. Remote access is **off by default**. While it is off, VidVNC refuses every
 client with an internet source address.
 
-This is new and has **not yet been validated on real networks or hardware** (see
-[What has not been tested](#what-has-not-been-tested)). Until it has, the conservative
-choice is a self-hosted VPN such as WireGuard, with remote access left off (see
+This is new and only **partly validated**: it passes on hardware and has streamed to an
+iPhone through one real router, but it hasn't had a packet capture or an IPv6 run (see
+[What has been tested](#what-has-been-tested)). Until it has, the conservative choice is a
+self-hosted VPN such as WireGuard, with remote access left off (see
 [The alternative: a VPN](#the-alternative-a-vpn)).
 
 ## What changes when remote access is on
@@ -181,18 +182,20 @@ The [security analysis](internet-exposure.md) lists what is still open. In short
   work. Use IPv6 if the ISP offers it. Otherwise, a small VPS you control (running
   WireGuard, or your own TURN server) is the cheapest option you still run yourself.
 
-## What has not been tested
+## What has been tested
 
 - The server logic is covered by the portable test suite: classification, HTTPS-only,
   refused routes, HSTS, public names and port, answer rewriting and offer filtering,
   budgets, the connection cap, the control default, and the session cleanup when remote
   access is switched off.
-- **The native change has not been compiled or run.** It applies the port range and turns
+- The native change passes on Windows hardware. It applies the port range and turns
   ICE-TCP off for each WebRTC peer through GStreamer's ICE agent properties, and a
   malformed range stops the worker.
-- **No real router, public network, or client behind carrier NAT has been used.**
+- An iPhone at a public address signed in and streamed through a real router, and the
+  host showed its public address.
+- **Not yet:** a packet capture, an IPv6 run, or a client behind carrier NAT.
 
-Before relying on it:
+To check your own setup:
 
 1. Run `npm run test:hardware` on Windows (it rebuilds the worker first if it is out of date). It checks that the worker accepts a
    valid range and refuses to start with a malformed one.

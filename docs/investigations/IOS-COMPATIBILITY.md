@@ -1,4 +1,29 @@
-# iOS compatibility experiment
+# iOS compatibility
+
+## Current state (2026-09-25)
+
+- **Codecs:** an iPhone negotiates H.265 when the host offers it and the device reports it
+  as power-efficient; otherwise H.264. Both have streamed at about 30 fps, locally and
+  through a router.
+- **Black video, fixed:** after the viewer moved behind admission, the `<video>` element
+  was created in an inert `<template>` document and adopted into the page. WebKit fixes a
+  media element's inline-playback policy when it is created, so the video decoded but
+  showed black inline and played only in Safari's native full screen. The login page now
+  imports the fragment into the live document, and the viewer sets `muted` and
+  `playsInline` as properties.
+- **Stage size, fixed:** a narrow-screen `height: 52vh` rule overrode the aspect-ratio
+  sizing once the viewer styles moved to their own sheet. The stage also falls back to the
+  receiver's decoded frame size, because Safari can report `videoWidth` as 0 for a WebRTC
+  track and skip its `resize` event.
+- **Full screen:** iPhone Safari has no element full screen, only its native video player,
+  which takes input away. With keyboard and mouse on, the viewer's immersive mode fills the
+  screen inside the page instead
+  ([stage-geometry.js](../../apps/web-client/src/viewer/stage-geometry.js) maps touches). A
+  page can't hide Safari's bars; added to the Home Screen, VidVNC opens without them. iOS
+  keeps the Home Screen app's storage, including the approved device key, separate from
+  Safari's.
+
+## Packet-loss experiment (history)
 
 The reported iPhone 12 Pro runs iOS 27 beta 6. Previous samples showed video
 and audio packet loss, with decoded video stopping. This does not establish a
@@ -19,7 +44,7 @@ seconds; native commands have an additional two-second limit. NACKs alone do
 not trigger this fallback. A keyframe can itself create a traffic burst, so
 this is a bounded recovery experiment, not a packet-loss fix.
 
-## Device comparison
+### Device comparison
 
 With the stable baseline, the user observed 15 fps, zero video
 packet loss, and unchanged cumulative freeze counts with quarter-screen and
@@ -44,7 +69,7 @@ If complete frames keep increasing while decoding stops, investigate decoder
 input/codec state. If decoding advances while the displayed video freezes,
 investigate playback/rendering. Counters unsupported by Safari remain unknown.
 
-## Verification
+### Verification
 
 Native mobile self-test captures 60 real hardware-encoded frames, verifies SPS
 profile 66 and level 31, and requires an extra keyframe after a forced request.

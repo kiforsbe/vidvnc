@@ -75,8 +75,8 @@ change this order.
   streams to view and how to arrange them on their own windows and monitors.
 - Low latency and bounded queues. The working iPhone profiles and transport behavior
   are regression baselines, not a reason to keep quality low.
-- Local network first. Remote access, approved-device discovery and a tunneling hub
-  come later.
+- Local network first. Direct remote access for approved devices exists as an opt-in;
+  approved-device discovery and a tunneling hub come later.
 - A server app, a viewer and a command-line server package for each OS. The server
   app and the command-line server share the same server payload.
 
@@ -156,9 +156,9 @@ A disconnect error in SCTP was fixed by stopping the sender before closing brows
 peers, while still releasing input immediately. Two-monitor use has been checked by
 hand, not by automated hardware runs.
 
-Still to verify with two clients: iPhone touch and fullscreen, input routing with
-automatic and manual control, independent stops, audio, display hotplug, and cleanup
-when the host exits.
+Still to verify with two clients: iPhone touch and the in-page full-screen mode, input
+routing with automatic and manual control, independent stops, audio, display hotplug,
+and cleanup when the host exits.
 
 Design:
 
@@ -191,7 +191,10 @@ resource use and no orphaned processes after the host exits.
   isn't granted.
 - iPhone: touch-friendly display cards, an explicit input mode, orientation handling,
   a legible fullscreen toolbar and safe control release. Don't assume desktop
-  multi-window or fullscreen APIs exist in mobile Safari.
+  multi-window or fullscreen APIs exist in mobile Safari. Started: with keyboard and mouse
+  on, the stage fills the screen inside the page (Safari's only full screen is its video
+  player, which takes input away), and from the Home Screen VidVNC runs without Safari's
+  bars.
 - Native viewers: WinUI 3 on Windows; Swift, SwiftUI and AppKit on macOS. Map server
   streams to one or more client windows or monitors, with visual mapping previews and
   remembered layouts. Handle a client monitor being removed gracefully.
@@ -313,14 +316,18 @@ reconnect and cleanup without regressing the browser client. A reviewed design c
 before any implementation, and this entry doesn't commit to adopting code or shipping
 the feature.
 
-### Remote connectivity and hub — later
+### Remote connectivity and hub
 
-Only after local identity, authorization and lifecycle work reliably: approved device
-registration, authenticated rendezvous, direct connections where possible, relay or
-tunnel fallback, revocation and operational limits. The current pairing flow, HTTPS by
-default though it now is, must never be exposed directly to the internet: it is designed
-and tested for a trusted local network, not for arbitrary internet clients. Local-only
-use never depends on the hub.
+Direct remote access exists as an opt-in: the router forwards HTTPS and a fixed media port
+range, and internet clients can only sign in as approved devices set up on the LAN (see
+[remote access](security/remote-access.md)). Pairing, codes and certificate enrolment stay
+on the local network. It has streamed through one real router; a packet capture and an
+IPv6 run remain (R8 in the [security analysis](security/internet-exposure.md)).
+
+Later, and only after local identity, authorization and lifecycle work reliably:
+authenticated rendezvous, relay or tunnel fallback for networks where port forwarding
+can't work (carrier NAT), and passkeys for approved devices. Local-only use never depends
+on the hub.
 
 ## Proposed configuration and selection contract
 
@@ -343,11 +350,13 @@ unauthenticated network administration endpoint is added for UI convenience.
 1. Investigate the intermittent GStreamer `on_rtpbin_request_aux_receiver` warning and
    startup timeout with repeated, instrumented startup runs. Keep current quality
    settings; an unchanged successful retry is not a fix.
-2. Finish multi-device acceptance: iPhone touch and fullscreen, input routing with
-   automatic and manual control, independent stops, audio, hotplug and cleanup when
-   the host exits. Mark a scenario verified only when a test or a hands-on check
+2. Finish multi-device acceptance: iPhone touch and the in-page full-screen mode, input
+   routing with automatic and manual control, independent stops, audio, hotplug and
+   cleanup when the host exits. Mark a scenario verified only when a test or a hands-on check
    supports it, and close milestone 2 when its acceptance criteria pass.
-3. Continue Windows distribution in parallel: clean-machine acceptance, trusted signing,
+3. Close R8 for remote access: a phone confirmed on mobile data, an IPv6 run and a
+   packet capture.
+4. Continue Windows distribution in parallel: clean-machine acceptance, trusted signing,
    upgrade and uninstall checks, and the first published release.
-4. New Windows host UI starts with a design preview in [docs/design](design) before it
+5. New Windows host UI starts with a design preview in [docs/design](design) before it
    is built.

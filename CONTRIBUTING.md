@@ -39,6 +39,10 @@ from the repository root:
 | `npm run format:check`  | Checks formatting                                                                           |
 | `npm test`              | Runs the portable tests, with hardware stubbed                                              |
 | `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop) |
+| `npm run test:host`     | Runs the Windows host's runtime-contract tests                                              |
+
+The Windows host's navigation test (pages, dialogs, the sharing indicator) is a separate
+executable; see [its README](apps/windows-host/tests/Navigation/README.md).
 
 Every test run first brings its dependencies up to date
 ([tools/dependencies.mjs](tools/dependencies.mjs)):

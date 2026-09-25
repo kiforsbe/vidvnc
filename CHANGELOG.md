@@ -48,18 +48,32 @@ may include breaking changes.
 - `public-port <port>`: the HTTPS port internet devices use when the router forwards a
   different public port (usually 443) to this PC's HTTPS port. Before, any `Host` port other
   than the listener's own was refused with `421`, which broke that ordinary router setup.
+- Carrying a device key to the remote address. Browsers keep saved data per address, so a
+  device approved at the LAN address had no key at the public one. Once a public name is
+  set, the sign-in page on the LAN offers **Open remote address** and **Copy link**; the
+  link carries the key after `#`, which is never sent to a server, and the page that opens
+  stores it without replacing a different key.
+- iPhone: turning on keyboard and mouse fills the screen with the desktop inside the page,
+  so touches still reach it (Safari's own full screen is a video player that takes input
+  away). Releasing them returns to the normal view.
+- VidVNC can be added to the Home Screen (web app manifest and icons), where it opens
+  without the browser's bars. Content stays clear of the notch and status bar.
+- The Windows host appends unhandled exceptions to `host-crash.log` in its logs folder.
+- Every test command brings dependencies up to date first: npm packages are reinstalled
+  when they don't match the lockfile, a media worker older than its sources is rebuilt,
+  and the GStreamer SDK version is checked.
 
 ### Changed
 
+- The Windows host's **Connect a device** dialog fits without scrolling. Generating a code
+  shows its QR code large, beside the key and address; **Back** returns to the setup view
+  and **Done** closes the dialog.
+- The Overview host card says only where sharing reaches ("local network" or "remote
+  access"), without a separate availability sentence.
 - The security reviews, remediation proposals and status notes are collected into one
   current document, [Internet exposure: security analysis and status](docs/security/internet-exposure.md).
-
 - Removed the browser-credential explanation from the web sign-in form; registration still
   asks for a browser/client label, and the credential's security behavior is unchanged.
-- Re-audited Internet exposure through `8308b55` using a correctly configured,
-  SecRAC-compliant external interface as the primary scenario. The review separates actual
-  HTTPS/WebRTC exposure from conditional misconfiguration risks and identifies public-`Host`
-  compatibility and F8's unfixed “Local network” approval label.
 - Connection codes remain eight characters but no longer encode their purpose and exclude
   easily confused `0`, `1`, `I`, `L`, and `O`. The reusable session password is intended for
   the host PC or an eligible local LAN subnet, not a public-scoped listener. The live server
@@ -82,7 +96,8 @@ may include breaking changes.
   overlay VPN such as Tailscale); otherwise it is an ISP's carrier-grade NAT and counts as the
   internet.
 - With remote access on, the generated certificate omits the PC's hostname.
-
+- Diagnostics show the video element's paused and ready state for multi-stream sessions
+  too, and the viewer sizes its stage from the decoded frame size when Safari reports none.
 - F8: a pending device registration is labelled from the address that actually sent it
   (`Local network`, `Private network (not this LAN)` or `Internet`), not from the listener,
   which both HTTP and HTTPS share.
@@ -110,10 +125,12 @@ may include breaking changes.
 
 ### Known limitations
 
-- These changes harden the existing LAN service; they do **not** make it ready to expose to the
-  Internet. Remote trust enrollment and WebRTC routing remain unresolved, and a same-host
-  proxy can make remote clients appear local. An approved browser's secret is still copyable;
-  in-process limits do not replace an Internet-facing traffic filter. See the
+- Remote access is only partly validated: it has streamed through one real router, but
+  hasn't had a packet capture or an IPv6 run. Certificate enrolment stays on the LAN, and a
+  router or program that rewrites source addresses makes internet clients look local
+  (setup includes a check for this). An approved browser's secret is still copyable, and
+  in-process limits don't replace an internet-facing traffic filter. A self-hosted VPN
+  remains the recommended way in. See the
   [security analysis and status](docs/security/internet-exposure.md).
 
 ## [0.8.0] - 2026-09-23

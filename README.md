@@ -18,7 +18,6 @@ a GPU with a working hardware encoder is required. Up to two connected
 devices, each with two video streams and one independent audio stream. Only one
 device holds input permission at a time. Multi-session hardware acceptance is
 still in progress; see [the roadmap](docs/ROADMAP.md).
-No Windows software-capture or software-encoder fallback.
 
 Native macOS 27/Apple Silicon capture and native viewer clients are planned, not
 implemented. Browser testing on Apple devices is not native macOS server support.
@@ -76,6 +75,19 @@ VidVNC starts sharing and shows the address and password. On another device on
 your network, open the address in a browser and enter the password. If Windows
 asks, allow VidVNC on private networks.
 
+### Viewing on an iPhone
+
+Open the address in Safari. With HTTPS on, install the certificate from the `/trust` page
+first, and check its fingerprint against the one the host shows.
+
+- **Full screen without Safari's bars:** tap **Share → Add to Home Screen** and open VidVNC
+  from its icon. Safari itself can't hide its address and tab bars. iOS keeps the Home
+  Screen app's saved data separate from Safari's, so approve the device from the Home
+  Screen app.
+- **Keyboard and mouse:** turning them on fills the screen with the desktop while keeping
+  touches on it; releasing them returns to the normal view. Turn the phone for landscape.
+  Tap near the top edge to show the toolbar.
+
 ### VidVNC Server (command line)
 
 Also needs [Node.js](https://nodejs.org/) 24 or later.
@@ -97,7 +109,9 @@ To change settings while the server is stopped, run
 
 Both packages keep settings and logs in `%LOCALAPPDATA%\VidVNC`, so upgrading or
 uninstalling keeps them. To remove the command-line server, stop it and delete its folder.
-Use VidVNC only on a trusted local network, and don't forward either port. The HTTP
+Use VidVNC on a trusted local network. Don't forward its ports unless you have set up
+[remote access](docs/security/remote-access.md), which forwards only HTTPS and a fixed media
+port range, for approved devices only; a self-hosted VPN is still the safer way in. The HTTP
 listener binds only loopback and eligible Private-LAN addresses. With the default TLS
 mode, the viewer is unavailable until HTTPS starts; an invalid TLS configuration or
 listener failure does not fall back to HTTP login or streaming. Only a valid, explicit
@@ -341,9 +355,10 @@ None of these generated/dependency directories belongs in version control.
 - [Internet exposure: security analysis and status](docs/security/internet-exposure.md)
 - [Remote access setup guide](docs/security/remote-access.md)
 
-This is a LAN-focused preview. An opt-in remote access mode exists but is not yet validated
-on real networks; see the [security analysis](docs/security/internet-exposure.md) for what
-is still open, and prefer a self-hosted VPN for now. Passkeys, a relay/hub, multi-monitor
+This is a LAN-focused preview. An opt-in remote access mode exists and has streamed through
+a real router, but it is only partly validated; see the
+[security analysis](docs/security/internet-exposure.md) for what is still open, and prefer a
+self-hosted VPN for now. Passkeys, a relay/hub, multi-monitor
 routing, signed release packages, and production security hardening remain future work.
 
 ## Feedback and contributions

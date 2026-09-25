@@ -29,11 +29,12 @@ penetration test, an internet deployment, or a hardware/network exercise.
 The findings of the 2026-09-25 review (R1–R8) are fixed in code, except the two that no code
 change can close.
 
-**Remote access is still not validated:**
+**Remote access is only partly validated:**
 
-1. The **media path hasn't run on hardware** (R8). The native port range and the
-   ICE-TCP switch are uncompiled, and no real router, mobile network or packet capture has
-   been used.
+1. **The media path has run once through a real router** (R8). The native port range and
+   the ICE-TCP switch pass on hardware, and an iPhone at a public address signed in and
+   streamed through the owner's router. No packet capture, IPv6 run or carrier-NAT client
+   has been tried yet.
 2. **The native ICE stack faces the internet on the media ports** while a stream is live
    (R4, reduced to UDP only). That is inherent to direct WebRTC.
 3. **Two conditions depend on your setup.** An internet flood can still exhaust the
@@ -41,8 +42,8 @@ change can close.
    a genuine source address. This is now contained by the `approved-only` requirement and a
    required setup check (R2).
 
-Until R8 has been exercised, the recommended way to reach VidVNC from outside is a
-self-hosted VPN with remote access left off.
+Until R8 is closed, the recommended way to reach VidVNC from outside is a self-hosted VPN
+with remote access left off.
 
 ## Scope and assumptions
 
@@ -250,7 +251,7 @@ review of the remote access mode.
 | R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
 | R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
 | R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
-| R8  | The media path is not validated on a real network                             | Assurance gap           | **Open**; live local peer passes (range, UDP only, no TCP)               |
+| R8  | The media path is not fully validated on a real network                       | Assurance gap           | **Open**; live peer and one real-router run pass; capture still needed   |
 | F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only) |
 | F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                    |
 | F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                     |
@@ -264,7 +265,7 @@ review of the remote access mode.
 
 ## Open and residual findings
 
-### R8: the media changes are validated locally; the real network is not (open)
+### R8: the media changes pass locally and through one real router (open)
 
 The worker's `min-rtp-port`/`max-rtp-port` and `ice-tcp` handling compiles, range parsing
 works in the real binary, and a live browser peer stays inside the range over UDP only.
@@ -284,9 +285,14 @@ Chromium through the worker with range 41000–41049. There was 1 UDP candidate 
 range, 1 worker UDP socket inside the range per `netstat`, no TCP listener, and the browser
 connected.
 
+**Passed through a real router:** an iPhone at a public address signed in as an approved
+device and streamed video and audio (H.265, about 30 fps, no packet loss, 36 ms round
+trip). The host's session list showed the phone's public address, not the router's LAN
+address, so the router doesn't rewrite source addresses (the required setup check).
+
 **Still needed:**
 
-- a connection from mobile data through a real router;
+- a run from mobile data confirmed as such, and one over IPv6;
 - a packet capture showing no ICE checks toward client-chosen internal addresses.
 
 ### R4: native parsing is reachable before authentication on the media ports (open, reduced)
@@ -368,10 +374,10 @@ the public host avoids the rest.
 ## Recommended next steps
 
 1. **Validation (R8):**
-   - a phone on mobile data through a real router, on IPv4 and IPv6;
+   - a phone confirmed on mobile data, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
-2. **Host UI:** built. It needs a Windows build and the navigation test run on the owner's
-   machine; see the verification record.
+2. **Host UI:** built and in use on the owner's machine. The navigation test hasn't been run
+   against the latest dialog and indicator changes; see the verification record.
 3. **R4:** track native dependency versions in packaging. Longer term, a lower-privilege
    media worker.
 4. **F5:** a passkey (WebAuthn) challenge for approved devices, if a stronger
@@ -438,8 +444,7 @@ the public host avoids the rest.
     - the browser connected.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
-  - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware
-    tests, real router or public network, packet capture.
+  - **Not run:** real router or public network, packet capture.
 - **2026-09-24/25, `main` through `8308b55`** (from the earlier status notes):
   - `npm test` 816/816, `npm run format:check`, `npm run test:host`, Windows host build,
     the navigation exercise and `runtime-start-check.mjs` all passed.
@@ -453,9 +458,16 @@ the public host avoids the rest.
     a crash on the server's `publicPort: null` (`JsonElement.TryGetInt32` throws on null).
   - The server side is covered by portable tests: the owner-gate modes and the start-mode
     rules (861/861).
-  - **Not yet confirmed on Windows:**
-    - the host build with the split-arrow indicator and offline settings;
-    - the navigation test's new indicator checks.
+  - The host builds and runs on the owner's machine with the split-arrow indicator, the
+    offline remote settings and the two-view Connect a device dialog. A crash in that
+    dialog (a button row re-parented on every render) was found through the host's new
+    crash log and fixed.
+  - **Not yet confirmed on Windows:** the navigation test's indicator and dialog checks.
+- **2026-09-25, first real-router run:** an iPhone at a public address signed in as an
+  approved device and streamed through the owner's router; the session list showed the
+  public address. Video first showed black on iPhone, locally too; that was a viewer bug
+  (the video element was created in an inert template document), not a network one, and is
+  fixed.
 
 ## History
 
@@ -466,6 +478,7 @@ the public host avoids the rest.
 | 2026-09-25 | Public login name and viewer assets only after admission (`main`, `90a37e4`). Remote access mode, the F8 fix, public names and port, media port range and public-address answers (`claude/remote-access-on-main`). Re-review found R1–R8.        |
 | 2026-09-25 | R1, R3, R5 and R6 fixed. R2 contained by requiring `approved-only` and a required source-address check. R4 reduced (ICE-TCP off with a media range). R7 partly fixed (hostname omitted). R8 remains: hardware validation.                        |
 | 2026-09-25 | Windows host remote access controls: local-only start by default, remote start from the sharing indicator, remote access shown on the indicator, Settings card usable while sharing is off, footer Stop sharing removed.                         |
+| 2026-09-25 | First real-router run: an iPhone at a public address streamed through the owner's router, and the source-address check passed. R8 stays open for a packet capture and IPv6.                                                                      |
 
 The superseded documents were consolidated here on 2026-09-25. Their last versions can be
 read with `git show 0215e44:docs/security/<file>`:
