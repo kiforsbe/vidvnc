@@ -186,9 +186,6 @@ video {
     align-items: flex-start;
     flex-direction: column;
   }
-  .stage {
-    height: 52vh;
-  }
   .actions button {
     font-size: 11px;
     padding: 10px;
