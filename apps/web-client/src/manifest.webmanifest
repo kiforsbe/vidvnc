@@ -1,0 +1,14 @@
+{
+  "name": "VidVNC",
+  "short_name": "VidVNC",
+  "description": "Your desktop, nearby.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "background_color": "#11151d",
+  "theme_color": "#11151d",
+  "icons": [
+    { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

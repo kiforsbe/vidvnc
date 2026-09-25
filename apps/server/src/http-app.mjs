@@ -421,6 +421,10 @@ export function createHttpApp({
           '/style.css',
           '/theme.js',
           '/shell.css',
+          // Home Screen installation: public, and nothing secret in them.
+          '/manifest.webmanifest',
+          '/icon-180.png',
+          '/icon-512.png',
           // The enrolment page and what it loads (see PLAINTEXT_ALLOWED_PATHS).
           '/trust',
           '/trust.js',
@@ -437,7 +441,11 @@ export function createHttpApp({
             ? 'text/javascript'
             : file.endsWith('.css')
               ? 'text/css'
-              : 'text/html',
+              : file.endsWith('.png')
+                ? 'image/png'
+                : file.endsWith('.webmanifest')
+                  ? 'application/manifest+json'
+                  : 'text/html',
           'cache-control': 'no-store',
         });
         return response.end(body);

@@ -111,6 +111,11 @@ For an internet client:
      The page that opens stores the key and removes it from the address bar. It never
      replaces a different key already stored there. Keep the link to yourself: with it,
      someone only needs your password.
+
+     **iPhone Home Screen:** VidVNC can be added to the Home Screen (Share → Add to Home
+     Screen), where it opens without Safari's bars. iOS keeps a Home Screen app's saved data
+     separate from Safari's, so set the device up from the Home Screen app itself, on the
+     LAN, rather than in Safari.
 7. **Turn it on.**
    - **In the Windows host app:**
      - Steps 3–5 (public names, media ports and public port) are under

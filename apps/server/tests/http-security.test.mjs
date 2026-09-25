@@ -69,6 +69,26 @@ test('serves every browser entry asset through workspace resolution', () =>
       assert.equal((await fetch(url + asset)).status, 404, asset);
   }));
 
+test('serves the Home Screen manifest and icons publicly', () =>
+  withServer(async (url) => {
+    const manifest = await fetch(url + '/manifest.webmanifest');
+    assert.equal(manifest.status, 200);
+    assert.match(manifest.headers.get('content-type'), /^application\/manifest\+json/);
+    const body = await manifest.json();
+    assert.equal(body.display, 'fullscreen');
+    assert.equal(body.start_url, '/');
+    for (const { src } of body.icons) {
+      const icon = await fetch(url + src);
+      assert.equal(icon.status, 200, src);
+      assert.equal(icon.headers.get('content-type'), 'image/png', src);
+      const bytes = new Uint8Array(await icon.arrayBuffer());
+      assert.deepEqual([...bytes.slice(1, 4)], [0x50, 0x4e, 0x47], `${src} is a PNG`);
+    }
+    const page = await (await fetch(url + '/')).text();
+    assert.match(page, /rel="manifest" href="\/manifest.webmanifest"/);
+    assert.match(page, /rel="apple-touch-icon" href="\/icon-180.png"/);
+  }));
+
 test('viewer assets require a live session grant while cookies cannot authorize APIs', () =>
   withServer(async (url, server) => {
     const assets = [
