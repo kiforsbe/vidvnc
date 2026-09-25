@@ -218,7 +218,7 @@ review of the remote access mode.
 | R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
 | R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
 | R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
-| R8  | The native media changes are not validated on a live peer                     | Assurance gap           | **Open**; compiles, and range parsing passes on hardware                 |
+| R8  | The media path is not validated on a real network                             | Assurance gap           | **Open**; live local peer passes (range, UDP only, no TCP)               |
 | F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only) |
 | F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                    |
 | F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                     |
@@ -232,11 +232,11 @@ review of the remote access mode.
 
 ## Open and residual findings
 
-### R8: the media changes are partly validated (open)
+### R8: the media changes are validated locally; the real network is not (open)
 
-The worker's `min-rtp-port`/`max-rtp-port` and `ice-tcp` handling compiles, and range
-parsing works in the real binary. It has not yet been shown on a live peer that sockets
-stay inside the range. A failure fails safe:
+The worker's `min-rtp-port`/`max-rtp-port` and `ice-tcp` handling compiles, range parsing
+works in the real binary, and a live browser peer stays inside the range over UDP only.
+What remains is the real network path. A failure fails safe:
 
 - ports outside the forwarded range, or ICE-TCP left on, mean media fails or keeps its old
   exposure;
@@ -246,12 +246,11 @@ stay inside the range. A failure fails safe:
 confirms that a valid range starts while a malformed one exits with code 2 before anything
 starts.
 
-**Next, on Windows:**
-
-- `node native/media-worker/tests/media-ports-check.mjs <playwright>` connects headless
-  Chromium through the worker with a range. It asserts UDP-only candidates inside the range,
-  that every worker UDP socket is in the range per `netstat`, and that no TCP port is
-  listening.
+**Passed on Windows, with a live peer:**
+`node native/media-worker/tests/media-ports-check.mjs <playwright>` connected headless
+Chromium through the worker with range 41000–41049. There was 1 UDP candidate inside the
+range, 1 worker UDP socket inside the range per `netstat`, no TCP listener, and the browser
+connected.
 
 **Still needed:**
 
@@ -334,8 +333,6 @@ the public host avoids the rest.
 ## Recommended next steps
 
 1. **Validation (R8):**
-   - `media-ports-check.mjs` (UDP-only candidates and sockets inside the range, per
-     `netstat`); `npm run test:hardware` already passes;
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
 2. **Host UI:** a screen for `remote-access`, `public-hosts`, `public-port` and `media-ports`.
@@ -401,6 +398,10 @@ the public host avoids the rest.
     host-pipe system tests passed.
   - `npm run test:host`: all 30 runtime-contract checks passed, including manifest
     validation, prerequisite checks and forced-owner process cleanup.
+  - `media-ports-check.mjs` (Playwright 1.62.1, headless Chromium) passed:
+    - 1 UDP candidate and 1 worker UDP socket, both inside 41000–41049;
+    - no TCP listener;
+    - the browser connected.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
   - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware
