@@ -42,6 +42,20 @@ function numberSetting(name, field, label, minimum, maximum) {
 }
 
 const securitySettingsCommands = [
+  {
+    name: 'public-name',
+    usage: 'public-name [name]',
+    summary: 'Show or set the name visible on the public login page.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      const access = positionals.length
+        ? await context.saveAccess({ publicName: positionals[0] })
+        : context.access();
+      return { text: `Public login name: ${access.publicName}`, data: access };
+    },
+  },
   numberSetting('code-ttl', 'shortCodeTtlSeconds', 'Short-code lifetime in seconds', 60, 600),
   numberSetting('code-attempts', 'shortCodeMaxFailures', 'Short-code global failures', 1, 20),
   numberSetting(

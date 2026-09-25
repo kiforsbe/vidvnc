@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
 import { SessionStore } from './session-store.mjs';
-import { chooseProfile, profileNames } from './profiles.mjs';
-import { audioModes, chooseAudioMode } from './audio.mjs';
+import { chooseProfile } from './profiles.mjs';
+import { chooseAudioMode } from './audio.mjs';
 import { defaultStreamPolicy, resolveStreamPolicy } from './stream-policy.mjs';
 import { applyProfileOrder } from './profile-order.mjs';
 import { isAllowedOrigin } from './tls/origin.mjs';
@@ -326,23 +326,7 @@ export function createHttpApp({
       }
       if (request.method === 'GET' && route === '/api/info')
         return send(response, 200, {
-          serverName,
-          display: null,
-          profiles: profileNames(),
-          audio: {
-            modes: audioModes(),
-            default: 'on',
-            codec: 'Opus',
-            compression: 'lossy',
-            systemOutputOnly: true,
-          },
-          media: {
-            state: media ? 'ready' : 'unavailable',
-            codec: 'H.264 + Opus',
-            transport: 'WebRTC',
-          },
-          control: { available: !!media },
-          connectionMode: connectionMode(),
+          publicName: access?.snapshot().publicName ?? 'VidVNC host',
         });
       // Trust-anchor enrolment (see `trustOffer`). Behind the host and origin guards above
       // and, like every other route, reachable on either listener; the plaintext one leaves

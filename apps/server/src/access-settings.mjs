@@ -16,6 +16,7 @@ const DEFAULTS = Object.freeze({
   sessionPasswordMaxFailures: 20,
   defaultCodeAlphabet: 'letters-digits',
   localSessionNetworks: 'auto',
+  publicName: 'VidVNC host',
 });
 
 function bounded(value, minimum, maximum) {
@@ -32,6 +33,16 @@ export function validNetworkCidr(value) {
 
 function validate(value) {
   const next = { ...DEFAULTS, ...value };
+  if (typeof next.publicName !== 'string') throw new Error('Invalid public name');
+  next.publicName = next.publicName.trim();
+  if (
+    [...next.publicName].length < 1 ||
+    [...next.publicName].length > 80 ||
+    /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(
+      next.publicName,
+    )
+  )
+    throw new Error('Invalid public name');
   if (
     !value ||
     !Number.isSafeInteger(next.revision) ||

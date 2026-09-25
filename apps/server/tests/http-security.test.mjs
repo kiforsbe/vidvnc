@@ -241,13 +241,16 @@ test('returns the selected stream profile without exposing the password', () =>
     assert.equal(body.audio.codec, 'Opus');
     assert.equal(JSON.stringify(body).includes(server.sessionStore.password), false);
   }));
-test('reports unavailable hardware honestly and never discloses the password', () =>
-  withServer(async (url, server) => {
-    const info = await (await fetch(url + '/api/info')).json();
-    assert.equal(info.control.available, false);
-    assert.equal(info.display, null);
-    assert.equal(JSON.stringify(info).includes(server.sessionStore.password), false);
-  }));
+test('public info exposes only the owner-chosen label, not host capabilities', () =>
+  withServer(
+    async (url, server) => {
+      const info = await (await fetch(url + '/api/info')).json();
+      assert.deepEqual(info, { publicName: 'Owner label' });
+      assert.equal(JSON.stringify(info).includes(server.sessionStore.password), false);
+      assert.equal(JSON.stringify(info).includes('Test PC'), false);
+    },
+    { access: { snapshot: () => ({ publicName: 'Owner label' }) } },
+  ));
 test('authenticates, rejects a second owner, and disconnects only with bearer authorization', () =>
   withServer(async (url, server) => {
     const response = await post(url + '/api/key-start', { key: server.sessionStore.password });

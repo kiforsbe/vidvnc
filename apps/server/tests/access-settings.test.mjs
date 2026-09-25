@@ -46,6 +46,7 @@ test('the connected-device limit is saved alone and bounded to what the host can
     sessionPasswordMaxFailures: 20,
     defaultCodeAlphabet: 'letters-digits',
     localSessionNetworks: 'auto',
+    publicName: 'VidVNC host',
   });
   assert.equal((await AccessSettings.open(file)).snapshot().maxSessions, 8);
   for (const maxSessions of [0, 9, 2.5, '3', null])
@@ -70,7 +71,24 @@ test('old access settings default to session-key admission and four devices', as
     sessionPasswordMaxFailures: 20,
     defaultCodeAlphabet: 'letters-digits',
     localSessionNetworks: 'auto',
+    publicName: 'VidVNC host',
   });
+});
+
+test('public login name defaults safely, trims owner input, and rejects deceptive controls', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vidvnc-public-name-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await AccessSettings.open(join(dir, 'access.json'));
+  assert.equal(store.snapshot().publicName, 'VidVNC host');
+  const saved = await store.replace({ publicName: '  My 🚀 PC  ' }, 0);
+  assert.equal(saved.publicName, 'My 🚀 PC');
+  assert.equal(
+    (await AccessSettings.open(join(dir, 'access.json'))).snapshot().publicName,
+    'My 🚀 PC',
+  );
+  for (const publicName of ['   ', 'A'.repeat(81), 'x\nprivate', 'x\u202ey', 'x\u2066y', 42])
+    await assert.rejects(store.replace({ publicName }, 1), /invalid public name/i);
+  assert.equal(store.snapshot().publicName, 'My 🚀 PC');
 });
 
 test('short-code policy defaults and rejects settings that weaken its fixed bounds', async (t) => {

@@ -202,6 +202,7 @@ test('access shows and saves the default for new connections', async (t) => {
     sessionPasswordMaxFailures: 20,
     defaultCodeAlphabet: 'letters-digits',
     localSessionNetworks: 'auto',
+    publicName: 'VidVNC host',
   });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
 });
@@ -227,6 +228,15 @@ test('connection-mode shows and saves the ordinary admission policy', async (t) 
     run('connection-mode anything'),
     usage(/^Use session-key, one-time-keys, or approved-only\./),
   );
+});
+
+test('public-name shows and saves an owner-chosen public login label', async (t) => {
+  const { run } = await offline(t);
+  assert.equal((await run('public-name')).text, 'Public login name: VidVNC host');
+  const saved = await run('public-name "Office PC" --json');
+  assert.equal(saved.data.publicName, 'Office PC');
+  assert.equal(saved.text, 'Public login name: Office PC');
+  await assert.rejects(run('public-name "   "'), /public name/i);
 });
 
 test('security settings CLI reads and saves bounded code policy', async (t) => {

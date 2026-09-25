@@ -267,7 +267,7 @@ test('a TLS request to the secure port is served, over a real handshake against 
 
   const { status, body } = await httpsGet(port, '/api/info');
   assert.equal(status, 200);
-  assert.equal(JSON.parse(body).serverName, 'Test PC');
+  assert.deepEqual(JSON.parse(body), { publicName: 'VidVNC host' });
   assert.equal((await connectTls(port)).fingerprint, validFingerprint);
   assert.match(log.lines.join('\n'), /TLS ready on port \d+ \(strategy: mkcert\)/);
 });
