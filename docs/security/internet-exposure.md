@@ -331,7 +331,7 @@ the public host avoids the rest.
 ## Recommended next steps
 
 1. **Validation (R8):**
-   - rerun `npm run test:hardware` with the fixed tests, and run `media-ports-check.mjs`;
+   - `npm run build:native`, then `npm run test:hardware` and `media-ports-check.mjs`;
    - `npm run test:host`;
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
@@ -376,6 +376,14 @@ the public host avoids the rest.
     HTTPS off, so they never touch the user's settings.
   - That run didn't exercise the media port range: the new worker test and
     `media-ports-check.mjs` were added afterwards.
+- **2026-09-25, second Windows run:** 16 of 18 passed, and all three earlier failures were
+  fixed.
+  - The new port-range test failed because the worker had not been rebuilt: the old binary
+    ignores `VIDVNC_ICE_PORTS` and exits 0.
+  - The host-status test still expected the pre-stream-runtime label "Connecting" for a
+    session with no streams; it now expects "No active streams".
+  - The native tests and `media-ports-check.mjs` now refuse to run against a worker older
+    than its sources, and say to run `npm run build:native`.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
   - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware

@@ -167,7 +167,7 @@ The [security analysis](internet-exposure.md) lists what is still open. In short
 
 Before relying on it:
 
-1. Build and run `npm run test:hardware` on Windows. It checks that the worker accepts a
+1. Run `npm run build:native`, then `npm run test:hardware` on Windows. It checks that the worker accepts a
    valid range and refuses to start with a malformed one.
 2. Run the acceptance check, which connects headless Chromium through the worker with a
    range set. It asserts that every candidate is UDP inside the range, and uses `netstat`

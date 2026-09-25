@@ -56,7 +56,8 @@ test('owned host pipe reports real sessions and disconnects them without stoppin
   const status = await waitFor(
     (m) => m.type === 'status' && m.sessions.some((s) => s.id === sessionId),
   );
-  assert.equal(status.sessions[0].health, 'Connecting');
+  // The stream runtime reports a session that has not subscribed to anything yet this way.
+  assert.equal(status.sessions[0].health, 'No active streams');
   assert.equal(status.streamCount, 0);
   assert.ok(!JSON.stringify(status).includes(ready.password));
   messages.length = 0;

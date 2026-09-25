@@ -1,7 +1,24 @@
-import test from 'node:test';
+import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { executable, workerEnvironment } from '../runtime.mjs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { executable, runtimeManifest, workerEnvironment } from '../runtime.mjs';
+import { workerIsStale, workerPath } from '../../../tools/debug/host-build.mjs';
+
+// These tests run the built worker, and nothing here rebuilds it. A worker older than its
+// sources would test yesterday's code and fail in confusing ways, so say so up front. Only
+// the default development build is checked; an explicit VIDVNC_MEDIA_WORKER or runtime
+// manifest is the caller's choice.
+const root = fileURLToPath(new URL('../../../', import.meta.url));
+before(() => {
+  if (runtimeManifest || process.env.VIDVNC_MEDIA_WORKER) return;
+  if (path.resolve(executable) !== path.resolve(workerPath(root, 'Release'))) return;
+  assert.ok(
+    !workerIsStale(root, 'Release'),
+    'media-worker.exe is older than native/ sources. Run `npm run build:native` first.',
+  );
+});
 function run(...args) {
   let options = {};
   if (args.length && typeof args[args.length - 1] === 'object') {
