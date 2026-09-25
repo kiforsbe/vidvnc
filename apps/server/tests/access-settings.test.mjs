@@ -49,6 +49,8 @@ test('the connected-device limit is saved alone and bounded to what the host can
     publicName: 'VidVNC host',
     remoteAccess: false,
     publicHostnames: [],
+    publicPort: null,
+    mediaPorts: null,
   });
   assert.equal((await AccessSettings.open(file)).snapshot().maxSessions, 8);
   for (const maxSessions of [0, 9, 2.5, '3', null])
@@ -76,6 +78,8 @@ test('old access settings default to session-key admission and four devices', as
     publicName: 'VidVNC host',
     remoteAccess: false,
     publicHostnames: [],
+    publicPort: null,
+    mediaPorts: null,
   });
 });
 

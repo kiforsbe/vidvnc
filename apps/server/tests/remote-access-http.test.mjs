@@ -40,7 +40,7 @@ async function withRemote(t, { remoteAccess = true, internet = true } = {}) {
     app.emit('close');
   });
   const port = secure.address().port;
-  const request = (method, path, { host = 'vnc.example.com', body } = {}) =>
+  const request = (method, path, { host = 'vnc.example.com', port: hostPort = port, body } = {}) =>
     new Promise((resolve, reject) => {
       const data = body === undefined ? undefined : JSON.stringify(body);
       const outgoing = httpsRequest(
@@ -51,7 +51,7 @@ async function withRemote(t, { remoteAccess = true, internet = true } = {}) {
           path,
           rejectUnauthorized: false,
           headers: {
-            host: `${host}:${port}`,
+            host: hostPort === 443 ? host : `${host}:${hostPort}`,
             ...(data
               ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }
               : {}),
@@ -153,4 +153,94 @@ test('a device set up on the LAN signs in from the internet, and its request say
     },
   });
   assert.equal(signIn.status, 201);
+});
+
+test('the stream answer names the public address for an internet client only', async (t) => {
+  const sessionStore = new SessionStore({ maxSessions: 1 });
+  const approvedClients = await ApprovedClientStore.open(null, { keys: sessionStore.keys });
+  const sdp = [
+    'v=0',
+    'm=video 40001 UDP/TLS/RTP/SAVPF 96',
+    'a=candidate:1 1 UDP 2015363327 192.168.1.20 40001 typ host',
+    '',
+  ].join('\r\n');
+  const peer = { internet: false };
+  const app = createHttpApp({
+    sessionStore,
+    approvedClients,
+    runtime: { offerVideo: async () => ({ streamId: 's1', type: 'answer', sdp }), list: () => [] },
+    access: {
+      snapshot: () => ({
+        remoteAccess: true,
+        publicHostnames: ['vnc.example.com'],
+        publicPort: 443,
+      }),
+    },
+    peerNetwork: { isInternet: () => peer.internet },
+    resolvePublicIpv4: async () => ['203.0.113.10'],
+  });
+  const secure = createTlsServer(CREDENTIAL, app.requestListener);
+  await new Promise((resolve) => secure.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    secure.closeAllConnections();
+    await new Promise((resolve) => secure.close(resolve));
+    app.emit('close');
+  });
+  const { sessionId } = sessionStore.connect(sessionStore.password, '127.0.0.1');
+  const offer = () =>
+    new Promise((resolve, reject) => {
+      const data = JSON.stringify({ sdp: 'v=0\r\n' });
+      const outgoing = httpsRequest(
+        {
+          host: '127.0.0.1',
+          port: secure.address().port,
+          method: 'POST',
+          path: '/api/stream-offer',
+          rejectUnauthorized: false,
+          headers: {
+            host: 'vnc.example.com',
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(data),
+            authorization: `Bearer ${sessionId}`,
+          },
+        },
+        (response) => {
+          let text = '';
+          response.on('data', (chunk) => (text += chunk));
+          response.on('end', () => resolve(JSON.parse(text)));
+        },
+      );
+      outgoing.on('error', reject);
+      outgoing.end(data);
+    });
+  assert.match((await offer()).sdp, / 192\.168\.1\.20 40001 /, 'a local client is unchanged');
+  peer.internet = true;
+  const rewritten = (await offer()).sdp;
+  assert.match(rewritten, / 203\.0\.113\.10 40001 typ host/);
+  assert.equal(rewritten.includes('192.168.'), false);
+});
+
+test('an internet client is never served over plain HTTP, whatever the local scope says', async (t) => {
+  const app = createHttpApp({
+    access: { snapshot: () => ({ remoteAccess: true, publicHostnames: ['vnc.example.com'] }) },
+    peerNetwork: { isInternet: () => true },
+    localSessionScope: { allows: () => true },
+  });
+  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => app.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${app.address().port}/`);
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'Use HTTPS.');
+});
+
+test('a router forwarding the public HTTPS port works only when that port is configured', async (t) => {
+  const { request, settings } = await withRemote(t);
+  assert.equal((await request('GET', '/', { port: 443 })).status, 421);
+  settings.publicPort = 443;
+  assert.equal((await request('GET', '/', { port: 443 })).status, 200);
+  assert.equal(
+    (await request('GET', '/', { host: '127.0.0.1', port: 443 })).status,
+    421,
+    'only the public names may use the public port',
+  );
 });

@@ -6,6 +6,8 @@ function wrongAuthority() {
   return Object.assign(new Error('Request target does not match this listener'), { status: 421 });
 }
 
+// `localPort` is the listener's own port, or a list of ports the Host header may name: a
+// router can forward a different public port to it (remote access `publicPort`).
 export function parseRequestTarget(raw, scheme, hostHeader, localPort) {
   if (typeof raw !== 'string' || typeof hostHeader !== 'string' || !hostHeader)
     throw badRequest('Host and request target are required');
@@ -34,7 +36,7 @@ export function parseRequestTarget(raw, scheme, hostHeader, localPort) {
 
   const expectedPort = Number(expected.port || (scheme === 'https' ? 443 : 80));
   if (
-    expectedPort !== localPort ||
+    ![localPort].flat().includes(expectedPort) ||
     (!originForm &&
       (target.protocol !== `${scheme}:` ||
         target.host !== expected.host ||

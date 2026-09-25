@@ -25,7 +25,31 @@ const DEFAULTS = Object.freeze({
   // The DNS names or public IP addresses internet clients use for this PC: accepted as HTTP
   // Host values and added to the generated certificate while remote access is on.
   publicHostnames: Object.freeze([]),
+  // The HTTPS port internet devices use when the router forwards a different public port
+  // (usually 443) to this PC's HTTPS port. null: the same port as the HTTPS listener.
+  publicPort: null,
+  // The UDP (and ICE-TCP) ports media workers use, `{ min, max }`, so the router can forward
+  // exactly that range to this PC. null lets the system pick any port, which works on the
+  // local network but cannot be forwarded.
+  mediaPorts: null,
 });
+
+export const MEDIA_PORT_LIMITS = Object.freeze({ lowest: 1024, fewest: 8, most: 1000 });
+
+export function validMediaPorts(value) {
+  if (value === null) return true;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { min, max } = value;
+  return (
+    Object.keys(value).length === 2 &&
+    Number.isInteger(min) &&
+    Number.isInteger(max) &&
+    min >= MEDIA_PORT_LIMITS.lowest &&
+    max <= 65535 &&
+    max - min + 1 >= MEDIA_PORT_LIMITS.fewest &&
+    max - min + 1 <= MEDIA_PORT_LIMITS.most
+  );
+}
 
 // A DNS name (dot-separated letters, digits and hyphens) or an IP address, lowercase and
 // without brackets so it compares directly with a parsed Host header. null if neither.
@@ -103,6 +127,8 @@ function validate(value) {
     typeof next.remoteAccess !== 'boolean' ||
     !validPublicHostnames(next.publicHostnames) ||
     (next.remoteAccess && next.publicHostnames.length === 0) ||
+    !validMediaPorts(next.mediaPorts) ||
+    (next.publicPort !== null && !bounded(next.publicPort, 1, 65535)) ||
     Object.keys(value).some((key) => !Object.hasOwn(DEFAULTS, key))
   )
     throw new Error('Invalid access settings');

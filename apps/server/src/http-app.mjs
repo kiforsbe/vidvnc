@@ -16,6 +16,7 @@ import {
 } from './tls/anchor.mjs';
 import { applyServerLimits } from './server-limits.mjs';
 import { createPeerNetwork } from './peer-network.mjs';
+import { announceCandidates, publicIpv4Addresses } from './sdp-candidates.mjs';
 import { createLocalSessionScope } from './local-session-scope.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
@@ -179,6 +180,8 @@ export function createHttpApp({
   plaintextMode = tls ? 'https-required' : 'lan-http',
   // Tells internet clients from local and private-network ones (peer-network.mjs).
   peerNetwork = createPeerNetwork({ interfaces }),
+  // Injectable for tests; production resolves the public names with DNS.
+  resolvePublicIpv4 = null,
 } = {}) {
   if (!['local', 'public'].includes(listenerScope)) throw new Error('Invalid listener scope');
   if (!['lan-http', 'https-required'].includes(plaintextMode))
@@ -200,6 +203,17 @@ export function createHttpApp({
     access
       .snapshot()
       .publicHostnames.some((name) => (isIP(name) === 6 ? `[${name}]` : name) === host);
+  // An internet client's SDP answer names the router's public address instead of this PC's
+  // private ones (sdp-candidates.mjs). Local and private-network clients get it unchanged.
+  const answerFor = async (internet, sdp) =>
+    internet && typeof sdp === 'string'
+      ? announceCandidates(
+          sdp,
+          await (resolvePublicIpv4 ?? publicIpv4Addresses)(
+            access?.snapshot().publicHostnames ?? [],
+          ),
+        )
+      : sdp;
   // What the owner sees next to a pending registration's approve button.
   const registrationNetwork = (peer) =>
     localSessionScope.allows(peer, 'local')
@@ -290,16 +304,24 @@ export function createHttpApp({
       const internet = peerNetwork.isInternet(request.socket.remoteAddress);
       if (internet && !remoteAccess())
         return send(response, 403, { error: 'Remote access is off.' });
+      // The HTTP listener binds local addresses only, so this is a second line: whatever
+      // reaches this handler from the internet, only an encrypted connection is served.
+      if (internet && !request.socket.encrypted)
+        return send(response, 403, { error: 'Use HTTPS.' });
       const host = new URL(`http://${request.headers.host}`).hostname;
       if (!allowedHost(host)) return send(response, 403, { error: 'Use the server IP address.' });
       // The scheme is read from the socket, not from a client-supplied header (e.g.
       // X-Forwarded-Proto): only the connection itself can say whether it is encrypted.
       const scheme = request.socket.encrypted ? 'https' : 'http';
+      // A public name may arrive on the router's public port instead of this listener's.
+      const publicPort = access?.snapshot().publicPort;
       const { route, pathAndQuery } = parseRequestTarget(
         request.url,
         scheme,
         request.headers.host,
-        request.socket.localPort,
+        scheme === 'https' && publicPort && isPublicHost(host)
+          ? [request.socket.localPort, publicPort]
+          : request.socket.localPort,
       );
       const isLocal = localSessionScope.allows(request.socket.remoteAddress, 'local');
       if (scheme === 'http' && !isLocal)
@@ -654,12 +676,10 @@ export function createHttpApp({
           )
             return send(response, 400, { error: 'Invalid SDP' });
           try {
-            return sendIfLive(
-              200,
-              await (route === '/api/audio-offer'
-                ? runtime.offerAudio(token, body.sdp)
-                : runtime.offerVideo(token, body)),
-            );
+            const answer = await (route === '/api/audio-offer'
+              ? runtime.offerAudio(token, body.sdp)
+              : runtime.offerVideo(token, body));
+            return sendIfLive(200, { ...answer, sdp: await answerFor(internet, answer.sdp) });
           } catch (error) {
             if (!sessionStore.get(token))
               return send(response, 401, { error: 'Session expired. Reconnect.' });
@@ -814,7 +834,7 @@ export function createHttpApp({
           session.display,
         );
         if (!sessionStore.get(token)) return send(response, 401, { error: 'Session expired' });
-        return send(response, 200, { type: 'answer', sdp: answer });
+        return send(response, 200, { type: 'answer', sdp: await answerFor(internet, answer) });
       } catch (error) {
         if (error.code === 'MEDIA_BUSY')
           return send(response, 409, { error: 'Stream already active or media capacity reached.' });

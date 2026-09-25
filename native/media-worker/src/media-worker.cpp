@@ -26,6 +26,7 @@
 #include "sdp-payload.hpp"
 #include "display-inventory.hpp"
 #include "stream-profile.hpp"
+#include "ice-ports.hpp"
 #include "rate-control.hpp"
 #include "encoder-backend.hpp"
 #include "encoder-properties.hpp"
@@ -186,6 +187,9 @@ static gint64 now_ms() { return g_get_monotonic_time() / 1000; }
 static void fail_peer(Peer &peer, const char *reason);
 static void remove_peer(const std::string &id, bool notify);
 static std::ofstream error_log;
+// Fixed ICE port range from VIDVNC_ICE_PORTS, so a router can forward it; unset, the system
+// picks any free port.
+static std::optional<IcePorts> ice_ports;
 static std::atomic<bool> shutdown_started{false};
 // Losing the server's pipe must also stop a worker whose GStreamer thread is
 // blocked. Attempt orderly cleanup first; the deadline kills only this process.
@@ -1248,6 +1252,18 @@ static void add_peer(const std::string &id, const std::string &text) {
     else {
         g_object_set(peer.webrtc, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "latency",
                      0, nullptr);
+        if (ice_ports) {
+            // GstWebRTCICE's min-rtp-port/max-rtp-port (GStreamer 1.20+) bound every host
+            // candidate this peer allocates, UDP and ICE-TCP alike.
+            GstWebRTCICE *ice = nullptr;
+            g_object_get(peer.webrtc, "ice-agent", &ice, nullptr);
+            if (ice) {
+                g_object_set(ice, "min-rtp-port", ice_ports->min, "max-rtp-port", ice_ports->max,
+                             nullptr);
+                gst_object_unref(ice);
+            } else
+                failure = "Unable to apply the media port range.";
+        }
         g_signal_connect(
             peer.webrtc, "on-new-transceiver",
             G_CALLBACK(+[](GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
@@ -1597,6 +1613,14 @@ int main(int argc, char **argv) {
         error_log.open(std::filesystem::u8path(log_path), std::ios::app);
     if (error_log.is_open())
         error_log << "START native worker" << std::endl;
+    if (const char *ports = g_getenv("VIDVNC_ICE_PORTS")) {
+        ice_ports = parse_ice_ports(ports);
+        if (!ice_ports) {
+            // Refuse rather than fall back to random ports the router does not forward.
+            std::cerr << "Invalid VIDVNC_ICE_PORTS" << std::endl;
+            return 2;
+        }
+    }
     try {
         if (argc == 2 && std::string(argv[1]) == "--list-displays") {
             auto root = json_node_new(JSON_NODE_ARRAY);

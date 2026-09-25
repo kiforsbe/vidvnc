@@ -89,6 +89,7 @@ async function serve() {
     // Eight video sources plus two audio formats, each of which may briefly have a closing
     // predecessor; registry budgets decide what starts.
     const media = new NativeMedia({
+      mediaPorts: () => access.snapshot().mediaPorts,
       maxWorkers: 12,
       hostControl: true,
       diagnostics,
@@ -281,15 +282,21 @@ async function serve() {
     // re-checks it now rather than at the next six-hourly re-check. Remote access with HTTPS
     // off serves no internet device at all, which the log says plainly.
     const warnRemoteWithoutTls = () => {
-      if (access.snapshot().remoteAccess && tlsSettings.mode === 'off')
+      const settings = access.snapshot();
+      if (settings.remoteAccess && tlsSettings.mode === 'off')
         serverLog(
           'Remote access is on but HTTPS is off, so internet devices cannot connect. Set tls-mode to auto or provided.',
+        );
+      if (settings.remoteAccess && !settings.mediaPorts)
+        serverLog(
+          'Remote access is on but media ports are automatic, so internet devices can sign in but get no picture. Set media-ports and forward that range.',
         );
     };
     access.onChange((next, previous) => {
       if (
         stopping ||
         (next.remoteAccess === previous.remoteAccess &&
+          JSON.stringify(next.mediaPorts) === JSON.stringify(previous.mediaPorts) &&
           JSON.stringify(next.publicHostnames) === JSON.stringify(previous.publicHostnames))
       )
         return;
@@ -586,6 +593,8 @@ async function serve() {
                   'publicName',
                   'remoteAccess',
                   'publicHostnames',
+                  'mediaPorts',
+                  'publicPort',
                 ]
                   .filter((key) => command[key] !== undefined)
                   .map((key) => [key, command[key]]),

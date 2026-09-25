@@ -11,6 +11,8 @@ import {
   formatMaxSessions,
 } from '../format.mjs';
 import {
+  MEDIA_PORT_LIMITS,
+  validMediaPorts,
   MAX_PUBLIC_HOSTNAMES,
   MAX_SESSIONS_LIMIT,
   normalizePublicHostname,
@@ -52,7 +54,7 @@ const formatRemoteAccess = (access) =>
   access.remoteAccess
     ? [
         'Remote access: on',
-        `Internet devices use https://${access.publicHostnames[0]}:<HTTPS port>/ and must be approved devices.`,
+        `Internet devices use https://${access.publicHostnames[0]}${access.publicPort ? (access.publicPort === 443 ? '' : `:${access.publicPort}`) : ':<HTTPS port>'}/ and must be approved devices.`,
         'Codes, device setup and certificate enrolment still work on the local network only.',
       ].join('\n')
     : 'Remote access: off. Devices with an internet address are refused.';
@@ -84,6 +86,59 @@ const securitySettingsCommands = [
         access = await context.saveAccess({ publicHostnames: [...new Set(names)] });
       }
       return { text: formatPublicHostnames(access), data: access };
+    },
+  },
+  {
+    name: 'public-port',
+    usage: 'public-port [same|<port>]',
+    summary:
+      'Show or set the HTTPS port internet devices use, if the router forwards a different one.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      let access = context.access();
+      if (positionals.length) {
+        const value = positionals[0] === 'same' ? null : Number(positionals[0]);
+        if (value !== null && (!/^\d+$/.test(positionals[0]) || value < 1 || value > 65535))
+          throw new UsageError('Use same, or a port from 1 to 65535.');
+        access = await context.saveAccess({ publicPort: value });
+      }
+      return {
+        text: access.publicPort
+          ? `Public HTTPS port: ${access.publicPort} (forwarded by the router to this PC's HTTPS port)`
+          : "Public HTTPS port: the same as this PC's HTTPS port",
+        data: access,
+      };
+    },
+  },
+  {
+    name: 'media-ports',
+    usage: 'media-ports [auto|<first>-<last>]',
+    summary: 'Show or set the port range video, audio and input use, for forwarding on a router.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      let access = context.access();
+      if (positionals.length) {
+        let mediaPorts = null;
+        if (positionals[0] !== 'auto') {
+          const match = /^(\d{1,5})-(\d{1,5})$/.exec(positionals[0]);
+          mediaPorts = match ? { min: Number(match[1]), max: Number(match[2]) } : undefined;
+          if (!validMediaPorts(mediaPorts ?? undefined))
+            throw new UsageError(
+              `Use auto, or a range like 40000-40049: ${MEDIA_PORT_LIMITS.fewest} to ${MEDIA_PORT_LIMITS.most} ports, from ${MEDIA_PORT_LIMITS.lowest} to 65535.`,
+            );
+        }
+        access = await context.saveAccess({ mediaPorts });
+      }
+      return {
+        text: access.mediaPorts
+          ? `Media ports: ${access.mediaPorts.min}-${access.mediaPorts.max} (UDP, and TCP as a fallback). New streams use them.`
+          : 'Media ports: automatic (any free port; works on the local network only).',
+        data: access,
+      };
     },
   },
   {

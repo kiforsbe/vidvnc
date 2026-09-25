@@ -26,6 +26,14 @@ may include breaking changes.
   as approved devices (short codes, device setup and certificate enrolment stay on the local
   network), get HSTS on the public names, and have those names accepted as HTTP `Host`
   values and added to the generated certificate.
+- Media through a router without a relay. `media-ports <first>-<last>` pins the ports video,
+  audio and input use (the worker applies it to every WebRTC peer through
+  `VIDVNC_ICE_PORTS`), so the range can be forwarded to this PC. An internet client's SDP
+  answer then names the router's public address (the public names, with DNS names resolved at
+  answer time) on the same ports, and private addresses are removed from it.
+- `public-port <port>`: the HTTPS port internet devices use when the router forwards a
+  different public port (usually 443) to this PC's HTTPS port. Before, any `Host` port other
+  than the listener's own was refused with `421`, which broke that ordinary router setup.
 
 ### Changed
 

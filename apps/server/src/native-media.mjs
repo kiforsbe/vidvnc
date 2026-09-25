@@ -33,6 +33,11 @@ export async function listDisplays(signal) {
 }
 const busy = (message) => Object.assign(new Error(message), { code: 'MEDIA_BUSY' });
 
+// The worker reads its ICE port range from VIDVNC_ICE_PORTS ("min-max"), absent for any port.
+export function mediaPortsEnvironment(range) {
+  return range ? { VIDVNC_ICE_PORTS: `${range.min}-${range.max}` } : {};
+}
+
 // One worker per source (a capture/encode or an audio mix); each viewer is a peer inside it.
 export class NativeMedia {
   constructor({
@@ -45,9 +50,12 @@ export class NativeMedia {
     hostControl = false,
     negotiationTimeoutMs = 15000,
     removalTimeoutMs = 1500,
+    // The media port range (access-settings.mjs `mediaPorts`), read when each worker starts,
+    // so a change applies to new streams without a restart.
+    mediaPorts = () => null,
     launch = () =>
       spawn(executable, ['--session'], {
-        env: workerEnvironment(),
+        env: { ...workerEnvironment(), ...mediaPortsEnvironment(mediaPorts()) },
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       }),
