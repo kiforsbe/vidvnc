@@ -99,6 +99,18 @@ For an internet client:
    - Register the device with a setup code and approve it on the host. The approval
      screen shows where each request came from: _Local network_,
      _Private network (not this LAN)_ or _Internet_.
+   - **Carry the device key to the remote address.** A browser keeps saved data separately
+     for each address, so a key saved at `https://192.168.x.x:4383` doesn't exist at
+     `https://vnc.example.com`. Once a public name is set, the sign-in page on the LAN
+     shows **Open remote address** and **Copy link** under "To sign in from the internet":
+     - **Open** works if your router lets devices at home reach the public address (NAT
+       loopback).
+     - **Copy link** lets you open the link later in the same browser while you are away.
+
+     The link carries the key in the part after `#`, which browsers never send to a server.
+     The page that opens stores the key and removes it from the address bar. It never
+     replaces a different key already stored there. Keep the link to yourself: with it,
+     someone only needs your password.
 7. **Turn it on.**
    - **In the Windows host app:**
      - Steps 3–5 (public names, media ports and public port) are under

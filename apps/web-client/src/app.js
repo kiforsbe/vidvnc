@@ -1,6 +1,8 @@
 import { bindPasswordEntry, normalizePassword } from './password-entry.js';
 import {
   browserInstallationId,
+  consumeCredentialFromLocation,
+  credentialHandoffUrl,
   forgetApprovedCredential,
   loadApprovedCredential,
   saveApprovedCredential,
@@ -8,8 +10,17 @@ import {
 import { consumeConnectionKeyFromLocation } from './connection-link.js';
 const $ = (id) => document.getElementById(id);
 let scannedConnectionKey = consumeConnectionKeyFromLocation(location, history);
+// A device key handed over from this host's local address (approved-client.js).
+let handedOffCredential = consumeCredentialFromLocation(location, history);
 let clientInitialized = false;
-window.addEventListener('hashchange', () => {
+let remoteOrigin = null;
+window.addEventListener('hashchange', async () => {
+  const credential = consumeCredentialFromLocation(location, history);
+  if (credential) {
+    handedOffCredential = credential;
+    if (clientInitialized) await importHandedOffCredential();
+    return;
+  }
   const key = consumeConnectionKeyFromLocation(location, history);
   if (!key) return;
   scannedConnectionKey = key;
@@ -43,6 +54,38 @@ function showAuthentication(mode) {
 }
 function showPreferredAuthentication() {
   showAuthentication(approvedCredential ? 'signInForm' : 'connectForm');
+  updateRemoteHandoff();
+}
+// Offered on the local address once the host has a remote address: the device key is stored
+// per address, so this browser needs it at the remote one too.
+function updateRemoteHandoff() {
+  let elsewhere = false;
+  try {
+    elsewhere = Boolean(remoteOrigin) && new URL(remoteOrigin).origin !== location.origin;
+  } catch {
+    elsewhere = false;
+  }
+  $('remoteHandoff').hidden = !(elsewhere && approvedCredential);
+}
+// Never replaces a different key: a crafted link must not swap this browser's device key.
+async function importHandedOffCredential() {
+  const incoming = handedOffCredential;
+  handedOffCredential = null;
+  if (!incoming) return false;
+  if (approvedCredential && approvedCredential.clientId !== incoming.clientId) {
+    status(
+      'This browser already has a different device key here. Forget it first, then open the link again.',
+    );
+    return true;
+  }
+  try {
+    approvedCredential = await saveApprovedCredential(incoming);
+    showPreferredAuthentication();
+    status('This browser now has its device key at this address. Sign in with your password.');
+  } catch {
+    status('This browser could not store its device key here.');
+  }
+  return true;
 }
 function showScannedConnectionKey() {
   // Scanning only saves typing: the person explicitly chooses whether to use
@@ -271,6 +314,7 @@ async function pollForApproval(registration) {
       if (result.state === 'approved' && result.clientSecret) {
         approvedCredential = await saveApprovedCredential(result);
         showAuthentication('signInForm');
+        updateRemoteHandoff();
         status('Approved. Sign in with your username and password.');
         return;
       }
@@ -330,6 +374,21 @@ $('useConnectionKey').onclick = () => {
   status('Enter a connection key from the host.');
 };
 
+$('openRemote').onclick = () => {
+  if (!remoteOrigin || !approvedCredential) return;
+  location.assign(credentialHandoffUrl(remoteOrigin, approvedCredential));
+};
+
+$('copyRemoteLink').onclick = async () => {
+  if (!remoteOrigin || !approvedCredential) return;
+  try {
+    await navigator.clipboard.writeText(credentialHandoffUrl(remoteOrigin, approvedCredential));
+    status('Link copied. Open it in this browser only; it contains this browser’s device key.');
+  } catch {
+    status('The link could not be copied here.');
+  }
+};
+
 $('forgetClient').onclick = async () => {
   try {
     await forgetApprovedCredential();
@@ -347,15 +406,17 @@ Promise.all([
   }),
   loadApprovedCredential(),
 ])
-  .then(([info, credential]) => {
+  .then(async ([info, credential]) => {
     $('serverName').textContent = info.publicName;
     document.querySelectorAll('.server-name').forEach((element) => {
       element.textContent = info.publicName;
     });
     approvedCredential = credential;
+    remoteOrigin = typeof info.remoteOrigin === 'string' ? info.remoteOrigin : null;
     clientInitialized = true;
     showPreferredAuthentication();
 
+    if (await importHandedOffCredential()) return;
     if (scannedConnectionKey) showScannedConnectionKey();
     else status('Ready to connect.');
   })

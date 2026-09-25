@@ -218,6 +218,15 @@ export function createHttpApp({
           ),
         )
       : sdp;
+  // The HTTPS origin internet devices use: the first public name, on the public port or else
+  // this PC's HTTPS port. Null until a public name is configured and a port is known.
+  const remoteOrigin = () => {
+    const settings = access?.snapshot();
+    const name = settings?.publicHostnames?.[0];
+    const port = settings?.publicPort ?? tls?.status?.()?.port ?? null;
+    if (!name || !port) return null;
+    return `https://${isIP(name) === 6 ? `[${name}]` : name}${port === 443 ? '' : `:${port}`}`;
+  };
   // What the owner sees next to a pending registration's approve button.
   const registrationNetwork = (peer) =>
     localSessionScope.allows(peer, 'local')
@@ -432,10 +441,16 @@ export function createHttpApp({
         });
         return response.end(body);
       }
-      if (request.method === 'GET' && route === '/api/info')
+      if (request.method === 'GET' && route === '/api/info') {
+        // Local and private-network visitors also learn the remote address, once one is set,
+        // so an approved browser can carry its device key there (browsers keep that key per
+        // address). Internet visitors are already on it and get only the public name.
+        const remote = internet ? null : remoteOrigin();
         return send(response, 200, {
           publicName: access?.snapshot().publicName ?? 'VidVNC host',
+          ...(remote ? { remoteOrigin: remote } : {}),
         });
+      }
       // Trust-anchor enrolment (see `trustOffer`). Behind the host and origin guards above
       // and, like every other route, reachable on either listener; the plaintext one leaves
       // these paths unredirected (PLAINTEXT_ALLOWED_PATHS). No `tls`, or a `tls` without

@@ -106,3 +106,52 @@ export async function browserInstallationId() {
   await write('installation-id', value);
   return value;
 }
+
+// Browsers keep IndexedDB per origin, so a device key saved while using the host's LAN
+// address is invisible at its public address. A handoff link carries this browser's own key
+// to the public address in the URL fragment, which browsers never send to a server; the page
+// there stores it and removes it from the address bar. The key alone does not sign in: the
+// username's password is still required.
+const HANDOFF_PARAMETER = 'approved';
+
+function base64UrlEncode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(value) {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+  return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+}
+
+export function credentialHandoffUrl(remoteOrigin, credential) {
+  const valid = validateApprovedCredential(credential);
+  if (!valid) throw new Error('Invalid approved-client credential');
+  const origin = new URL(remoteOrigin);
+  if (origin.protocol !== 'https:') throw new Error('The remote address must use HTTPS');
+  return `${origin.origin}/#${HANDOFF_PARAMETER}=${base64UrlEncode(JSON.stringify(valid))}`;
+}
+
+export function credentialFromFragment(fragment) {
+  if (typeof fragment !== 'string') return null;
+  const value = new URLSearchParams(fragment.startsWith('#') ? fragment.slice(1) : fragment).get(
+    HANDOFF_PARAMETER,
+  );
+  if (!value || value.length > 1024) return null;
+  try {
+    return validateApprovedCredential(JSON.parse(base64UrlDecode(value)));
+  } catch {
+    return null;
+  }
+}
+
+// Reads a handoff from the address bar and always removes it from the visible URL.
+export function consumeCredentialFromLocation(location, history) {
+  const credential = credentialFromFragment(location.hash);
+  if (new URLSearchParams(location.hash.slice(1)).has(HANDOFF_PARAMETER))
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+  return credential;
+}

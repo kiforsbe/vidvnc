@@ -136,6 +136,15 @@ unknown address fails closed as internet.
   saves the public names, public port and media ports while sharing through the host pipe,
   and while sharing is off through the offline `config` command. That command refuses to
   run while a server is running.
+- **Carrying the device key to the remote address.** Browsers keep the approved-device key
+  per origin, so a key saved at the LAN address is missing at the public one.
+  - `/api/info` gives local and private-network visitors (never internet ones) the remote
+    origin, once a public name is set.
+  - The sign-in page then offers a handoff link to that origin, with the key in the URL
+    fragment, which is never sent to a server.
+  - The receiving page stores the key, strips the fragment, and refuses to replace a
+    different stored key, so a crafted link can't swap in someone else's key.
+  - The password is still required to sign in.
 - **The source-address check is prompted.** While remote access is on, the card asks the
   owner to check once from mobile data that Sessions shows a public address (R2). Sessions
   lists each device's address.
@@ -349,7 +358,10 @@ the public host avoids the rest.
   - Certificate enrolment over LAN HTTP needs an independent fingerprint check.
 - **F5:** the IndexedDB device secret plus the password can be copied and used whenever the
   identity has no live session. One-session enforcement also lets a thief occupy the slot.
-  A passkey (WebAuthn) challenge is the proposed stronger model.
+  - The remote-address handoff link adds a way to copy the key deliberately. A link that
+    leaks (a synced clipboard, a message) exposes the key, though not the password.
+  - A passkey (WebAuthn) challenge is the proposed stronger model. It would also remove the
+    handoff, because a passkey can be registered per origin.
 - **F7:** in-process limits don't absorb volumetric TCP, TLS or UDP floods. That needs an
   upstream edge and real-network load tests.
 

@@ -266,6 +266,18 @@ label {
 .form-secondary {
   margin-top: 10px;
 }
+.remote-handoff {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.remote-handoff > .secondary {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+}
 .text-button {
   display: block;
   margin: 14px auto 0;

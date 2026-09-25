@@ -259,3 +259,57 @@ test('a router forwarding the public HTTPS port works only when that port is con
     'only the public names may use the public port',
   );
 });
+
+test('local visitors learn the remote address to carry their device key there; internet ones do not', async (t) => {
+  const settings = {
+    remoteAccess: false,
+    publicHostnames: ['vnc.example.com'],
+    publicPort: 443,
+    publicName: 'Office PC',
+  };
+  const peer = { internet: false };
+  const app = createHttpApp({
+    access: { snapshot: () => structuredClone(settings) },
+    peerNetwork: { isInternet: () => peer.internet },
+    localSessionScope: { allows: () => !peer.internet },
+  });
+  const secure = createTlsServer(CREDENTIAL, app.requestListener);
+  await new Promise((resolve) => secure.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    secure.closeAllConnections();
+    await new Promise((resolve) => secure.close(resolve));
+    app.emit('close');
+  });
+  const info = (host) =>
+    new Promise((resolve, reject) => {
+      httpsRequest(
+        {
+          host: '127.0.0.1',
+          port: secure.address().port,
+          path: '/api/info',
+          rejectUnauthorized: false,
+          headers: { host: `${host}:${secure.address().port}` },
+        },
+        (response) => {
+          let text = '';
+          response.on('data', (chunk) => (text += chunk));
+          response.on('end', () => resolve(JSON.parse(text)));
+        },
+      )
+        .on('error', reject)
+        .end();
+    });
+  assert.deepEqual(await info('127.0.0.1'), {
+    publicName: 'Office PC',
+    remoteOrigin: 'https://vnc.example.com',
+  });
+  settings.publicPort = 8443;
+  assert.equal((await info('127.0.0.1')).remoteOrigin, 'https://vnc.example.com:8443');
+  settings.publicHostnames = [];
+  assert.deepEqual(await info('127.0.0.1'), { publicName: 'Office PC' });
+  settings.publicHostnames = ['vnc.example.com'];
+  settings.remoteAccess = true;
+  peer.internet = true;
+  settings.publicPort = null;
+  assert.deepEqual(await info('vnc.example.com'), { publicName: 'Office PC' });
+});
