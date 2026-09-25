@@ -73,3 +73,19 @@ test('browser admission uses one key-start request and never resubmits the short
   assert.match(app, /registrationTicket:\s*registrationTicket/);
   assert.doesNotMatch(app, /registrationKey/);
 });
+
+test('anonymous page and script contain only admission UI, not the viewer', async () => {
+  const page = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
+  const app = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(page, /id="(?:viewer|video|audio|streamProfile|qualityPanel)"/);
+  assert.doesNotMatch(page, /<video\b|<audio\b|\/viewer\/app\.js/i);
+  assert.doesNotMatch(app, /\/api\/(?:profiles|offer|stream-[a-z-]+)/);
+  assert.doesNotMatch(app, /api\('(profiles|offer|reconnect|telemetry|heartbeat)'/);
+  assert.doesNotMatch(app, /RTCPeerConnection|createDataChannel|type:\s*'key'/);
+  assert.doesNotMatch(
+    app,
+    /from '\.\/(?:receiver-stats|stream-subscriptions|codec-preferences|profile-labels)\.js'/,
+  );
+  assert.match(app, /info\.publicName/);
+  assert.match(app, /import\('\/viewer\/app\.js'\)/);
+});

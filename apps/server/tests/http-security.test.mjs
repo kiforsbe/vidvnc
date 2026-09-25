@@ -47,11 +47,9 @@ test('serves every browser entry asset through workspace resolution', () =>
       '/app.js',
       '/connection-link.js',
       '/password-entry.js',
-      '/receiver-stats.js',
       '/style.css',
       '/shell.css',
       '/theme.js',
-      '/profile-labels.js',
     ]) {
       const response = await fetch(url + asset);
       assert.equal(response.status, 200, asset);
@@ -62,12 +60,27 @@ test('serves every browser entry asset through workspace resolution', () =>
       assert.ok((await response.text()).length > 0, asset);
     }
     assert.equal((await fetch(url + '/package.json')).status, 404);
+    for (const asset of [
+      '/receiver-stats.js',
+      '/stream-subscriptions.js',
+      '/codec-preferences.js',
+      '/profile-labels.js',
+    ])
+      assert.equal((await fetch(url + asset)).status, 404, asset);
   }));
 
 test('viewer assets require a live session grant while cookies cannot authorize APIs', () =>
   withServer(async (url, server) => {
-    const asset = '/viewer/receiver-stats.js';
-    assert.equal((await fetch(url + asset)).status, 404);
+    const assets = [
+      '/viewer/fragment.html',
+      '/viewer/app.js',
+      '/viewer/style.css',
+      '/viewer/receiver-stats.js',
+      '/viewer/stream-subscriptions.js',
+      '/viewer/codec-preferences.js',
+      '/viewer/profile-labels.js',
+    ];
+    for (const asset of assets) assert.equal((await fetch(url + asset)).status, 404, asset);
     const admission = await post(url + '/api/key-start', { key: server.sessionStore.password });
     assert.equal(admission.status, 201);
     const setCookie = admission.headers.get('set-cookie');
@@ -76,20 +89,23 @@ test('viewer assets require a live session grant while cookies cannot authorize 
       /^vidvnc-viewer=[A-Za-z0-9_-]{43}; Path=\/viewer; HttpOnly; SameSite=Strict$/,
     );
     const cookie = setCookie.split(';', 1)[0];
-    const allowed = await fetch(url + asset, {
-      headers: { cookie, 'x-forwarded-for': '203.0.113.4' },
-    });
-    assert.equal(allowed.status, 200);
-    assert.equal(allowed.headers.get('cache-control'), 'no-store');
-    assert.match(await allowed.text(), /summarizeReceiver/);
+    for (const asset of assets) {
+      const allowed = await fetch(url + asset, {
+        headers: { cookie, 'x-forwarded-for': '203.0.113.4' },
+      });
+      assert.equal(allowed.status, 200, asset);
+      assert.equal(allowed.headers.get('cache-control'), 'no-store');
+      assert.ok((await allowed.text()).length > 0, asset);
+    }
     assert.equal(
-      (await fetch(url + asset, { headers: { cookie: cookie + '; ' + cookie } })).status,
+      (await fetch(url + assets[0], { headers: { cookie: cookie + '; ' + cookie } })).status,
       404,
     );
     assert.equal((await fetch(url + '/viewer/unknown.js', { headers: { cookie } })).status, 404);
     assert.equal((await post(url + '/api/profiles', {}, null, { cookie })).status, 401);
     server.sessionStore.disconnect((await admission.json()).sessionId);
-    assert.equal((await fetch(url + asset, { headers: { cookie } })).status, 404);
+    for (const asset of assets)
+      assert.equal((await fetch(url + asset, { headers: { cookie } })).status, 404, asset);
   }));
 
 test('revocation during a viewer asset read prevents protected bytes from being returned', () => {

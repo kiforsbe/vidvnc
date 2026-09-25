@@ -182,21 +182,6 @@ button:disabled {
   font-size: 13px;
   margin: 22px 0;
 }
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-  margin-bottom: 18px;
-}
-.toolbar h2 {
-  margin: 0 0 6px;
-}
-.actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .secondary {
   background: #fff;
   border: 1px solid #d9e1ec;
@@ -209,27 +194,6 @@ button:disabled {
   background: #e2edff;
   border-color: #78a1f4;
   color: #174eb4;
-}
-.stage {
-  background: #101721;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 12px 35px #20355025;
-  height: 68vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  outline: none;
-  touch-action: none;
-}
-.help {
-  font-size: 12px;
-  color: #748298;
 }
 footer {
   font-size: 12px;
@@ -246,17 +210,6 @@ footer span {
   header {
     padding: 20px;
   }
-  .toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .stage {
-    height: 52vh;
-  }
-  .actions button {
-    font-size: 11px;
-    padding: 10px;
-  }
   .card {
     padding: 24px;
   }
@@ -269,138 +222,4 @@ footer span {
   h1 {
     letter-spacing: -1px;
   }
-}
-.stage {
-  position: relative;
-  width: min(100%, var(--video-fit-width, 960px));
-  height: auto;
-  aspect-ratio: var(--video-ratio, 16 / 9);
-  margin-inline: auto;
-}
-.stage video {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.stage:fullscreen {
-  border-radius: 0;
-  height: 100vh;
-  height: 100dvh;
-  width: 100vw;
-  max-width: none;
-  aspect-ratio: auto;
-  margin: 0;
-}
-.immersive-toolbar {
-  position: absolute;
-  z-index: 2;
-  left: 50%;
-  top: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 8px 6px;
-  border: 1px solid #ffffff26;
-  border-top: 0;
-  border-radius: 0 0 12px 12px;
-  background: #18212eef;
-  box-shadow: 0 6px 20px #0005;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  transform: translate(-50%, -100%);
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    transform 0.18s ease,
-    opacity 0.18s ease;
-}
-.immersive-toolbar.visible,
-.immersive-toolbar:hover,
-.immersive-toolbar:focus-within {
-  transform: translate(-50%, 0);
-  opacity: 1;
-  pointer-events: auto;
-}
-.immersive-toolbar .secondary {
-  display: grid;
-  place-items: center;
-  flex: 0 0 40px;
-  width: 40px;
-  height: 38px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: #d5dfed;
-  box-shadow: none;
-}
-.immersive-toolbar .secondary:hover {
-  background: #ffffff18;
-  color: #fff;
-}
-.immersive-toolbar .secondary[aria-pressed='true'] {
-  background: #497cb438;
-  border-color: #7ab8ff55;
-  color: #a9d3ff;
-}
-.immersive-toolbar .secondary:focus-visible {
-  outline: 2px solid #a9d3ff;
-  outline-offset: 1px;
-}
-.immersive-toolbar .secondary:disabled {
-  cursor: default;
-  opacity: 0.35;
-}
-.immersive-toolbar svg {
-  width: 21px;
-  height: 21px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-.immersive-toolbar #pictureInPicture:not([hidden]),
-.immersive-toolbar #pictureInPicture[hidden] + #fullscreen {
-  margin-left: 5px;
-  position: relative;
-}
-.immersive-toolbar #pictureInPicture:not([hidden])::before,
-.immersive-toolbar #pictureInPicture[hidden] + #fullscreen::before {
-  content: '';
-  position: absolute;
-  left: -5px;
-  height: 20px;
-  width: 1px;
-  background: #ffffff24;
-}
-.stage:fullscreen .immersive-toolbar {
-  top: 0;
-}
-@media (pointer: coarse) {
-  .immersive-toolbar .secondary {
-    width: 44px;
-    height: 44px;
-    flex-basis: 44px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .immersive-toolbar {
-    transition: none;
-  }
-}
-:root .audio-choice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin: 16px auto;
-}
-.audio-choice input {
-  width: 18px;
-  height: 18px;
-  accent-color: #2861e7;
 }

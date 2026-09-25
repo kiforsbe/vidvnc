@@ -191,13 +191,19 @@ test('out-of-scope peers cannot fetch trust pages, assets, status, or anchor on 
     '/approved-client.js',
     '/connection-link.js',
     '/password-entry.js',
+    ...PLAINTEXT_ALLOWED_PATHS.filter((path) => !TRUST_ONLY_PATHS.includes(path)),
+  ])
+    assert.equal((await httpsCall(httpsPort, path)).status, 200, `viewer HTTPS ${path}`);
+  for (const path of [
     '/receiver-stats.js',
     '/stream-subscriptions.js',
     '/codec-preferences.js',
     '/profile-labels.js',
-    ...PLAINTEXT_ALLOWED_PATHS.filter((path) => !TRUST_ONLY_PATHS.includes(path)),
+    '/viewer/fragment.html',
+    '/viewer/app.js',
+    '/viewer/style.css',
   ])
-    assert.equal((await httpsCall(httpsPort, path)).status, 200, `viewer HTTPS ${path}`);
+    assert.equal((await httpsCall(httpsPort, path)).status, 404, `anonymous HTTPS ${path}`);
 });
 
 // --- the anchor download ---------------------------------------------------------------

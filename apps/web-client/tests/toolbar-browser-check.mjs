@@ -12,6 +12,37 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.evaluate(async (key) => {
+    const admitted = await fetch('/api/key-start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    if (!admitted.ok) throw new Error('Toolbar fixture admission failed.');
+    const response = await fetch('/viewer/fragment.html');
+    if (!response.ok) throw new Error('Toolbar fixture viewer fragment unavailable.');
+    const fragment = document.createElement('template');
+    fragment.innerHTML = await response.text();
+    document
+      .getElementById('viewerHeaderMount')
+      .replaceChildren(
+        fragment.content.querySelector('#sessionIdentity'),
+        fragment.content.querySelector('#disconnect'),
+      );
+    document
+      .getElementById('viewerMount')
+      .replaceChildren(fragment.content.querySelector('#viewer'));
+    const style = document.createElement('link');
+    style.rel = 'stylesheet';
+    style.href = '/viewer/style.css';
+    document.head.append(style);
+    await new Promise((resolve, reject) => {
+      style.onload = resolve;
+      style.onerror = reject;
+    });
+    const { createViewer } = await import('/viewer/app.js');
+    createViewer({ onExit: () => {} });
+  }, server.sessionStore.password);
   await page.waitForFunction(() => document.querySelector('#fullscreen svg'));
   await page.evaluate(() => {
     document.getElementById('welcome').hidden = true;

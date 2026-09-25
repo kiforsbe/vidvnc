@@ -114,6 +114,9 @@ const approvedStore = await ApprovedClientStore.open(null, { keys: sessionStore.
 const server = createHttpApp({
   inventory: new DisplayInventory(displays),
   serverName: 'Thor',
+  access: {
+    snapshot: () => ({ publicName: '<img src=x onerror=alert(1)>', connectionMode: 'session-key' }),
+  },
   display: { width: 2560, height: 1440 },
   media,
   policy: { snapshot: () => structuredClone(policy), busy: false },
@@ -135,16 +138,19 @@ if (process.argv.includes('--preview')) {
 }
 const output = 'out/web-client';
 await mkdir(output, { recursive: true });
+let page;
+const errors = [];
 try {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 850 },
     colorScheme: 'light',
   });
-  const page = await context.newPage();
-  const errors = [];
+  page = await context.newPage();
   page.on('pageerror', (error) => errors.push(error.message));
   const authenticationPosts = [];
+  const viewerRequests = [];
   page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/viewer/')) viewerRequests.push(request.url());
     if (
       request.method() === 'POST' &&
       /\/api\/(?:key-start|connect|connection-key|approved-clients\/register)$/.test(request.url())
@@ -155,7 +161,13 @@ try {
       });
   });
   await page.goto(url);
-  await page.waitForFunction(() => document.getElementById('serverName').textContent === 'Thor');
+  await page.waitForFunction(
+    () => document.getElementById('serverName').textContent === '<img src=x onerror=alert(1)>',
+  );
+  assert.equal(await page.locator('#welcome img').count(), 0, 'public name is text, never markup');
+  assert.equal(await page.locator('#viewer').count(), 0);
+  assert.equal(await page.locator('#video').count(), 0);
+  assert.deepEqual(viewerRequests, []);
   assert.equal(await page.locator('#connectForm input').count(), 1);
   assert.equal(await page.locator('.code-cells span').count(), 8);
   assert.equal(await page.locator('.code-dash').isVisible(), true);
@@ -211,9 +223,19 @@ try {
   );
   await page.locator('#password').fill(sessionPassword);
   await page.locator('#connect').click();
-  await page.waitForFunction(() => document.getElementById('video').videoWidth > 0, null, {
+  await page.waitForFunction(() => document.getElementById('video')?.videoWidth > 0, null, {
     timeout: 20000,
   });
+  assert.equal(await page.locator('#viewerName').textContent(), 'Thor');
+  assert.ok(viewerRequests.some((request) => request.endsWith('/viewer/fragment.html')));
+  assert.ok(viewerRequests.some((request) => request.endsWith('/viewer/app.js')));
+  assert.ok(viewerRequests.some((request) => request.endsWith('/viewer/style.css')));
+  assert.equal(
+    (await context.cookies(url + '/viewer/app.js')).some(
+      (cookie) => cookie.name === 'vidvnc-viewer',
+    ),
+    true,
+  );
   assert.equal(await page.locator('#password').inputValue(), '');
   assert.equal(offers.length, 1);
   await page.setViewportSize({ width: 1280, height: 850 });
@@ -352,6 +374,14 @@ try {
   await page.waitForFunction(() => document.pictureInPictureElement?.id === 'video');
   await page.locator('#disconnect').click();
   await page.locator('#connect').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#viewer').count(), 0);
+  assert.equal(await page.locator('#video').count(), 0);
+  assert.equal(
+    (await context.cookies(url + '/viewer/app.js')).some(
+      (cookie) => cookie.name === 'vidvnc-viewer',
+    ),
+    false,
+  );
   assert.equal(
     await page.evaluate(() => document.pictureInPictureElement),
     null,
@@ -406,7 +436,7 @@ try {
   assert.equal(JSON.stringify(savedCredential).includes('correct horse'), false);
   await page.locator('#signInPassword').fill('correct horse battery staple');
   await page.locator('#signIn').click();
-  await page.waitForFunction(() => document.getElementById('video').videoWidth > 0, null, {
+  await page.waitForFunction(() => document.getElementById('video')?.videoWidth > 0, null, {
     timeout: 20000,
   });
   await page.locator('#disconnect').click();
@@ -415,47 +445,22 @@ try {
   await page.locator('#useConnectionKey').click();
   await page.locator('#connectForm').waitFor({ state: 'visible' });
 
-  const diagnosticsPage = await browser.newPage();
-  let source = { ...displays[1], number: 2 };
-  let sourceAge = 0;
-  await diagnosticsPage.route('**/api/diagnostics', (route) =>
-    route.fulfill({
-      json: {
-        configuration: {
-          display: source,
-          profile: { name: 'mobile', width: 1280, height: 720, fps: 15 },
-          encoder: { label: 'NVIDIA NVENC', element: 'nvd3d11h265enc' },
-        },
-        serverAgeMs: sourceAge,
-        clientAgeMs: null,
-        server: {},
-        client: {},
-        history: [],
-      },
-    }),
-  );
-  await diagnosticsPage.goto(`${url}/diagnostics`);
-  await diagnosticsPage.waitForFunction(
-    () =>
-      document.getElementById('source-display').textContent ===
-      'Source display: 2 · Second display · 1920 × 1080',
-  );
-  await diagnosticsPage.waitForFunction(
-    () =>
-      document.getElementById('encoder').textContent === 'Encoder: NVIDIA NVENC · nvd3d11h265enc',
-  );
-  source = { ...displays[0], number: 1 };
-  sourceAge = 5000;
-  await diagnosticsPage.waitForFunction(
-    () =>
-      document.getElementById('source-display').textContent ===
-      'Last selected source: 1 · Main display · 2560 × 1440 · Primary',
-  );
-  await diagnosticsPage.close();
+  assert.equal((await fetch(`${url}/diagnostics`)).status, 404);
   assert.deepEqual(errors, []);
   console.log(
     'PASS: connection-key editing/error recovery; approved-client registration and sign-in; responsive system/light/dark; width/height-fitted real WebRTC reception; automatic/approved profile reconnect; remote control release; picture-in-picture; fullscreen; disconnect.',
   );
+} catch (error) {
+  console.error('Browser fixture failed:', error);
+  console.error(
+    'Status:',
+    await page
+      ?.locator('#status')
+      .textContent({ timeout: 1000 })
+      .catch(() => null),
+    errors,
+  );
+  throw error;
 } finally {
   await new Promise((resolve) => server.close(resolve));
   await Promise.all(offers.map(({ id }) => media.stop(id)));

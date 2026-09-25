@@ -111,6 +111,7 @@ const runtime = new StreamRuntime({
   media,
   inventory: new DisplayInventory(displays),
   policy: { snapshot: () => policy },
+  videoBackends: [{ id: 'synthetic', label: 'Synthetic fixture', codecs: ['h264'] }],
 });
 const server = createHttpApp({
   runtime,
@@ -133,7 +134,7 @@ try {
     await page.locator('#password').fill(sessions.password);
     await page.locator('#connect').click();
     await page
-      .waitForFunction(() => document.getElementById('video').videoWidth > 0, null, {
+      .waitForFunction(() => document.getElementById('video')?.videoWidth > 0, null, {
         timeout: 15000,
       })
       .catch(async (error) => {
@@ -225,18 +226,8 @@ try {
     runtime.registry.list().every((s) => runtime.streamDiagnostics.get(s.id).snapshot().client),
     'all subscribed streams send metrics',
   );
-  const diagnostics = await browser.newPage();
-  await diagnostics.goto(url + '/diagnostics');
-  await diagnostics.waitForFunction(
-    () => document.querySelectorAll('#diagnosticStream option').length === 3,
-  );
+  assert.equal((await fetch(url + '/diagnostics')).status, 404);
   const selectedId = runtime.registry.list().at(-1).id;
-  await diagnostics.locator('#diagnosticStream').selectOption(selectedId);
-  await diagnostics.waitForFunction(
-    (id) => new URL(location.href).searchParams.get('stream') === id,
-    selectedId,
-  );
-  await diagnostics.close();
   const ended = runtime.registry.list().find((stream) => stream.id === selectedId);
   await runtime.stopStream(ended.sessionId, ended.id);
   await pages[0].waitForFunction(() => document.getElementById('video').srcObject === null);

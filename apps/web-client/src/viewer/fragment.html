@@ -1,0 +1,53 @@
+<div id="sessionIdentity" class="session-identity" hidden>
+  <strong id="viewerName">Your desktop</strong
+  ><span id="sessionState" class="connection-state">Connecting</span>
+</div>
+<button id="disconnect" class="secondary" hidden>Disconnect</button>
+<section id="viewer" hidden>
+  <nav class="display-picker" aria-label="Shared displays">
+    <span class="display-chip" aria-current="true"
+      ><span class="display-number">1</span><span>Primary display</span></span
+    >
+  </nav>
+  <div class="stage" id="stage">
+    <video
+      id="video"
+      autoplay
+      playsinline
+      muted
+      tabindex="0"
+      aria-label="Remote primary desktop"
+    ></video>
+    <div id="immersiveToolbar" class="immersive-toolbar" aria-label="Remote desktop controls">
+      <button id="control" class="secondary" aria-pressed="false">
+        Enable keyboard &amp; mouse</button
+      ><button id="audioToggle" class="secondary" aria-pressed="true">Mute desktop audio</button
+      ><button id="pictureInPicture" class="secondary" aria-pressed="false" hidden>
+        Picture-in-picture</button
+      ><button id="fullscreen" class="secondary">Full screen</button>
+    </div>
+  </div>
+  <audio id="audio" autoplay playsinline></audio>
+  <div class="stream-summary">
+    <div>
+      <strong id="displayName">Primary display</strong
+      ><span id="streamTarget">Waiting for video</span>
+    </div>
+    <details id="qualityPanel" class="quality-panel">
+      <summary id="qualitySummary">Quality: Automatic</summary>
+      <form id="qualityForm" class="quality-popover">
+        <h2 id="qualityHeading">Allowed by host</h2>
+        <div id="streamProfile" role="radiogroup" aria-labelledby="qualityHeading"></div>
+        <p id="qualityError" class="form-error" role="alert"></p>
+      </form>
+    </details>
+  </div>
+  <details class="connection-details">
+    <summary>Connection details</summary>
+    <p id="connectionMetrics">Waiting for browser measurements.</p>
+    <p class="help">
+      Move near the top of the desktop to show controls. Esc releases control. Ctrl/⌘+Shift+F
+      toggles full screen.
+    </p>
+  </details>
+</section>
