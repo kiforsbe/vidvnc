@@ -2,6 +2,7 @@ import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip } from './profile-labels.js';
+import { distanceFromTop, needsImmersive, videoPoint } from './stage-geometry.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -39,7 +40,30 @@ export function createViewer({ onExit }) {
     button.title = label;
     button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${toolbarIcons[icon]}</svg>`;
   }
+  // Immersive mode: the stage fills the screen in landscape, turned 90° on a portrait phone,
+  // while staying in the page so touches still reach the desktop. iPhone Safari's only full
+  // screen is its native video player, which takes input away.
+  let immersive = false,
+    immersiveFollowsControl = false;
+  const rotated = () => immersive && window.innerHeight > window.innerWidth;
+  function setImmersive(on) {
+    immersive = on;
+    $('stage').classList.toggle('immersive', on);
+    $('stage').classList.toggle('rotated', rotated());
+    document.documentElement.classList.toggle('viewer-immersive', on);
+    renderFullscreen();
+    fitVideo();
+    if (on) {
+      revealDock();
+      if (enabled) setTimeout(() => $('video').focus(), 0);
+    }
+  }
   function renderControl() {
+    // Enabling keyboard & mouse on such a phone enters immersive mode; releasing leaves it.
+    if (enabled !== immersiveFollowsControl) {
+      immersiveFollowsControl = enabled;
+      if (needsImmersive() && immersive !== enabled) setImmersive(enabled);
+    }
     $('control').disabled = !controlAllowed || document.pictureInPictureElement === $('video');
     $('control').setAttribute('aria-pressed', String(enabled));
     toolbarButton(
@@ -80,10 +104,10 @@ export function createViewer({ onExit }) {
   function renderFullscreen() {
     toolbarButton(
       'fullscreen',
-      document.fullscreenElement
+      document.fullscreenElement || immersive
         ? 'Exit full screen (Ctrl/⌘+Shift+F)'
         : 'Full screen (Ctrl/⌘+Shift+F)',
-      document.fullscreenElement ? 'collapse' : 'expand',
+      document.fullscreenElement || immersive ? 'collapse' : 'expand',
     );
   }
   // Safari can leave videoWidth at 0 for a WebRTC track and skip its resize event, so the
@@ -116,6 +140,13 @@ export function createViewer({ onExit }) {
   $('video').addEventListener('resize', fitVideo);
   $('video').addEventListener('playing', fitVideo);
   window.addEventListener('resize', fitVideo, { signal: events.signal });
+  window.addEventListener(
+    'resize',
+    () => {
+      if (immersive) $('stage').classList.toggle('rotated', rotated());
+    },
+    { signal: events.signal },
+  );
   window.visualViewport?.addEventListener('resize', fitVideo, { signal: events.signal });
   const headerObserver = new ResizeObserver(fitVideo);
   headerObserver.observe(document.querySelector('.app-header'));
@@ -165,6 +196,7 @@ export function createViewer({ onExit }) {
     if (document.pictureInPictureElement === $('video'))
       await document.exitPictureInPicture().catch(() => {});
     release();
+    if (immersive) setImmersive(false);
     clearInterval(heartbeat);
     clearInterval(ping);
     clearInterval(playback);
@@ -703,7 +735,9 @@ export function createViewer({ onExit }) {
   });
   $('fullscreen').onclick = async () => {
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
+      if (immersive) setImmersive(false);
+      else if (enabled && needsImmersive()) setImmersive(true);
+      else if (document.fullscreenElement) await document.exitFullscreen();
       else if ($('stage').requestFullscreen) await $('stage').requestFullscreen();
       else if ($('video').webkitEnterFullscreen) $('video').webkitEnterFullscreen();
       else throw new Error('Full screen is unavailable in this browser.');
@@ -728,26 +762,25 @@ export function createViewer({ onExit }) {
     dockTimer = setTimeout(() => $('immersiveToolbar').classList.remove('visible'), 2800);
   }
   $('stage').addEventListener('pointermove', (event) => {
-    if (event.clientY - $('stage').getBoundingClientRect().top < 110) revealDock();
+    if (distanceFromTop(event, $('stage').getBoundingClientRect(), rotated()) < 110) revealDock();
   });
   $('immersiveToolbar').addEventListener('pointerenter', revealDock);
   $('stage').addEventListener('pointerdown', (event) => {
-    if (event.clientY - $('stage').getBoundingClientRect().top < 60) revealDock();
+    if (distanceFromTop(event, $('stage').getBoundingClientRect(), rotated()) < 60) revealDock();
   });
   renderControl();
   renderAudio();
   renderPictureInPicture();
   renderFullscreen();
   function position(event) {
-    const video = $('video'),
-      rect = video.getBoundingClientRect();
-    if (!video.videoWidth || !video.videoHeight) return null;
-    const scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight);
-    const width = video.videoWidth * scale,
-      height = video.videoHeight * scale;
-    const x = (event.clientX - rect.left - (rect.width - width) / 2) / width;
-    const y = (event.clientY - rect.top - (rect.height - height) / 2) / height;
-    return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
+    const video = $('video');
+    return videoPoint(
+      event,
+      video.getBoundingClientRect(),
+      video.videoWidth || statsSize?.width,
+      video.videoHeight || statsSize?.height,
+      rotated(),
+    );
   }
   let lastMove = 0;
   $('video').onpointermove = (event) => {
@@ -792,7 +825,9 @@ export function createViewer({ onExit }) {
   );
   async function toggleFullscreen() {
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
+      if (immersive) setImmersive(false);
+      else if (enabled && needsImmersive()) setImmersive(true);
+      else if (document.fullscreenElement) await document.exitFullscreen();
       else if ($('stage').requestFullscreen) await $('stage').requestFullscreen();
       else if ($('video').webkitEnterFullscreen) $('video').webkitEnterFullscreen();
     } catch (error) {

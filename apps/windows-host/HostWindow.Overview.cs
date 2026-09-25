@@ -54,11 +54,10 @@ public sealed partial class HostWindow
         var name = Label(Environment.MachineName, 24); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         host.Children.Add(name);
         host.Children.Add(Secondary($"Public login name: {publicName}"));
-        host.Children.Add(Secondary(sharing
-            ? tlsReport?.ViewerReady != true ? "Viewer waiting for HTTPS — check Settings"
-              : remoteAccess ? "Available on your local network, and to approved clients from the internet" : "Available on your local network"
-            : heading.Text));
-        var state = Label(!sharing ? "●  Sharing is off" : remoteAccess ? "●  Sharing is on · remote access" : "●  Sharing is on");
+        // The state line below says where sharing reaches; only a problem needs its own line.
+        if (!sharing) host.Children.Add(Secondary(heading.Text));
+        else if (tlsReport?.ViewerReady != true) host.Children.Add(Secondary("Viewer waiting for HTTPS — check Settings"));
+        var state = Label(!sharing ? "●  Sharing is off" : remoteAccess ? "●  Sharing is on · remote access" : "●  Sharing is on · local network");
         state.Foreground = ThemeStatusBrush(navigation, !sharing ? "neutral" : remoteAccess ? "warning" : "success"); host.Children.Add(state);
         if (!sharing) host.Children.Add(new ScrollViewer { Content = Label(detail.Text), MaxHeight = 70 });
         var hostCard = Card(IconRow("\uE7F4", host));

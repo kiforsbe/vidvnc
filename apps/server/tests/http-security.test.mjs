@@ -79,6 +79,7 @@ test('viewer assets require a live session grant while cookies cannot authorize 
       '/viewer/stream-subscriptions.js',
       '/viewer/codec-preferences.js',
       '/viewer/profile-labels.js',
+      '/viewer/stage-geometry.js',
     ];
     for (const asset of assets) assert.equal((await fetch(url + asset)).status, 404, asset);
     const admission = await post(url + '/api/key-start', { key: server.sessionStore.password });

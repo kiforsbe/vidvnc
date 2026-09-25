@@ -419,6 +419,42 @@ main:has(#viewer:not([hidden])) {
   border-radius: 2px;
 }
 
+/* Immersive mode: the stage covers the screen inside the page, so touches still reach the
+   desktop. On a portrait phone it is turned 90° clockwise to show the desktop in landscape;
+   stage-geometry.js maps touches back through the same turn. */
+html.viewer-immersive,
+html.viewer-immersive body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+#viewer .stage.immersive {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  aspect-ratio: auto;
+  margin: 0;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+#viewer .stage.immersive.rotated {
+  inset: auto;
+  top: 0;
+  left: 100vw;
+  left: 100dvw;
+  width: 100vh;
+  width: 100dvh;
+  height: 100vw;
+  height: 100dvw;
+  transform-origin: top left;
+  transform: rotate(90deg);
+}
+
 @media (max-width: 700px) {
   .session-identity {
     order: 3;
