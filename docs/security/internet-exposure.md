@@ -336,7 +336,6 @@ the public host avoids the rest.
 1. **Validation (R8):**
    - `media-ports-check.mjs` (UDP-only candidates and sockets inside the range, per
      `netstat`); `npm run test:hardware` already passes;
-   - `npm run test:host`;
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
 2. **Host UI:** a screen for `remote-access`, `public-hosts`, `public-port` and `media-ports`.
@@ -400,6 +399,8 @@ the public host avoids the rest.
     malformed one.
   - Hardware encoding (Media Foundation H.264, H.265, AV1), the native session and both
     host-pipe system tests passed.
+  - `npm run test:host`: all 30 runtime-contract checks passed, including manifest
+    validation, prerequisite checks and forced-owner process cleanup.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
   - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware
