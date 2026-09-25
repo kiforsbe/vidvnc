@@ -11,9 +11,9 @@ import { networkInterfaces as systemInterfaces } from 'node:os';
 // where that is the client's own address; a same-host reverse proxy would make every client
 // look private and is not a supported setup.
 //
-// Not internet: loopback, RFC 1918, link-local, carrier-grade NAT / overlay VPN
-// (100.64.0.0/10), IPv6 unique-local, and any IPv6 address inside a prefix one of this PC's
-// adapters is on (home networks hand out global IPv6 addresses). IPv4 is never matched by
+// Not internet: loopback, RFC 1918, link-local, 100.64.0.0/10 while this PC is on an overlay
+// VPN in it (see createPeerNetwork), IPv6 unique-local, and any IPv6 address inside a prefix
+// one of this PC's adapters is on (home networks hand out global IPv6 addresses). IPv4 is never matched by
 // adapter subnet: a PC with a public IPv4 address shares that subnet with strangers.
 
 const PRIVATE = [
@@ -67,12 +67,45 @@ export function plainAddress(address) {
   return mapped ? mapped[1] : plain;
 }
 
+// The unit a per-source limit counts: an IPv4 address, or an IPv6 /64 (the smallest block an
+// ISP gives a customer, so one attacker can't sidestep a limit by cycling through their own
+// prefix). IPv4-mapped IPv6 counts as its IPv4 address; anything else is used as given.
+export function sourceGroup(address) {
+  const plain = plainAddress(address);
+  if (isIP(plain) !== 6) return plain || String(address);
+  const [head, tail] = plain.toLowerCase().split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const words = plain.includes('::')
+    ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
+    : left;
+  return `${words
+    .slice(0, 4)
+    .map((word) => word.replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`;
+}
+
 export function isPrivateAddress(address) {
   const plain = plainAddress(address);
   return PRIVATE.some(([base, prefix]) => inside(plain, base, prefix));
 }
 
+const CGNAT = ['100.64.0.0', 10];
+
 export function createPeerNetwork({ interfaces = systemInterfaces } = {}) {
+  const adapterRows = () => {
+    try {
+      return Object.values(interfaces() ?? {}).flat();
+    } catch {
+      return [];
+    }
+  };
+  // 100.64.0.0/10 is shared address space: overlay VPNs such as Tailscale use it, but so do
+  // ISPs for carrier-grade NAT, and some let customers behind the same NAT reach each other.
+  // It counts as private only while this PC has an adapter in it (the overlay VPN is here);
+  // otherwise it is a stranger's address and counts as the internet.
+  const cgnatAdapter = () =>
+    adapterRows().some((row) => inside(plainAddress(row?.address), ...CGNAT));
   const onLinkIpv6 = (plain) => {
     let rows;
     try {
@@ -94,6 +127,7 @@ export function createPeerNetwork({ interfaces = systemInterfaces } = {}) {
     isInternet(address) {
       const plain = plainAddress(address);
       if (!isIP(plain)) return true;
+      if (inside(plain, ...CGNAT)) return !cgnatAdapter();
       return !isPrivateAddress(plain) && !onLinkIpv6(plain);
     },
   };

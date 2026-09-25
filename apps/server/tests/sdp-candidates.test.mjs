@@ -69,3 +69,28 @@ test('a DNS lookup that hangs is abandoned', async () => {
   );
   assert.ok(Date.now() - started < 1000);
 });
+
+test('an internet client offer keeps only candidates on public addresses', async () => {
+  const { filterOfferCandidates } = await import('../src/sdp-candidates.mjs');
+  const offer = [
+    'v=0',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    'c=IN IP4 0.0.0.0',
+    'a=candidate:1 1 udp 2122260223 192.168.1.40 55000 typ host',
+    'a=candidate:2 1 udp 2122260223 3d7f9c1a-1111-2222-3333-444455556666.local 55001 typ host',
+    'a=candidate:3 1 tcp 1518280447 10.0.0.9 9 typ host tcptype active',
+    'a=candidate:4 1 udp 2122260223 fe80::1 55002 typ host',
+    'a=candidate:5 1 udp 1686052607 198.51.100.20 61000 typ srflx raddr 0.0.0.0 rport 0',
+    'a=candidate:6 1 udp 2122260223 2001:db8::40 55003 typ host',
+    'a=candidate:7 1 udp 2122260223 attacker.example 22 typ host',
+    'a=end-of-candidates',
+    '',
+  ].join('\r\n');
+  const filtered = filterOfferCandidates(offer).split('\r\n');
+  assert.deepEqual(
+    filtered.filter((line) => line.startsWith('a=candidate:')).map((line) => line.split(' ')[0]),
+    ['a=candidate:5', 'a=candidate:6'],
+  );
+  assert.ok(filtered.includes('c=IN IP4 0.0.0.0'));
+  assert.ok(filtered.includes('a=end-of-candidates'));
+});

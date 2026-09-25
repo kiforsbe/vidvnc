@@ -293,6 +293,17 @@ async function serve() {
         );
     };
     access.onChange((next, previous) => {
+      if (!stopping && previous.remoteAccess && !next.remoteAccess)
+        ownerSecurity
+          .disconnectInternet((address) => peerNetwork.isInternet(address))
+          .then(
+            ({ disconnected }) =>
+              disconnected &&
+              serverLog(
+                `Remote access switched off; disconnected ${disconnected} internet session${disconnected === 1 ? '' : 's'}.`,
+              ),
+            (error) => serverLog(`Disconnecting internet sessions failed: ${error.message}`),
+          );
       if (
         stopping ||
         (next.remoteAccess === previous.remoteAccess &&

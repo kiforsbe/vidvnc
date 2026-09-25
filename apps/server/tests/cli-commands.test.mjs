@@ -795,7 +795,10 @@ test('remote-access needs a public name first, and public-hosts cannot clear it 
     (await run('public-hosts VNC.example.com 203.0.113.10')).text,
     'Public names: vnc.example.com, 203.0.113.10',
   );
+  await assert.rejects(run('remote-access on'), usage(/approved devices only/));
+  await run('connection-mode approved-only');
   assert.match((await run('remote-access on')).text, /https:\/\/vnc\.example\.com:/);
+  await assert.rejects(run('connection-mode session-key'), usage(/Run remote-access off first/));
   await assert.rejects(run('public-hosts clear'), usage(/^Turn remote access off first/));
   await run('remote-access off');
   assert.equal((await run('public-hosts clear')).text, 'Public names: none');

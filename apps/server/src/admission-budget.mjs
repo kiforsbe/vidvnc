@@ -1,4 +1,4 @@
-import { isIP } from 'node:net';
+import { sourceGroup } from './peer-network.mjs';
 
 const MINUTE = 60_000;
 const MAX_SCRYPT = 4;
@@ -7,11 +7,23 @@ function recent(times, now, windowMs) {
   return times.filter((time) => now - time < windowMs);
 }
 
+// IPv6 sources count per /64: counting single addresses let one host with its own prefix
+// use every source slot and the whole global budget alone.
 function sourceKey(source) {
-  const value = String(source);
-  const mapped = /^::ffff:(.+)$/i.exec(value);
-  return mapped && isIP(mapped[1]) === 4 ? mapped[1] : value;
+  return sourceGroup(String(source));
 }
+
+// Sign-in and registration ("credentials") and claim-status polling are budgeted separately
+// for internet peers and for local/private peers, so a flood from the internet can never lock
+// out devices on the LAN or a VPN. The global sign-in budget is generous: guessing is
+// impossible (the device secret is 256 bits) and password hashing is bounded by the scrypt
+// cap, so the global limit only bounds cheap work. The per-source and per-identity limits
+// stay tight.
+const ROLLING = Object.freeze({
+  credentials: { global: 600, source: 10 },
+  status: { global: 1200, source: 60 },
+});
+const scopeOf = (options) => (options?.internet ? 'internet' : 'local');
 
 export class AdmissionBudget {
   #classes = new Map();
@@ -145,13 +157,15 @@ export class AdmissionBudget {
     };
   }
 
-  beginSignIn(source, clientId) {
-    const allowed = this.#reserveRolling('credentials', source, 120, 10, MINUTE);
+  beginSignIn(source, clientId, options = {}) {
+    const kind = `credentials:${scopeOf(options)}`;
+    const { global, source: perSource } = ROLLING.credentials;
+    const allowed = this.#reserveRolling(kind, source, global, perSource, MINUTE);
     let assigned = false;
     const assignIdentity = (identity) => {
       if (!allowed || assigned) return false;
       assigned = true;
-      return this.#reserveIdentity('credentials', identity ?? 'unknown', 10, MINUTE);
+      return this.#reserveIdentity(kind, identity ?? 'unknown', 10, MINUTE);
     };
     return {
       ok: allowed && (clientId === undefined || assignIdentity(clientId)),
@@ -160,12 +174,26 @@ export class AdmissionBudget {
     };
   }
 
-  beginRegistration(source) {
-    return { ok: this.#reserveRolling('credentials', source, 120, 10, MINUTE), finish() {} };
+  beginRegistration(source, options = {}) {
+    const { global, source: perSource } = ROLLING.credentials;
+    return {
+      ok: this.#reserveRolling(
+        `credentials:${scopeOf(options)}`,
+        source,
+        global,
+        perSource,
+        MINUTE,
+      ),
+      finish() {},
+    };
   }
 
-  beginStatus(source) {
-    return { ok: this.#reserveRolling('status', source, 600, 60, MINUTE), finish() {} };
+  beginStatus(source, options = {}) {
+    const { global, source: perSource } = ROLLING.status;
+    return {
+      ok: this.#reserveRolling(`status:${scopeOf(options)}`, source, global, perSource, MINUTE),
+      finish() {},
+    };
   }
 
   async withScrypt(work) {

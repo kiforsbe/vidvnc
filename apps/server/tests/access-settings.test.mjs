@@ -165,7 +165,10 @@ test('remote access needs a public name, and saved changes reach listeners', asy
   const dir = await mkdtemp(join(tmpdir(), 'vidvnc-access-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const store = await AccessSettings.open(join(dir, 'access.json'));
-  await assert.rejects(store.replace({ remoteAccess: true }, 0), /Invalid access settings/);
+  await assert.rejects(
+    store.replace({ remoteAccess: true }, 0),
+    /requires connection mode approved-only/,
+  );
   await assert.rejects(
     store.replace({ publicHostnames: ['VNC.example.com'] }, 0),
     /Invalid access settings/,
@@ -174,9 +177,15 @@ test('remote access needs a public name, and saved changes reach listeners', asy
   const seen = [];
   store.onChange((next, previous) => seen.push([previous.remoteAccess, next.remoteAccess]));
   await store.replace({ publicHostnames: ['vnc.example.com'] }, 0);
-  const saved = await store.replace({ remoteAccess: true }, 1);
+  await assert.rejects(
+    store.replace({ remoteAccess: true }, 1),
+    /requires connection mode approved-only/,
+  );
+  await store.replace({ connectionMode: 'approved-only' }, 1);
+  const saved = await store.replace({ remoteAccess: true }, 2);
   assert.equal(saved.remoteAccess, true);
   assert.deepEqual(seen, [
+    [false, false],
     [false, false],
     [false, true],
   ]);

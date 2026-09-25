@@ -93,6 +93,12 @@ export function validNetworkCidr(value) {
 
 function validate(value) {
   const next = { ...DEFAULTS, ...value };
+  // Remote access trusts the connection's source address to tell the internet from the LAN.
+  // A router or program that rewrites that address would make internet clients look local,
+  // so while remote access is on no short-code admission is allowed for anyone: approved
+  // devices only, and setup codes still need the owner's approval.
+  if (next.remoteAccess === true && next.connectionMode !== 'approved-only')
+    throw new Error('Remote access requires connection mode approved-only');
   if (typeof next.publicName !== 'string') throw new Error('Invalid public name');
   next.publicName = next.publicName.trim();
   if (

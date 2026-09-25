@@ -1,5 +1,4 @@
-import { isIP } from 'node:net';
-import { plainAddress } from './peer-network.mjs';
+import { plainAddress, sourceGroup } from './peer-network.mjs';
 
 // Connection limits every HTTP(S) listener of this product carries. They live in one
 // place so the plaintext and TLS listeners cannot drift apart: an https server built with
@@ -18,20 +17,7 @@ export const SERVER_LIMITS = Object.freeze({
   maxConnectionsPerSource: 12,
 });
 
-export function connectionSource(address) {
-  const plain = plainAddress(address);
-  if (isIP(plain) !== 6) return plain;
-  const [head, tail] = plain.toLowerCase().split('::');
-  const left = head ? head.split(':') : [];
-  const right = tail ? tail.split(':') : [];
-  const words = plain.includes('::')
-    ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
-    : left;
-  return `${words
-    .slice(0, 4)
-    .map((word) => word.replace(/^0+(?=.)/, ''))
-    .join(':')}::/64`;
-}
+export { sourceGroup as connectionSource } from './peer-network.mjs';
 
 export function applyServerLimits(server) {
   server.requestTimeout = SERVER_LIMITS.requestTimeout;
@@ -41,7 +27,7 @@ export function applyServerLimits(server) {
   server.on('connection', (socket) => {
     const address = plainAddress(socket.remoteAddress);
     if (!address || address === '::1' || address.startsWith('127.')) return;
-    const source = connectionSource(address);
+    const source = sourceGroup(address);
     const count = open.get(source) ?? 0;
     if (count >= SERVER_LIMITS.maxConnectionsPerSource) {
       socket.destroy();

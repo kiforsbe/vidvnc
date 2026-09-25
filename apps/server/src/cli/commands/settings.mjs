@@ -156,6 +156,10 @@ const securitySettingsCommands = [
           throw new UsageError(
             'Set the name or address internet devices will use first, for example: public-hosts vnc.example.com',
           );
+        if (enabled && access.connectionMode !== 'approved-only')
+          throw new UsageError(
+            'Remote access allows approved devices only. Run connection-mode approved-only first.',
+          );
         access = await context.saveAccess({ remoteAccess: enabled });
       }
       return { text: formatRemoteAccess(access), data: access };
@@ -446,6 +450,10 @@ export const settingsCommands = [
         !['session-key', 'one-time-keys', 'approved-only'].includes(positionals[0])
       )
         throw new UsageError('Use session-key, one-time-keys, or approved-only.');
+      if (positionals.length && positionals[0] !== 'approved-only' && context.access().remoteAccess)
+        throw new UsageError(
+          'Remote access allows approved devices only. Run remote-access off first.',
+        );
       const access = positionals.length
         ? await context.saveAccess({ connectionMode: positionals[0] })
         : context.access();

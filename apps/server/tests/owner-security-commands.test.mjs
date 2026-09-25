@@ -269,3 +269,27 @@ test('switching future mode does not eject ordinary sessions; explicit lockdown 
   assert.ok(sessions.get(approved));
   assert.deepEqual(stopped, [ordinary]);
 });
+
+test('switching remote access off ends internet sessions at once and keeps local ones', async () => {
+  const sessions = new SessionStore({ maxSessions: 3 });
+  const internet = sessions.connectApproved(
+    { id: 'remote', generation: 0 },
+    '203.0.113.9',
+  ).sessionId;
+  const local = sessions.connectApproved({ id: 'desk', generation: 0 }, '192.168.1.20').sessionId;
+  const stopped = [];
+  const commands = createOwnerSecurityCommands({
+    store: sessions,
+    approvedClients: null,
+    runtime: {
+      async stopSession(id) {
+        stopped.push(id);
+      },
+    },
+  });
+  const result = await commands.disconnectInternet((address) => !address.startsWith('192.168.'));
+  assert.deepEqual(result, { disconnected: 1 });
+  assert.equal(sessions.get(internet), null);
+  assert.ok(sessions.get(local));
+  assert.deepEqual(stopped, [internet]);
+});

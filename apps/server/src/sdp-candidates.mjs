@@ -59,6 +59,24 @@ export function announceCandidates(sdp, publicIpv4) {
   return out.join('\r\n');
 }
 
+// An internet client's offer, before the worker sees it: only candidates on public IP
+// addresses are kept. webrtcbin runs connectivity checks toward every candidate it is given,
+// so a private, link-local or hostname candidate would let a signed-in internet client aim
+// the host's STUN checks (and ICE-TCP connections) at machines on this LAN, or make it look
+// names up. Such candidates are useless from the internet anyway: the browser has only host
+// candidates (it is given no STUN server), and the host learns the client's real address
+// from the client's own checks as a peer-reflexive candidate.
+export function filterOfferCandidates(sdp) {
+  return sdp
+    .split(/\r\n/)
+    .filter((line) => {
+      if (!line.startsWith('a=candidate:')) return true;
+      const address = line.split(' ')[4] ?? '';
+      return isIP(address) !== 0 && !isPrivateAddress(address);
+    })
+    .join('\r\n');
+}
+
 // The public IPv4 addresses internet clients should send media to: the IPv4 literals among
 // the public names, plus the A records of the DNS names, resolved now so a dynamic-DNS name
 // follows the router's current address. A name that does not resolve in time is skipped.

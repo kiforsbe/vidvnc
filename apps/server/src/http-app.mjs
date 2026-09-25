@@ -16,7 +16,11 @@ import {
 } from './tls/anchor.mjs';
 import { applyServerLimits } from './server-limits.mjs';
 import { createPeerNetwork } from './peer-network.mjs';
-import { announceCandidates, publicIpv4Addresses } from './sdp-candidates.mjs';
+import {
+  announceCandidates,
+  filterOfferCandidates,
+  publicIpv4Addresses,
+} from './sdp-candidates.mjs';
 import { createLocalSessionScope } from './local-session-scope.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
@@ -506,11 +510,11 @@ export function createHttpApp({
           : null;
       const rollingAttempt =
         route === '/api/approved-clients/sign-in'
-          ? admission.beginSignIn(peer)
+          ? admission.beginSignIn(peer, undefined, { internet })
           : route === '/api/approved-clients/register'
-            ? admission.beginRegistration(peer)
+            ? admission.beginRegistration(peer, { internet })
             : route === '/api/approved-clients/status'
-              ? admission.beginStatus(peer)
+              ? admission.beginStatus(peer, { internet })
               : null;
       if ((keyAttempt && !keyAttempt.ok) || (rollingAttempt && !rollingAttempt.ok))
         return send(response, 429, { error: 'Try again later or request a new host code.' });
@@ -676,9 +680,10 @@ export function createHttpApp({
           )
             return send(response, 400, { error: 'Invalid SDP' });
           try {
+            const offer = internet ? filterOfferCandidates(body.sdp) : body.sdp;
             const answer = await (route === '/api/audio-offer'
-              ? runtime.offerAudio(token, body.sdp)
-              : runtime.offerVideo(token, body));
+              ? runtime.offerAudio(token, offer)
+              : runtime.offerVideo(token, { ...body, sdp: offer }));
             return sendIfLive(200, { ...answer, sdp: await answerFor(internet, answer.sdp) });
           } catch (error) {
             if (!sessionStore.get(token))
@@ -828,7 +833,7 @@ export function createHttpApp({
           inventory.select(policy.snapshot(), session.display?.id, session.inventoryRevision);
         const answer = await media.offer(
           token,
-          body.sdp,
+          internet ? filterOfferCandidates(body.sdp) : body.sdp,
           session.profile,
           session.audio,
           session.display,

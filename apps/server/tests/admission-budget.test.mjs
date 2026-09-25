@@ -148,3 +148,41 @@ test('at most four password derivations run and a fifth is refused without queui
   await Promise.all(active);
   assert.equal(await budget.withScrypt(async () => 'ok'), 'ok');
 });
+
+test('an internet sign-in flood cannot lock out local or private devices', async () => {
+  const AdmissionBudget = await budgetClass();
+  const budget = new AdmissionBudget();
+  let accepted = 0;
+  for (let source = 0; source < 100; source++)
+    for (let i = 0; i < 10; i++)
+      if (
+        budget.beginSignIn(`203.0.${source >> 8}.${source & 255}`, undefined, { internet: true }).ok
+      )
+        accepted++;
+  assert.equal(accepted, 600, 'the internet budget is finite');
+  assert.equal(budget.beginSignIn('198.51.100.7', undefined, { internet: true }).ok, false);
+  assert.equal(budget.beginSignIn('192.168.1.50').ok, true, 'the LAN keeps its own budget');
+  assert.equal(budget.beginRegistration('192.168.1.51').ok, true);
+  assert.equal(budget.beginStatus('10.8.0.2').ok, true);
+});
+
+test('twelve sources no longer exhaust sign-in for everyone', async () => {
+  const AdmissionBudget = await budgetClass();
+  const budget = new AdmissionBudget();
+  for (let source = 0; source < 12; source++)
+    for (let i = 0; i < 10; i++)
+      budget.beginSignIn(`203.0.113.${source}`, undefined, { internet: true });
+  assert.equal(budget.beginSignIn('198.51.100.7', undefined, { internet: true }).ok, true);
+});
+
+test('IPv6 sources in one /64 share a single per-source budget', async () => {
+  const AdmissionBudget = await budgetClass();
+  const budget = new AdmissionBudget();
+  for (let i = 0; i < 10; i++)
+    assert.equal(
+      budget.beginSignIn(`2001:db8:1:2::${i + 1}`, undefined, { internet: true }).ok,
+      true,
+    );
+  assert.equal(budget.beginSignIn('2001:db8:1:2:ffff::9', undefined, { internet: true }).ok, false);
+  assert.equal(budget.beginSignIn('2001:db8:1:3::1', undefined, { internet: true }).ok, true);
+});

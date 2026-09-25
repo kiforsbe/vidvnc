@@ -69,6 +69,19 @@ export function createOwnerSecurityCommands({ store, approvedClients, runtime })
         return { affected: affected.length };
       })();
     },
+    // Ends every session whose address is on the internet, with its streams and control, as
+    // soon as remote access is switched off, instead of letting them lapse with the session
+    // TTL. A teardown failure stops sharing, like every other owner revocation.
+    async disconnectInternet(isInternet) {
+      const affected = store.list().filter((row) => isInternet(row.clientKey));
+      for (const row of affected) store.disconnect(row.sessionId);
+      try {
+        await Promise.all(affected.map((row) => runtime.stopSession(row.sessionId)));
+      } catch (error) {
+        return stopUnsafeSharing(error);
+      }
+      return { disconnected: affected.length };
+    },
     async disconnectOrdinary() {
       const affected = store.list().filter((row) => row.approvedClientId === null);
       for (const row of affected) store.disconnect(row.sessionId);

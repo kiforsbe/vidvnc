@@ -8,6 +8,7 @@ import {
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
+import { sourceGroup } from './peer-network.mjs';
 
 const scrypt = promisify(scryptCallback);
 const EMPTY = Object.freeze({ version: 1, clients: [] });
@@ -275,7 +276,7 @@ export class ApprovedClientStore {
   }
   async authenticate(input, clientKey = 'unknown') {
     if (this.#expiredUnclaimed(input.clientId)) return null;
-    const attemptKey = `${String(input.clientId).slice(0, 128)}:${clientKey}`;
+    const attemptKey = `${String(input.clientId).slice(0, 128)}:${sourceGroup(String(clientKey))}`;
     const now = this.clock();
     if (this.#attempts.size >= 1024 && !this.#attempts.has(attemptKey))
       this.#attempts.delete(this.#attempts.keys().next().value);

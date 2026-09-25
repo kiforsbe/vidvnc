@@ -31,6 +31,7 @@ const script = [
   'local-session-networks 192.168.50.0/24',
   'public-name "Office PC"',
   'public-hosts vnc.example.com 203.0.113.10',
+  'connection-mode approved-only',
   'remote-access on',
   'media-ports 40000-40049',
   'public-port 443',

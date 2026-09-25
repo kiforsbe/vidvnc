@@ -16,7 +16,7 @@ const CREDENTIAL = { cert: fixture('valid/cert.pem'), key: fixture('valid/key.pe
 
 async function withRemote(t, { remoteAccess = true, internet = true } = {}) {
   const settings = {
-    connectionMode: 'session-key',
+    connectionMode: 'approved-only',
     defaultControl: 'approval',
     publicName: 'Office PC',
     remoteAccess,
@@ -165,10 +165,17 @@ test('the stream answer names the public address for an internet client only', a
     '',
   ].join('\r\n');
   const peer = { internet: false };
+  const offered = [];
   const app = createHttpApp({
     sessionStore,
     approvedClients,
-    runtime: { offerVideo: async () => ({ streamId: 's1', type: 'answer', sdp }), list: () => [] },
+    runtime: {
+      offerVideo: async (_, request) => {
+        offered.push(request.sdp);
+        return { streamId: 's1', type: 'answer', sdp };
+      },
+      list: () => [],
+    },
     access: {
       snapshot: () => ({
         remoteAccess: true,
@@ -189,7 +196,9 @@ test('the stream answer names the public address for an internet client only', a
   const { sessionId } = sessionStore.connect(sessionStore.password, '127.0.0.1');
   const offer = () =>
     new Promise((resolve, reject) => {
-      const data = JSON.stringify({ sdp: 'v=0\r\n' });
+      const data = JSON.stringify({
+        sdp: 'v=0\r\na=candidate:1 1 udp 2122260223 192.168.1.40 55000 typ host\r\n',
+      });
       const outgoing = httpsRequest(
         {
           host: '127.0.0.1',
@@ -218,6 +227,12 @@ test('the stream answer names the public address for an internet client only', a
   const rewritten = (await offer()).sdp;
   assert.match(rewritten, / 203\.0\.113\.10 40001 typ host/);
   assert.equal(rewritten.includes('192.168.'), false);
+  assert.match(offered[0], /192\.168\.1\.40/, 'a local client offer reaches the worker unchanged');
+  assert.equal(
+    offered[1].includes('a=candidate:'),
+    false,
+    'an internet offer loses private candidates',
+  );
 });
 
 test('an internet client is never served over plain HTTP, whatever the local scope says', async (t) => {
