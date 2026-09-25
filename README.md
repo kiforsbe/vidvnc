@@ -150,6 +150,7 @@ server print above the prompt. Type `help` for the full list:
 - Client customization: `client-mode profiles|options`, `options`,
   `options add|remove size WxH|framerate N|bitrate KBPS`
 - Access: `access [approval|available]`
+- Public login label: `public-name [name]`
 - Devices: `sessions`, `grant <session>`, `revoke [session]`, `stop <stream-id>`,
   `disconnect <session>`
 - `info` shows connection addresses, the password, and the data and log folders.
@@ -174,6 +175,12 @@ the mode.
 
 The same settings commands work without a running server, for example
 `npm run config -- share 2 on` or `node apps/server/src/main.mjs config share 2 on`.
+Use `npm run config -- public-name "Office PC"` to choose the name shown before
+sign-in (default: `VidVNC host`). Treat it as public: anyone who can reach the
+HTTPS login page can read it. Keep personal names, internal hostnames, and
+location details out of this label. The login page and `/api/info` show only
+this label; display details, profiles, and the viewer load after admission.
+The TLS certificate can still list the machine hostname and interface IPs.
 Read commands accept `--json`, and `config show --json` prints all saved settings. For
 scripts, use `npm run -s config -- …` or `node apps/server/src/main.mjs config …`;
 plain `npm run` prints its own banner first, which breaks JSON output.

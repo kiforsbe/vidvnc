@@ -9,6 +9,8 @@ may include breaking changes.
 
 ### Added
 
+- A configurable `public-name` login label (default `VidVNC host`); the anonymous
+  `/api/info` response now contains only that owner-chosen label.
 - The host and CLI now issue one-time connection and client-registration codes only on explicit
   request. Codes expire after five minutes by default and can be used once. The host offers
   letters-and-numbers or letters-only codes; the CLI and configuration file allow bounded
@@ -33,6 +35,10 @@ may include breaking changes.
 
 ### Fixed
 
+- Anonymous visitors can no longer fetch viewer markup, viewer-specific CSS/JavaScript,
+  or the stream helper modules. The browser loads them only after admission, using a
+  session-bound viewer cookie that is invalidated immediately on revocation.
+  Private session, signaling, and stream APIs still require the separate bearer token.
 - Removed the anonymous connection-key inspection and legacy connect routes. Key starts and
   approved-client admission now have server-wide and per-source attempt limits, bounded
   password-verification work, and expiring registration state.
