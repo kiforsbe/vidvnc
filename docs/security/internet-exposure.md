@@ -117,6 +117,29 @@ unknown address fails closed as internet.
 
 ## Controls in place
 
+**Owner control (Windows host)**
+
+- **Each start is local-only by default.**
+  - The host app starts sharing local-only unless the owner picks **Start sharing with
+    remote access**, from the sharing indicator's menu or the Settings card.
+  - Starting local-only turns off a remote-access setting saved earlier, for example from
+    the CLI.
+  - Starting remote also sets `approved-only`. If no public name is configured, sharing
+    starts local-only and the host shows why.
+- **The start line carries the mode as an exact string.** The owner gate
+  (`owner-start.mjs`) still accepts only exact lines: the original `{"type":"start"}` and
+  the two `sharing` variants, nothing else.
+- **Remote access is visible where sharing is controlled.** The navigation-pane indicator
+  shows a warning-coloured globe and "Remote access on", even with the pane collapsed, and
+  Overview repeats it.
+- **Settings can be changed without turning remote access on.** Settings → Remote access
+  saves the public names, public port and media ports while sharing through the host pipe,
+  and while sharing is off through the offline `config` command. That command refuses to
+  run while a server is running.
+- **The source-address check is prompted.** While remote access is on, the card asks the
+  owner to check once from mobile data that Sessions shows a public address (R2). Sessions
+  lists each device's address.
+
 **Admission**
 
 - Legacy anonymous key-inspection and connect routes are gone.
@@ -335,9 +358,8 @@ the public host avoids the rest.
 1. **Validation (R8):**
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
-2. **Host UI:** a screen for `remote-access`, `public-hosts`, `public-port` and `media-ports`.
-   It should show the session source address prominently, for R2's check. Today these are
-   set through the CLI, or the host's settings pipe, which has no UI.
+2. **Host UI:** built. It needs a Windows build and the navigation test run on the owner's
+   machine; see the verification record.
 3. **R4:** track native dependency versions in packaging. Longer term, a lower-privilege
    media worker.
 4. **F5:** a passkey (WebAuthn) challenge for approved devices, if a stronger
@@ -414,6 +436,15 @@ the public host avoids the rest.
   - A manual browser check covered diagnostics capability handling before the listener
     was separated.
 
+- **2026-09-25, Windows host remote access controls:**
+  - Two build errors the owner reported are fixed: a name clash in the settings sender, and
+    a crash on the server's `publicPort: null` (`JsonElement.TryGetInt32` throws on null).
+  - The server side is covered by portable tests: the owner-gate modes and the start-mode
+    rules (861/861).
+  - **Not yet confirmed on Windows:**
+    - the host build with the split-arrow indicator and offline settings;
+    - the navigation test's new indicator checks.
+
 ## History
 
 | Date       | Work                                                                                                                                                                                                                                             |
@@ -422,6 +453,7 @@ the public host avoids the rest.
 | 2026-09-24 | Hardening on `main`: metered admission, purpose-neutral short-lived codes, revocation and one-session limit, diagnostics isolation, LAN-only HTTP and fail-closed TLS (F1–F5, F7). A re-review found F8 and the public-`Host` compatibility gap. |
 | 2026-09-25 | Public login name and viewer assets only after admission (`main`, `90a37e4`). Remote access mode, the F8 fix, public names and port, media port range and public-address answers (`claude/remote-access-on-main`). Re-review found R1–R8.        |
 | 2026-09-25 | R1, R3, R5 and R6 fixed. R2 contained by requiring `approved-only` and a required source-address check. R4 reduced (ICE-TCP off with a media range). R7 partly fixed (hostname omitted). R8 remains: hardware validation.                        |
+| 2026-09-25 | Windows host remote access controls: local-only start by default, remote start from the sharing indicator, remote access shown on the indicator, Settings card usable while sharing is off, footer Stop sharing removed.                         |
 
 The superseded documents were consolidated here on 2026-09-25. Their last versions can be
 read with `git show 0215e44:docs/security/<file>`:

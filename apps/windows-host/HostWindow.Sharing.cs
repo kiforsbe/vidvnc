@@ -1,7 +1,11 @@
+using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 
 namespace VidVnc.Host;
 
@@ -13,13 +17,19 @@ namespace VidVnc.Host;
 public sealed partial class HostWindow
 {
     readonly TextBlock sharingScope = new() { FontSize = 12, Opacity = .76, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly Button sharingOptions = new()
+    // The options arrow is the right-hand segment of the indicator, like a split button: flush
+    // with the indicator's right edge, full height, set off by a divider. It is not a control
+    // of its own (a Button would draw its own inset chrome); it highlights on hover and opens
+    // the menu when tapped. Keyboard users reach the same menu as the indicator's context menu.
+    readonly Border sharingSegment = new()
     {
-        Content = new FontIcon { Glyph = "\uE70D", FontSize = 12 },
-        Padding = new Thickness(6, 4, 6, 4), MinWidth = 0, VerticalAlignment = VerticalAlignment.Center,
-        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
-        BorderThickness = new Thickness(0),
+        Width = 36, VerticalAlignment = VerticalAlignment.Stretch,
+        BorderThickness = new Thickness(1, 0, 0, 0),
+        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        Child = new FontIcon { Glyph = "\uE70D", FontSize = 12,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
     };
+    MenuFlyout? sharingSegmentMenu;
     NavigationViewItem? sharingItem;
     // How the owner asked sharing to start ("local" or "remote"), and what the server said if
     // remote access could not be turned on.
@@ -29,25 +39,46 @@ public sealed partial class HostWindow
     DateTime ignoreSharingToggleUntil;
     string? remoteHostsDraft, remotePortDraft, remoteMediaDraft;
     string? remoteFormError;
+    // While sharing is off the settings are read and saved with the server's offline `config`
+    // command, so remote access can be configured without turning it on or starting to share.
+    bool offlineAccessLoaded, offlineAccessLoading, offlineAccessUnavailable;
 
     void BuildSharingIndicator()
     {
         var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         labels.Children.Add(sharingText);
         labels.Children.Add(sharingScope);
-        var content = new Grid { ColumnSpacing = HostSpacing.Related };
+        var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.Children.Add(labels);
-        Grid.SetColumn(sharingOptions, 1);
-        content.Children.Add(sharingOptions);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(sharingOptions, "Sharing options");
-        ToolTipService.SetToolTip(sharingOptions, "Sharing options");
-        sharingOptions.Flyout = SharingMenu();
-        sharingOptions.AddHandler(UIElement.PointerPressedEvent,
-            new PointerEventHandler((_, _) => ignoreSharingToggleUntil = DateTime.UtcNow.AddMilliseconds(600)), true);
+        sharingSegment.BorderBrush = ResourceBrush("DividerStrokeColorDefaultBrush");
+        Grid.SetColumn(sharingSegment, 1);
+        content.Children.Add(sharingSegment);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(sharingSegment, "Sharing options");
+        ToolTipService.SetToolTip(sharingSegment, "Sharing options");
+        var segmentMenu = SharingMenu();
+        sharingSegmentMenu = segmentMenu;
+        sharingSegment.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) =>
+        {
+            ignoreSharingToggleUntil = DateTime.UtcNow.AddMilliseconds(600);
+            sharingSegment.Background = ResourceBrush("SubtleFillColorTertiaryBrush");
+        }), true);
+        sharingSegment.PointerEntered += (_, _) => sharingSegment.Background = ResourceBrush("SubtleFillColorSecondaryBrush");
+        sharingSegment.PointerExited += (_, _) => sharingSegment.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        sharingSegment.Tapped += (_, args) =>
+        {
+            args.Handled = true;
+            sharingSegment.Background = ResourceBrush("SubtleFillColorSecondaryBrush");
+            segmentMenu.ShowAt(sharingSegment);
+        };
         // A command, not a page: it never becomes the selected navigation item. Keep Settings below it.
-        sharingItem = new NavigationViewItem { Content = content, Icon = sharingDot, SelectsOnInvoked = false, Tag = "sharing-toggle" };
+        sharingItem = new NavigationViewItem { Content = content, Icon = sharingDot, SelectsOnInvoked = false, Tag = "sharing-toggle",
+            HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        // Stretch the segment out to the indicator's own highlight edges, which the WinUI
+        // template insets by amounts that differ between versions: measure them instead.
+        sharingItem.SizeChanged += (_, _) => AlignSharingSegment(content);
+        content.SizeChanged += (_, _) => AlignSharingSegment(content);
         sharingItem.ContextFlyout = SharingMenu();
         navigation.FooterMenuItems.Add(sharingItem);
         navigation.ItemInvoked += async (_, args) =>
@@ -66,6 +97,31 @@ public sealed partial class HostWindow
             sessionTotals.Children.Add(border);
         }
         UpdateSharingIndicator();
+    }
+
+    void AlignSharingSegment(FrameworkElement content)
+    {
+        if (sharingItem is null || content.ActualWidth == 0) return;
+        FrameworkElement surface = HighlightSurface(sharingItem) ?? sharingItem;
+        var bounds = surface.TransformToVisual(content).TransformBounds(new Rect(0, 0, surface.ActualWidth, surface.ActualHeight));
+        sharingSegment.Margin = new Thickness(0, Math.Min(0, bounds.Top),
+            Math.Min(0, content.ActualWidth - bounds.Right), Math.Min(0, content.ActualHeight - bounds.Bottom));
+        var corner = surface is Grid grid ? grid.CornerRadius : surface is Control control ? control.CornerRadius : new CornerRadius(4);
+        sharingSegment.CornerRadius = new CornerRadius(0, corner.TopRight, corner.BottomRight, 0);
+    }
+
+    // The element that draws the navigation item's hover and pressed background: the
+    // presenter template's "LayoutRoot". Null if a future template names it differently.
+    static FrameworkElement? HighlightSurface(DependencyObject root, int depth = 0)
+    {
+        if (depth > 6) return null;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is FrameworkElement { Name: "LayoutRoot" } found) return found;
+            if (HighlightSurface(child, depth + 1) is { } nested) return nested;
+        }
+        return null;
     }
 
     MenuFlyout SharingMenu()
@@ -181,9 +237,80 @@ public sealed partial class HostWindow
         }
         if (remoteAccess && hosts.Length == 0)
         { remoteFormError = "Turn remote access off before removing every public name."; RenderPage(); return; }
-        await SendAccessChanges(new Dictionary<string, object?> {
-            ["publicHostnames"] = hosts, ["publicPort"] = port, ["mediaPorts"] = media },
-            onSaved: () => remoteHostsDraft = remotePortDraft = remoteMediaDraft = null);
+        if (server is not null)
+        {
+            await SendAccessChanges(new Dictionary<string, object?> {
+                ["publicHostnames"] = hosts, ["publicPort"] = port, ["mediaPorts"] = media },
+                onSaved: () => remoteHostsDraft = remotePortDraft = remoteMediaDraft = null);
+            return;
+        }
+        // Sharing is off: save through the offline settings command, one setting at a time.
+        accessSaving = true; RenderPage();
+        try
+        {
+            await RunConfig(hosts.Length == 0 ? new[] { "public-hosts", "clear" } : hosts.Prepend("public-hosts").ToArray());
+            await RunConfig(new[] { "public-port", port?.ToString() ?? "same" });
+            var mediaArgument = string.IsNullOrWhiteSpace(mediaText) ? "auto" : Regex.Replace(mediaText, @"\s", "");
+            var saved = await RunConfig(new[] { "media-ports", mediaArgument });
+            UpdateAccess(saved);
+            remoteHostsDraft = remotePortDraft = remoteMediaDraft = null;
+        }
+        catch (Exception error) when (error is InvalidOperationException or IOException or TimeoutException or System.ComponentModel.Win32Exception)
+        { remoteFormError = error.Message; }
+        finally { accessSaving = false; RenderPage(); }
+    }
+
+    static string ManifestFilename()
+    {
+        var adjacent = Path.Combine(AppContext.BaseDirectory, "runtime.json");
+        // An installed manifest takes priority over inherited development overrides.
+        return File.Exists(adjacent) ? adjacent :
+            Environment.GetEnvironmentVariable("VIDVNC_RUNTIME_MANIFEST") ?? adjacent;
+    }
+
+    // Runs `config <arguments>` and returns its JSON output (the saved access settings for the
+    // access commands, or everything for `show`). A refusal comes back as its message.
+    static async Task<JsonElement> RunConfig(IReadOnlyList<string> arguments)
+    {
+        var start = RuntimeManifest.Load(ManifestFilename()).ConfigStartInfo(
+            arguments.Contains("--json") ? arguments : arguments.Append("--json").ToArray());
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to run VidVNC settings.");
+        process.StandardInput.Close();
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException("Saving settings took too long.");
+        }
+        if (process.ExitCode != 0) throw new InvalidOperationException((await errors).Trim());
+        using var document = JsonDocument.Parse(await output);
+        return document.RootElement.Clone();
+    }
+
+    async Task LoadOfflineAccess()
+    {
+        if (offlineAccessLoading || server is not null) return;
+        offlineAccessLoading = true;
+        try
+        {
+            var saved = await RunConfig(new[] { "show" });
+            if (server is null && saved.TryGetProperty("access", out var access))
+            {
+                UpdateAccess(access);
+                remoteAccess = false; // shown as off: it is chosen each time sharing starts
+                offlineAccessUnavailable = false;
+            }
+        }
+        catch (Exception error) when (error is InvalidOperationException or IOException or TimeoutException or JsonException or System.ComponentModel.Win32Exception)
+        { offlineAccessUnavailable = true; }
+        finally
+        {
+            offlineAccessLoading = false; offlineAccessLoaded = true;
+            if (currentPage == "Settings") RenderPage();
+        }
     }
 
     void RenderRemoteAccessSettings()
@@ -201,11 +328,12 @@ public sealed partial class HostWindow
         labels.Children.Add(Secondary(!sharing ? "Off while sharing is off. It is chosen each time sharing starts, and local network only is the default." :
             remoteAccess ? "On. Approved devices can connect from the internet." : "Off. Only devices on this network can connect."));
         Grid.SetColumn(labels, 1); header.Children.Add(labels);
-        var toggle = new Button { Content = remoteAccess ? "Turn off" : "Turn on", Tag = "remote-access-toggle",
-            VerticalAlignment = VerticalAlignment.Center,
-            IsEnabled = accessReady && server is not null && sharing && !accessSaving };
+        // Sharing off: the button starts sharing with remote access. Sharing on: it switches.
+        var toggle = new Button { Content = !sharing ? "Start with remote access" : remoteAccess ? "Turn off" : "Turn on",
+            Tag = "remote-access-toggle", VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = !accessSaving && !stopping && (server is null || (sharing && accessReady)) };
         if (!remoteAccess) toggle.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        toggle.Click += async (_, _) => await SetRemoteAccess(!remoteAccess);
+        toggle.Click += async (_, _) => { if (server is null) await StartServer("remote"); else await SetRemoteAccess(!remoteAccess); };
         Grid.SetColumn(toggle, 2); header.Children.Add(toggle);
         content.Children.Add(header);
         if (sharingNotice is not null) content.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
@@ -214,7 +342,9 @@ public sealed partial class HostWindow
             Severity = InfoBarSeverity.Warning, Title = "Check the source address once",
             Message = "Connect from a phone on mobile data and open Sessions. It must show a public address, not your router's. If it shows the router, your router rewrites forwarded connections: fix its port forwarding or use a VPN instead." });
 
-        var editable = accessReady && server is not null && !accessSaving;
+        if (server is null && !offlineAccessLoaded) _ = LoadOfflineAccess();
+        var editable = !accessSaving && (server is not null ? accessReady && sharing
+            : offlineAccessLoaded && !offlineAccessUnavailable);
         var hosts = new TextBox { Header = "Public names or addresses", Tag = "public-hostnames",
             PlaceholderText = "vnc.example.com, 203.0.113.10",
             Text = remoteHostsDraft ?? string.Join(", ", publicHostnames), IsEnabled = editable };
@@ -234,7 +364,9 @@ public sealed partial class HostWindow
         var save = Command("Save remote access settings", async () => await SaveRemoteSettings(hosts.Text, port.Text, media.Text));
         save.Tag = "save-remote-access"; save.IsEnabled = editable;
         content.Children.Add(save);
-        if (!editable) content.Children.Add(Secondary("Start sharing to change these settings."));
+        if (server is null && offlineAccessUnavailable)
+            content.Children.Add(Secondary("These settings can't be read right now. Start sharing to change them."));
+        else if (!sharing) content.Children.Add(Secondary("Saving doesn't turn remote access on. It is used the next time you start sharing with remote access."));
         if (remoteFormError is not null) content.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
             Severity = InfoBarSeverity.Error, Message = remoteFormError });
         content.Children.Add(new Expander { Header = "What remote access changes", HorizontalAlignment = HorizontalAlignment.Stretch,

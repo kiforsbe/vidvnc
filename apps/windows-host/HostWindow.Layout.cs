@@ -116,7 +116,7 @@ public sealed partial class HostWindow
     {
         if (!enabled) CloseIdentify();
         sharing = enabled; sharingText.Text = enabled ? "Sharing is on" : "Sharing is off";
-        if (!enabled) remoteAccess = false;
+        if (!enabled) { remoteAccess = false; offlineAccessLoaded = false; }
         UpdateSharingIndicator();
         connectDevice.IsEnabled = enabled && tlsReport?.ViewerReady == true;
         openPreview.IsEnabled = enabled && tlsReport?.ViewerReady == true && previewUrl is not null;

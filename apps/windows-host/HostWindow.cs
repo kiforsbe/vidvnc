@@ -42,11 +42,7 @@ public sealed partial class HostWindow : Window
         ServerJob? job = null;
         try
         {
-            var adjacent = Path.Combine(AppContext.BaseDirectory, "runtime.json");
-            // An installed manifest takes priority over inherited development overrides.
-            var filename = File.Exists(adjacent) ? adjacent :
-                Environment.GetEnvironmentVariable("VIDVNC_RUNTIME_MANIFEST") ?? adjacent;
-            var runtime = RuntimeManifest.Load(filename);
+            var runtime = RuntimeManifest.Load(ManifestFilename());
             var start = runtime.ServerStartInfo(Environment.GetEnvironmentVariable("VIDVNC_INSPECT") == "1");
             start.ArgumentList.Add("--await-owner");
             job = new ServerJob();

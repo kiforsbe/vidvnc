@@ -145,4 +145,16 @@ public sealed record RuntimeManifest(string Filename, string Root, string Mode, 
         start.ArgumentList.Add("--desktop");
         return start;
     }
+
+    // The server's offline settings command (`main.mjs config …`), with the same Node and
+    // environment as the server. It edits the saved settings while sharing is off and refuses
+    // while a server is running.
+    public ProcessStartInfo ConfigStartInfo(IEnumerable<string> arguments)
+    {
+        var start = ServerStartInfo();
+        start.ArgumentList.Remove("--desktop");
+        start.ArgumentList.Add("config");
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        return start;
+    }
 }

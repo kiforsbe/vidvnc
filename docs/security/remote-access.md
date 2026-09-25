@@ -102,9 +102,11 @@ For an internet client:
 7. **Turn it on.**
    - **In the Windows host app:**
      - Steps 3–5 (public names, media ports and public port) are under
-       **Settings → Remote access**. Step 2 happens for you: turning remote access on
-       also switches to approved-devices-only.
-     - Then either select **Turn on** there, or open the arrow on the **sharing indicator**
+       **Settings → Remote access**. You can fill them in and save while sharing is off;
+       saving never turns remote access on. Step 2 happens for you: turning remote access
+       on also switches to approved-devices-only.
+     - Then either select **Start with remote access** (or **Turn on**, while sharing) there,
+       or open the arrow on the **sharing indicator**
        at the bottom of the navigation pane and choose **Start sharing with remote access**.
      - Clicking the indicator itself starts sharing on the local network only, or stops
        sharing. Each start is local-only unless you choose remote.

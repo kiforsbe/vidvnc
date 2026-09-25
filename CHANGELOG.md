@@ -36,7 +36,9 @@ may include breaking changes.
   - remote access shows on the indicator as a globe and **Remote access on**.
 
   Each start is local-only unless remote is chosen. The footer's Stop sharing button is gone.
-  **Settings → Remote access** edits the public names, public HTTPS port and media ports.
+  **Settings → Remote access** edits the public names, public HTTPS port and media ports, also
+  while sharing is off (through the offline settings command), without turning remote access
+  on.
 
 - Media through a router without a relay. `media-ports <first>-<last>` pins the ports video,
   audio and input use (the worker applies it to every WebRTC peer through
