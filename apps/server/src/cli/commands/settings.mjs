@@ -56,6 +56,7 @@ const formatRemoteAccess = (access) =>
         'Remote access: on',
         `Internet devices use https://${access.publicHostnames[0]}${access.publicPort ? (access.publicPort === 443 ? '' : `:${access.publicPort}`) : ':<HTTPS port>'}/ and must be approved devices.`,
         'Codes, device setup and certificate enrolment still work on the local network only.',
+        'Check once from mobile data: sessions must list a public address, not your router’s.',
       ].join('\n')
     : 'Remote access: off. Devices with an internet address are refused.';
 
@@ -135,7 +136,7 @@ const securitySettingsCommands = [
       }
       return {
         text: access.mediaPorts
-          ? `Media ports: ${access.mediaPorts.min}-${access.mediaPorts.max} (UDP, and TCP as a fallback). New streams use them.`
+          ? `Media ports: ${access.mediaPorts.min}-${access.mediaPorts.max} (UDP). New streams use them.`
           : 'Media ports: automatic (any free port; works on the local network only).',
         data: access,
       };

@@ -19,8 +19,11 @@ may include breaking changes.
 - The host and CLI can explicitly disconnect existing ordinary sessions when immediate
   lockdown is needed. The CLI's `diagnostics open` command and the host's Diagnostics action
   create a short-lived link to a separate loopback-only diagnostics listener on demand.
-- An opt-in remote access mode: `public-hosts <name-or-ip>...`, then `remote-access on`
-  (also accepted from the host over its settings pipe). While it is off, clients with an
+- An opt-in remote access mode: `public-hosts <name-or-ip>...` and
+  `connection-mode approved-only`, then `remote-access on` (also accepted from the host over
+  its settings pipe). Remote access requires `approved-only` mode, so no short-code admission
+  exists for anyone while it is on, and switching it off disconnects internet sessions at
+  once. While it is off, clients with an
   internet source address are refused outright; private networks that are not this LAN, such
   as a VPN, keep today's rules. While it is on, internet clients reach only HTTPS, sign in only
   as approved devices (short codes, device setup and certificate enrolment stay on the local
@@ -56,6 +59,18 @@ may include breaking changes.
   teardown; the host reports success only after teardown and persistence.
 
 ### Fixed
+
+- An outsider could lock every approved device out of sign-in: sign-in, registration and
+  claim polling shared one server-wide budget, and IPv6 sources weren't grouped. Those
+  budgets are now separate for internet and for local/private peers, the internet sign-in
+  budget is larger, and every per-source count groups IPv6 by /64.
+- Internet clients' WebRTC offers keep only candidates on public addresses, so a signed-in
+  client can no longer aim the host's connectivity checks at machines on the LAN. With a
+  media port range set, the worker offers UDP only (no ICE-TCP).
+- `100.64.0.0/10` counts as a private network only while this PC has an adapter in it (an
+  overlay VPN such as Tailscale); otherwise it is an ISP's carrier-grade NAT and counts as the
+  internet.
+- With remote access on, the generated certificate omits the PC's hostname.
 
 - F8: a pending device registration is labelled from the address that actually sent it
   (`Local network`, `Private network (not this LAN)` or `Internet`), not from the listener,

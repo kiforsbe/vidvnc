@@ -24,8 +24,8 @@ import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
 import { ensureCertificate } from './tls/ensure-certificate.mjs';
 import { localAddresses } from './tls/local-addresses.mjs';
+import { certificateNames } from './tls/certificate-names.mjs';
 import { createPeerNetwork } from './peer-network.mjs';
-import { isIP } from 'node:net';
 import {
   attemptAndAnnounce,
   connectionAddresses,
@@ -135,21 +135,9 @@ async function serve() {
     // TLS and the narrow HTTP listeners share one handler and admission state. The TLS
     // callback is invoked only after HTTP stack construction, so the reference is lazy.
     let httpStack;
-    // With remote access on, the certificate must also name the public hosts, or internet
-    // devices get a name mismatch. Every strategy reads its names through `localAddresses`,
-    // so adding them there is enough; a certificate that no longer covers them is reissued.
-    const certificateAddresses = () => {
-      const local = localAddresses();
-      const settings = access.snapshot();
-      if (!settings.remoteAccess) return local;
-      return {
-        ...local,
-        hostnames: [
-          ...new Set([...local.hostnames, ...settings.publicHostnames.filter((n) => !isIP(n))]),
-        ],
-        ips: [...new Set([...local.ips, ...settings.publicHostnames.filter((n) => isIP(n))])],
-      };
-    };
+    // What the certificate covers follows remote access (tls/certificate-names.mjs); a
+    // certificate that no longer covers the required names is reissued by its strategy.
+    const certificateAddresses = () => certificateNames(localAddresses(), access.snapshot());
     const tlsListener = createTlsListener({
       ensureCertificate: (settings, deps) =>
         ensureCertificate(settings, { ...deps, localAddresses: certificateAddresses }),

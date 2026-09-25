@@ -1253,13 +1253,18 @@ static void add_peer(const std::string &id, const std::string &text) {
         g_object_set(peer.webrtc, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "latency",
                      0, nullptr);
         if (ice_ports) {
-            // GstWebRTCICE's min-rtp-port/max-rtp-port (GStreamer 1.20+) bound every host
-            // candidate this peer allocates, UDP and ICE-TCP alike.
+            // GstWebRTCICE's min-rtp-port/max-rtp-port (GStreamer 1.20+) bound the host
+            // candidates this peer allocates.
             GstWebRTCICE *ice = nullptr;
             g_object_get(peer.webrtc, "ice-agent", &ice, nullptr);
             if (ice) {
                 g_object_set(ice, "min-rtp-port", ice_ports->min, "max-rtp-port", ice_ports->max,
                              nullptr);
+                // A fixed range is for forwarding to the internet: offer UDP only, so the
+                // forwarded ports expose one transport's parser instead of two. Older
+                // GStreamer without the property keeps its default.
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(ice), "ice-tcp"))
+                    g_object_set(ice, "ice-tcp", FALSE, nullptr);
                 gst_object_unref(ice);
             } else
                 failure = "Unable to apply the media port range.";
