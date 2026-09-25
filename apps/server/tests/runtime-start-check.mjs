@@ -6,6 +6,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
+
+// Test against current packages and a worker built from the current sources.
+ensureJsDependencies();
+ensureNativeWorker({ configuration: 'Debug' });
 const directory = await mkdtemp(join(tmpdir(), 'vidvnc-runtime-start-'));
 await mkdir(join(directory, 'VidVNC'));
 await writeFile(join(directory, 'VidVNC', 'tls-settings.json'), JSON.stringify({ mode: 'off' }));

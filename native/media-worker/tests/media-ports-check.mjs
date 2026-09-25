@@ -12,14 +12,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import { NativeMedia } from '../../../apps/server/src/native-media.mjs';
-import { workerIsStale } from '../../../tools/debug/host-build.mjs';
+import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
 
-if (workerIsStale(fileURLToPath(new URL('../../../', import.meta.url)), 'Release'))
-  throw new Error(
-    'media-worker.exe is older than native/ sources. Run `npm run build:native` first.',
-  );
+// Test against current packages and a worker built from the current sources.
+ensureJsDependencies();
+ensureNativeWorker();
 
 const RANGE = { min: 41000, max: 41049 };
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);

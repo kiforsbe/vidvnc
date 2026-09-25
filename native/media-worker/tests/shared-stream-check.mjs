@@ -19,6 +19,11 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { NativeMedia, probe } from '../../../apps/server/src/native-media.mjs';
+import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
+
+// Test against current packages and a worker built from the current sources.
+ensureJsDependencies();
+ensureNativeWorker();
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const codec = process.argv[3] ?? 'h264';
 const codecMimeType = { h264: 'video/H264', h265: 'video/H265', av1: 'video/AV1' }[codec];

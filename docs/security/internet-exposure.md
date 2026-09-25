@@ -331,7 +331,7 @@ the public host avoids the rest.
 ## Recommended next steps
 
 1. **Validation (R8):**
-   - `npm run build:native`, then `npm run test:hardware` and `media-ports-check.mjs`;
+   - `npm run test:hardware` and `media-ports-check.mjs`; both rebuild a stale worker first;
    - `npm run test:host`;
    - a phone on mobile data through a real router, on IPv4 and IPv6;
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
@@ -382,8 +382,12 @@ the public host avoids the rest.
     ignores `VIDVNC_ICE_PORTS` and exits 0.
   - The host-status test still expected the pre-stream-runtime label "Connecting" for a
     session with no streams; it now expects "No active streams".
-  - The native tests and `media-ports-check.mjs` now refuse to run against a worker older
-    than its sources, and say to run `npm run build:native`.
+  - Every test run now brings its dependencies up to date first
+    ([tools/dependencies.mjs](../../tools/dependencies.mjs)):
+    - npm packages are reinstalled when they don't match the lockfile;
+    - the hardware suite and the acceptance scripts rebuild a worker older than its
+      sources;
+    - the GStreamer SDK version is checked against the pinned 1.28.6.
   - `npm audit --omit=dev`: 0 advisories (it doesn't cover GStreamer or other native
     binaries).
   - **Not run:** Windows host build, `npm run test:host`, native worker build, hardware

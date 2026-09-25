@@ -2,6 +2,11 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { NativeMedia } from '../../../apps/server/src/native-media.mjs';
+import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
+
+// Test against current packages and a worker built from the current sources.
+ensureJsDependencies();
+ensureNativeWorker();
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const browser = await chromium.launch({ headless: true });
 const media = new NativeMedia({ hostControl: true });

@@ -8,6 +8,11 @@ import { createHttpApp } from '@vidvnc/server/http-app.mjs';
 import { NativeMedia } from '@vidvnc/server/native-media.mjs';
 import { Diagnostics } from '@vidvnc/server/diagnostics.mjs';
 import { SessionStore } from '@vidvnc/server/session-store.mjs';
+import { ensureJsDependencies, ensureNativeWorker } from '../../tools/dependencies.mjs';
+
+// Test against current packages and a worker built from the current sources.
+ensureJsDependencies();
+ensureNativeWorker();
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const diagnostics = new Diagnostics();
 const store = new SessionStore();

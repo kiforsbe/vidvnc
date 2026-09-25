@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { excluded } from './format.mjs';
+import { ensureJsDependencies, ensureNativeWorker } from './dependencies.mjs';
 
 // Test files may live in subdirectories (e.g. apps/server/tests/tls/), so discovery
 // walks each configured directory recursively rather than listing it flat. Reuses
@@ -58,7 +59,12 @@ export async function discoverTests(mode) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const files = await discoverTests(process.argv[2] || 'portable');
+  const mode = process.argv[2] || 'portable';
+  // Every suite runs against up-to-date npm packages; the hardware suite also against a worker
+  // built from the current native/ sources (tools/dependencies.mjs).
+  ensureJsDependencies();
+  if (mode === 'hardware') ensureNativeWorker();
+  const files = await discoverTests(mode);
   const child = spawn(process.execPath, ['--test', ...files], {
     stdio: 'inherit',
     windowsHide: true,

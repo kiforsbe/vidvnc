@@ -33,12 +33,22 @@ Don't open a public issue. Follow [SECURITY.md](SECURITY.md).
 Follow [Build and run (Windows)](README.md#build-and-run-windows). These commands run
 from the repository root:
 
-| Command                 | What it does                                                         |
-| ----------------------- | -------------------------------------------------------------------- |
-| `npm ci`                | Installs the pinned JavaScript dependencies                          |
-| `npm run format:check`  | Checks formatting                                                    |
-| `npm test`              | Runs the portable tests, with hardware stubbed                       |
+| Command                 | What it does                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `npm ci`                | Installs the pinned JavaScript dependencies                                                 |
+| `npm run format:check`  | Checks formatting                                                                           |
+| `npm test`              | Runs the portable tests, with hardware stubbed                                              |
 | `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop) |
+
+Every test run first brings its dependencies up to date
+([tools/dependencies.mjs](tools/dependencies.mjs)):
+
+- **npm packages:** if they don't match `package-lock.json`, the run reinstalls them with
+  `npm ci`.
+- **Media worker:** the hardware suite and the manual `*-check.mjs` acceptance scripts
+  rebuild it with `build-native.cmd` when it is older than `native/` sources.
+- **GStreamer SDK:** checked against the version `packaging/windows/inputs.json` pins. It is
+  never downloaded automatically; a mismatch stops the run with install instructions.
 
 Forks are welcome under the AGPL. If you distribute a modified VidVNC, or let people
 interact with it over a network, you must offer them its source code under the same

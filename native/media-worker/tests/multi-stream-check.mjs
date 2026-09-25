@@ -8,6 +8,11 @@ import { StreamRuntime } from '../../../apps/server/src/stream-runtime.mjs';
 import { createHttpApp } from '../../../apps/server/src/http-app.mjs';
 import { DisplayInventory } from '../../../apps/server/src/displays.mjs';
 import { defaultStreamPolicy } from '../../../apps/server/src/stream-policy.mjs';
+import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
+
+// Test against current packages and a worker built from the current sources.
+ensureJsDependencies();
+ensureNativeWorker();
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const info = probe();
 const displays = info.displays.filter((d) => d.persistent).slice(0, 2);
