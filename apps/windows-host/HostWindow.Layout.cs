@@ -322,7 +322,7 @@ public sealed partial class HostWindow
 
         void RenderMode()
         {
-            if (dialog.Content != body) { if (current is not null) ShowCode(); return; }
+            if (!ReferenceEquals(dialog.Content, body)) { if (current is not null) ShowCode(); return; }
             mode.Children.Clear(); expiryText = null; current = null;
             var selectedMode = (type.SelectedItem as ComboBoxItem)?.Tag as string;
             generate.Content = selectedMode == "session-key" ? "Regenerate session password" :

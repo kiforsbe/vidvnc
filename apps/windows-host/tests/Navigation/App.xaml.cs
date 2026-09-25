@@ -182,7 +182,7 @@ public partial class App : Application
                                 var qrBackPeer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(qrBack);
                                 ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)qrBackPeer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
                                 await Task.Delay(80);
-                                if (onceDialog.Content != onceBody)
+                                if (!ReferenceEquals(onceDialog.Content, onceBody))
                                     throw new Exception("Back must close only the QR code and return to the setup view");
                                 if (Descendants(oncePanel).OfType<Button>().Count(button =>
                                     Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button)?.StartsWith("Copy ") == true && button.Content is FontIcon) != 2)
