@@ -9,6 +9,7 @@ import { createInterface } from 'node:readline';
 import { Diagnostics } from './diagnostics.mjs';
 import { logDirectory, runtimeManifest } from '@vidvnc/media-worker/runtime';
 import { waitForOwner } from './owner-start.mjs';
+import { applySharingMode } from './sharing-mode.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
 import { AccessSettings } from './access-settings.mjs';
 import { dataDirectory, settingsFiles } from './paths.mjs';
@@ -64,15 +65,18 @@ if (process.argv[2] === 'config') {
 async function serve() {
   try {
     const desktop = process.argv.includes('--desktop');
+    // The desktop owner chooses local-only or remote sharing each time it starts sharing.
+    let sharingMode = null;
     if (process.argv.includes('--await-owner')) {
       if (!desktop) throw new Error('--await-owner requires --desktop');
-      await waitForOwner(process.stdin);
+      sharingMode = await waitForOwner(process.stdin);
     }
     const info = probe();
     const hostCodecs = info.codecs?.length ? info.codecs : ['h264'];
     const directory = dataDirectory();
     const files = settingsFiles(directory);
     const access = await AccessSettings.open(files.access);
+    const sharingNotice = sharingMode ? await applySharingMode(access, sharingMode) : null;
     const admission = new AdmissionBudget();
     const store = new SessionStore({ maxSessions: () => access.snapshot().maxSessions });
     const diagnostics = new Diagnostics({
@@ -715,6 +719,7 @@ async function serve() {
         console.log(
           JSON.stringify({
             type: 'ready',
+            ...(sharingNotice ? { sharingNotice } : {}),
             urls: tlsField().viewerUrls,
             tls: tlsField(),
             password: store.password,

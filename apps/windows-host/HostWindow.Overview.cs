@@ -48,15 +48,18 @@ public sealed partial class HostWindow
     void RenderOverview()
     {
         page.Children.Add(Secondary("Your desktop, ready to share", 16));
+        if (sharingNotice is not null) page.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+            Severity = InfoBarSeverity.Warning, Message = sharingNotice });
         var host = new StackPanel { Spacing = 8 };
         var name = Label(Environment.MachineName, 24); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         host.Children.Add(name);
         host.Children.Add(Secondary($"Public login name: {publicName}"));
         host.Children.Add(Secondary(sharing
-            ? tlsReport?.ViewerReady == true ? "Available on your local network" : "Viewer waiting for HTTPS — check Settings"
+            ? tlsReport?.ViewerReady != true ? "Viewer waiting for HTTPS — check Settings"
+              : remoteAccess ? "Available on your local network, and to approved clients from the internet" : "Available on your local network"
             : heading.Text));
-        var state = Label(sharing ? "●  Sharing is on" : "●  Sharing is off");
-        state.Foreground = ThemeStatusBrush(navigation, sharing ? "success" : "neutral"); host.Children.Add(state);
+        var state = Label(!sharing ? "●  Sharing is off" : remoteAccess ? "●  Sharing is on · remote access" : "●  Sharing is on");
+        state.Foreground = ThemeStatusBrush(navigation, !sharing ? "neutral" : remoteAccess ? "warning" : "success"); host.Children.Add(state);
         if (!sharing) host.Children.Add(new ScrollViewer { Content = Label(detail.Text), MaxHeight = 70 });
         var hostCard = Card(IconRow("\uE7F4", host));
 

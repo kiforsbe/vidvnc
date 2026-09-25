@@ -94,7 +94,7 @@ public sealed partial class HostWindow
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         footer.Children.Add(ownership);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        actions.Children.Add(action); actions.Children.Add(openPreview); actions.Children.Add(connectDevice);
+        actions.Children.Add(openPreview); actions.Children.Add(connectDevice);
         actions.Children.Add(displayActions);
         openPreview.Click += (_, _) => { if (previewUrl is not null) Process.Start(new ProcessStartInfo(previewUrl) { UseShellExecute = true }); };
         Grid.SetColumn(actions, 1); footer.Children.Add(actions); Grid.SetRow(footer, 2); grid.Children.Add(footer);
@@ -116,6 +116,7 @@ public sealed partial class HostWindow
     {
         if (!enabled) CloseIdentify();
         sharing = enabled; sharingText.Text = enabled ? "Sharing is on" : "Sharing is off";
+        if (!enabled) remoteAccess = false;
         UpdateSharingIndicator();
         connectDevice.IsEnabled = enabled && tlsReport?.ViewerReady == true;
         openPreview.IsEnabled = enabled && tlsReport?.ViewerReady == true && previewUrl is not null;
@@ -130,7 +131,7 @@ public sealed partial class HostWindow
         // Pages own their presentation controls; only direct child panels are reused.
         pageTitle.Text = currentPage; page.Children.Clear(); pageAction.Content = null;
         displayActions.Content = null;
-        action.Visibility = openPreview.Visibility = currentPage == "Displays" ? Visibility.Collapsed : Visibility.Visible;
+        openPreview.Visibility = currentPage == "Displays" ? Visibility.Collapsed : Visibility.Visible;
         switch (currentPage)
         {
             case "Overview":
@@ -167,7 +168,7 @@ public sealed partial class HostWindow
                 RenderPublicNameSettings();
                 RenderTls();
                 page.Children.Add(Card(Label("When the window closes\nSharing stops and the application exits. Automatic startup is off.")));
-                page.Children.Add(Card(Label("Connection\nDesigned for trusted local networks. Remote connection setup is not available. Firewall permissions remain under your control.")));
+                RenderRemoteAccessSettings();
                 page.Children.Add(Command("Open logs folder", () => { var folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VidVNC", "logs"); System.IO.Directory.CreateDirectory(folder); Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true }); }));
                 page.Children.Add(Label("VidVNC · Windows host\nWindows 11 25H2 or later · hardware video encoding"));
                 break;

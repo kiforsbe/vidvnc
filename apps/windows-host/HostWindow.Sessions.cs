@@ -12,32 +12,6 @@ public sealed partial class HostWindow
     readonly Grid sessionTotals = new() { ColumnSpacing = 12 };
     readonly FontIcon sharingDot = new() { Glyph = "\uEA3B", FontSize = 12 };
 
-    void BuildSharingIndicator()
-    {
-        // A status, not a disabled command. Keep Settings below it.
-        var indicator = new NavigationViewItem { Content = sharingText, Icon = sharingDot,
-            SelectsOnInvoked = false, IsTabStop = false };
-        navigation.FooterMenuItems.Add(indicator);
-        ToolTipService.SetToolTip(indicator, sharingText.Text);
-        sharingText.ActualThemeChanged += (_, _) => UpdateSharingIndicator();
-        foreach (var (value, label) in new[] { (deviceTotal, "Connected devices"), (streamTotal, "Display streams") })
-        {
-            var content = new StackPanel { Spacing = 4 };
-            content.Children.Add(value); content.Children.Add(Label(label));
-            var card = Card(content);
-            Grid.SetColumn(card, sessionTotals.ColumnDefinitions.Count);
-            sessionTotals.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            sessionTotals.Children.Add(card);
-        }
-    }
-
-    void UpdateSharingIndicator()
-    {
-        sharingDot.Foreground = ThemeStatusBrush(sharingText, sharing ? "success" : "neutral");
-        if (navigation.FooterMenuItems.Count > 0)
-            ToolTipService.SetToolTip((DependencyObject)navigation.FooterMenuItems[0], sharingText.Text);
-    }
-
     static Brush ThemeStatusBrush(FrameworkElement element, string state)
     {
         // System semantic colors retain readable contrast in both application themes.

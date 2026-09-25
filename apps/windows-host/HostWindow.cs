@@ -13,7 +13,6 @@ public sealed partial class HostWindow : Window
     readonly TextBlock detail = new() { Text = "Checking your display and graphics hardware…", TextWrapping = TextWrapping.Wrap };
     readonly TextBox address = new() { Header = "Open this address on your other device", IsReadOnly = true };
     readonly TextBox password = new() { IsReadOnly = true, FontFamily = new FontFamily("Cascadia Mono"), FontSize = 24 };
-    readonly Button action = new() { Content = "Stop sharing", IsEnabled = false };
     Process? server;
     bool closing;
     bool stopping;
@@ -28,15 +27,17 @@ public sealed partial class HostWindow : Window
         Title = "VidVNC";
         SystemBackdrop = new MicaBackdrop();
         BuildShell();
-        action.Click += async (_, _) => { if (server is null) await StartServer(); else await StopServer(); };
         Closed += async (_, _) => { closing = true; CloseIdentify(); await StopServer(); };
         _ = StartServer();
     }
-    async Task StartServer()
+    // Starts sharing. `sharingMode` is "local" (the default) or "remote"; the server applies it
+    // and reports in the ready message if remote access could not be turned on.
+    async Task StartServer(string sharingMode = "local")
     {
         if (closing || starting || server is not null) return;
         starting = true;
-        action.IsEnabled = false;
+        requestedSharing = sharingMode == "remote" ? "remote" : "local";
+        sharingNotice = null;
         Process? child = null;
         ServerJob? job = null;
         try
@@ -52,7 +53,10 @@ public sealed partial class HostWindow : Window
             child = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the server.");
             job.Assign(child);
             server = child;
-            await child.StandardInput.WriteLineAsync("{\"type\":\"start\"}");
+            UpdateSharingIndicator();
+            // Exactly the approval lines the server's owner gate accepts (owner-start.mjs).
+            await child.StandardInput.WriteLineAsync(requestedSharing == "remote"
+                ? "{\"type\":\"start\",\"sharing\":\"remote\"}" : "{\"type\":\"start\",\"sharing\":\"local\"}");
             await child.StandardInput.FlushAsync();
             var errors = child.StandardError.ReadToEndAsync();
             while (await child.StandardOutput.ReadLineAsync() is { } line)
@@ -86,13 +90,13 @@ public sealed partial class HostWindow : Window
                 // owner-only TLS field supplies viewer and local trust roots explicitly.
                 UpdateTlsStatus(ready);
                 password.Text = ready.GetProperty("password").GetString() ?? "";
+                sharingNotice = ready.TryGetProperty("sharingNotice", out var notice) ? notice.GetString() : null;
                 displayDescription = $"{ready.GetProperty("width").GetInt32()} × {ready.GetProperty("height").GetInt32()} · {vendorLabel} {codecLabel}";
                 if (ready.TryGetProperty("displays", out var displays)) UpdateDisplays(displays);
                 if (ready.TryGetProperty("policy", out var policy)) UpdatePolicy(policy);
                 if (ready.TryGetProperty("access", out var access)) UpdateAccess(access);
                 if (ready.TryGetProperty("clients", out var clients)) UpdateClients(clients);
                 SetSharing(true);
-                action.Content = "Stop sharing"; action.IsEnabled = true;
             }
             await child.WaitForExitAsync();
             if (server == child) server = null;
@@ -100,11 +104,10 @@ public sealed partial class HostWindow : Window
             {
                 heading.Text = "Sharing stopped"; password.Text = "";
                 var error = await errors;
-                detail.Text = child.ExitCode == 0 ? "Start again when you’re ready." : error.Trim();
-                action.Content = "Start sharing"; action.IsEnabled = true;
+                detail.Text = child.ExitCode == 0 ? "Select Sharing is off in the navigation pane to start again." : error.Trim();
             }
         }
-        catch (Exception error) { if (!closing) { heading.Text = "Unable to start sharing"; detail.Text = error.Message; action.Content = "Try again"; action.IsEnabled = true; } }
+        catch (Exception error) { if (!closing) { heading.Text = "Unable to start sharing"; detail.Text = error.Message + "\nSelect Sharing is off in the navigation pane to try again."; } }
         finally
         {
             job?.Dispose();
@@ -128,7 +131,7 @@ public sealed partial class HostWindow : Window
     async Task StopServer()
     {
         var child = server; if (child is null || stopping) return; stopping = true;
-        action.IsEnabled = false;
+        UpdateSharingIndicator();
         try
         {
             await child.StandardInput.WriteLineAsync("{\"type\":\"stop\"}"); await child.StandardInput.FlushAsync();
@@ -139,7 +142,7 @@ public sealed partial class HostWindow : Window
         finally
         {
             server = null; stopping = false;
-            if (!closing) { heading.Text = "Sharing is off"; detail.Text = "Your desktop is private. Start sharing to create a new password."; password.Text = ""; action.Content = "Start sharing"; action.IsEnabled = true; }
+            if (!closing) { heading.Text = "Sharing is off"; detail.Text = "Your desktop is private. Select Sharing is off in the navigation pane to start sharing with a new password."; password.Text = ""; UpdateSharingIndicator(); }
         }
     }
 }

@@ -82,6 +82,19 @@ public partial class App : Application
                     for (DependencyObject? ancestor = sharingLabel; ancestor is not null; ancestor = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(ancestor))
                         if (ancestor is Control control && !control.IsEnabled) throw new Exception("Sharing status is styled as disabled");
                     if (sharingLabel.Text != "Sharing is on") throw new Exception("Active sharing status missing");
+                    // Remote access is shown on the indicator itself, and the indicator is a command
+                    // (it starts and stops sharing), never a navigation page.
+                    var sharingScope = (TextBlock)typeof(HostWindow).GetField("sharingScope", flags)!.GetValue(window)!;
+                    if (sharingScope.Text != "Local network only") throw new Exception("Local-only sharing scope missing");
+                    using (var remoteSnapshot = JsonDocument.Parse("{\"revision\":0,\"defaultControl\":\"approval\",\"connectionMode\":\"approved-only\",\"remoteAccess\":true,\"publicHostnames\":[\"vnc.example.com\"]}"))
+                        typeof(HostWindow).GetMethod("UpdateAccess", flags)!.Invoke(window, new object[] { remoteSnapshot.RootElement });
+                    if (sharingLabel.Text != "Sharing is on" || sharingScope.Text != "Remote access on")
+                        throw new Exception("Remote access is not shown on the sharing indicator");
+                    var sharingItem = navigation.FooterMenuItems.OfType<NavigationViewItem>().Single(item => item.Tag as string == "sharing-toggle");
+                    if (sharingItem.SelectsOnInvoked || !sharingItem.IsEnabled) throw new Exception("The sharing indicator must be an enabled command, not a page");
+                    using (var localSnapshot = JsonDocument.Parse("{\"revision\":0,\"defaultControl\":\"approval\",\"connectionMode\":\"session-key\"}"))
+                        typeof(HostWindow).GetMethod("UpdateAccess", flags)!.Invoke(window, new object[] { localSnapshot.RootElement });
+                    if (sharingScope.Text != "Local network only") throw new Exception("Remote access indicator did not clear");
                     setSharing.Invoke(window, new object[] { false });
                     if (sharingLabel.Text != "Sharing is off") throw new Exception("Stopped sharing status missing");
                     for (int cycle = 0; cycle < 3; cycle++)

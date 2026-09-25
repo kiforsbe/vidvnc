@@ -99,13 +99,21 @@ For an internet client:
    - Register the device with a setup code and approve it on the host. The approval
      screen shows where each request came from: _Local network_,
      _Private network (not this LAN)_ or _Internet_.
-7. **Turn it on:**
-   ```
-   remote-access on
-   ```
-   All of these commands also work offline (`npm run config -- remote-access on`). The
-   Windows host accepts `remoteAccess`, `publicHostnames`, `publicPort` and `mediaPorts`
-   on its settings pipe, but has no screen for them yet.
+7. **Turn it on.**
+   - **In the Windows host app:**
+     - Steps 3–5 (public names, media ports and public port) are under
+       **Settings → Remote access**. Step 2 happens for you: turning remote access on
+       also switches to approved-devices-only.
+     - Then either select **Turn on** there, or open the arrow on the **sharing indicator**
+       at the bottom of the navigation pane and choose **Start sharing with remote access**.
+     - Clicking the indicator itself starts sharing on the local network only, or stops
+       sharing. Each start is local-only unless you choose remote.
+     - While remote access is on, the indicator shows a globe and **Remote access on**.
+   - **From the CLI:**
+     ```
+     remote-access on
+     ```
+     All of these commands also work offline (`npm run config -- remote-access on`).
 8. **Check the source address** (next section). This step is required.
 
 **Never forward:**

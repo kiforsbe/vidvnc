@@ -11,6 +11,12 @@ public sealed partial class HostWindow
     string publicName = "VidVNC host";
     string? publicNameDraft;
     int maxSessions = 4;
+    // Remote access (server access-settings.mjs). Missing fields, from an older server or a
+    // test snapshot, read as remote access off with nothing configured.
+    bool remoteAccess;
+    string[] publicHostnames = [];
+    int? publicPort;
+    (int Min, int Max)? mediaPorts;
     const int MaxSessionsLimit = 8;
     long accessRevision;
     bool accessReady;
@@ -26,6 +32,14 @@ public sealed partial class HostWindow
         publicName = value.TryGetProperty("publicName", out var name) ? name.GetString() ?? "VidVNC host" : "VidVNC host";
         oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
         maxSessions = value.TryGetProperty("maxSessions", out var limit) && limit.TryGetInt32(out var count) ? count : 4;
+        remoteAccess = value.TryGetProperty("remoteAccess", out var remote) && remote.ValueKind == JsonValueKind.True;
+        publicHostnames = value.TryGetProperty("publicHostnames", out var hosts) && hosts.ValueKind == JsonValueKind.Array
+            ? hosts.EnumerateArray().Select(host => host.GetString() ?? "").Where(host => host.Length > 0).ToArray() : [];
+        publicPort = value.TryGetProperty("publicPort", out var port) && port.TryGetInt32(out var portNumber) ? portNumber : null;
+        mediaPorts = value.TryGetProperty("mediaPorts", out var ports) && ports.ValueKind == JsonValueKind.Object &&
+            ports.TryGetProperty("min", out var min) && ports.TryGetProperty("max", out var max) &&
+            min.TryGetInt32(out var minPort) && max.TryGetInt32(out var maxPort) ? (minPort, maxPort) : null;
+        UpdateSharingIndicator();
         accessRevision = value.GetProperty("revision").GetInt64();
         accessReady = true;
         if (currentPage is "Access" or "Settings" or "Overview") RenderPage();
@@ -43,7 +57,7 @@ public sealed partial class HostWindow
         admission.Children.Add(Label("Connection method", 16));
         admission.Children.Add(Secondary("Choose how ordinary clients may connect. Approved clients and client setup keys remain available."));
         var method = new ComboBox { Tag = "connection-mode", HorizontalAlignment = HorizontalAlignment.Stretch,
-            IsEnabled = accessReady && server is not null && !accessSaving };
+            IsEnabled = accessReady && server is not null && !accessSaving && !remoteAccess };
         method.Items.Add("Reusable session key");
         method.Items.Add("One-time connection keys");
         method.Items.Add("Approved clients only");
@@ -52,6 +66,7 @@ public sealed partial class HostWindow
         method.SelectionChanged += async (_, _) => await SaveAccess(connectionMode: method.SelectedIndex switch
         { 1 => "one-time-keys", 2 => "approved-only", _ => "session-key" });
         admission.Children.Add(method);
+        if (remoteAccess) admission.Children.Add(Secondary("Remote access is on, which allows approved clients only. Turn remote access off to choose another method."));
         admission.Children.Add(Secondary(connectionMode switch {
             "one-time-keys" => "Each ordinary connection needs a fresh host-issued key that expires after one use.",
             "approved-only" => "Ordinary connection keys are disabled. Only approved clients can sign in.",
@@ -147,24 +162,33 @@ public sealed partial class HostWindow
         var nextLimit = maxSessions ?? this.maxSessions;
         var nextName = publicName ?? this.publicName;
         if (accessSaving || (nextControl == this.defaultControl && nextMode == this.connectionMode && nextLimit == this.maxSessions && nextName == this.publicName)) return;
+        await SendAccessChanges(new Dictionary<string, object?> {
+            ["defaultControl"] = nextControl, ["connectionMode"] = nextMode,
+            ["maxSessions"] = nextLimit, ["publicName"] = nextName },
+            onSaved: publicName is null ? null : () => publicNameDraft = null);
+    }
+
+    // Sends only the given fields; the server leaves every other access setting as it is and
+    // validates the whole result, so an invalid combination comes back as an error here.
+    async Task SendAccessChanges(Dictionary<string, object?> changes, Action? onSaved = null)
+    {
         accessSaving = true; accessError = null;
         accessRequestId = Guid.NewGuid().ToString();
         accessReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
         if (currentPage is "Access" or "Settings") RenderPage();
         try
         {
-            var child = server ?? throw new InvalidOperationException("Start sharing before changing access defaults.");
-            await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new {
-                type = "access-set", requestId = accessRequestId, revision = accessRevision,
-                defaultControl = nextControl, connectionMode = nextMode, maxSessions = nextLimit,
-                publicName = nextName }));
+            var child = server ?? throw new InvalidOperationException("Start sharing before changing access settings.");
+            var message = new Dictionary<string, object?> { ["type"] = "access-set", ["requestId"] = accessRequestId, ["revision"] = accessRevision };
+            foreach (var (key, value) in changes) message[key] = value;
+            await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(message));
             await child.StandardInput.FlushAsync();
             var reply = await accessReply.Task.WaitAsync(TimeSpan.FromSeconds(10));
             UpdateAccess(reply.GetProperty("access"));
             if (reply.TryGetProperty("sessionKey", out var key) && key.ValueKind == JsonValueKind.String)
                 password.Text = key.GetString() ?? "";
             if (!reply.GetProperty("ok").GetBoolean()) throw new InvalidOperationException(reply.GetProperty("error").GetString());
-            if (publicName is not null) publicNameDraft = null;
+            onSaved?.Invoke();
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or TimeoutException)
         {
@@ -175,7 +199,7 @@ public sealed partial class HostWindow
         finally
         {
             accessSaving = false; accessReply = null; accessRequestId = null;
-            if (currentPage is "Access" or "Settings") RenderPage();
+            if (currentPage is "Access" or "Settings" or "Overview") RenderPage();
         }
     }
 }

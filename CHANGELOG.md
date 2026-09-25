@@ -29,6 +29,15 @@ may include breaking changes.
   as approved devices (short codes, device setup and certificate enrolment stay on the local
   network), get HSTS on the public names, and have those names accepted as HTTP `Host`
   values and added to the generated certificate.
+- The Windows host's sharing indicator in the navigation pane is now the sharing switch:
+  - select it to start sharing on the local network, or to stop sharing;
+  - its arrow (or a right-click) starts sharing with remote access, or turns remote
+    access on or off while sharing;
+  - remote access shows on the indicator as a globe and **Remote access on**.
+
+  Each start is local-only unless remote is chosen. The footer's Stop sharing button is gone.
+  **Settings → Remote access** edits the public names, public HTTPS port and media ports.
+
 - Media through a router without a relay. `media-ports <first>-<last>` pins the ports video,
   audio and input use (the worker applies it to every WebRTC peer through
   `VIDVNC_ICE_PORTS`), so the range can be forwarded to this PC. An internet client's SDP
