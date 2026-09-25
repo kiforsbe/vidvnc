@@ -4,7 +4,7 @@ Test-only certificate/key pairs for the HTTPS/TLS test suite. Generated once, by
 on Windows (`New-SelfSignedCertificate` in `Cert:\CurrentUser\My`, exported to PEM via
 .NET's `RSACertificateExtensions.GetRSAPrivateKey` + `ExportPkcs8PrivateKey`, then the
 certificate removed from the certificate store) and committed here so the portable test
-suite (macOS, Linux, Windows) only ever _reads_ these files — it never generates a
+suite (macOS, Linux, Windows) only ever *reads* these files — it never generates a
 certificate at runtime.
 
 **These private keys are intentionally public.** They exist solely to exercise TLS
