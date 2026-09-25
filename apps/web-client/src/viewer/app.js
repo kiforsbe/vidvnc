@@ -2,7 +2,7 @@ import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip } from './profile-labels.js';
-import { distanceFromTop, needsImmersive, videoPoint } from './stage-geometry.js';
+import { needsImmersive, videoPoint } from './stage-geometry.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,16 +40,14 @@ export function createViewer({ onExit }) {
     button.title = label;
     button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${toolbarIcons[icon]}</svg>`;
   }
-  // Immersive mode: the stage fills the screen in landscape, turned 90° on a portrait phone,
-  // while staying in the page so touches still reach the desktop. iPhone Safari's only full
+  // Immersive mode: the stage fills the screen in either orientation while staying in the
+  // page, so touches still reach the desktop. iPhone Safari's only full
   // screen is its native video player, which takes input away.
   let immersive = false,
     immersiveFollowsControl = false;
-  const rotated = () => immersive && window.innerHeight > window.innerWidth;
   function setImmersive(on) {
     immersive = on;
     $('stage').classList.toggle('immersive', on);
-    $('stage').classList.toggle('rotated', rotated());
     document.documentElement.classList.toggle('viewer-immersive', on);
     renderFullscreen();
     fitVideo();
@@ -140,13 +138,6 @@ export function createViewer({ onExit }) {
   $('video').addEventListener('resize', fitVideo);
   $('video').addEventListener('playing', fitVideo);
   window.addEventListener('resize', fitVideo, { signal: events.signal });
-  window.addEventListener(
-    'resize',
-    () => {
-      if (immersive) $('stage').classList.toggle('rotated', rotated());
-    },
-    { signal: events.signal },
-  );
   window.visualViewport?.addEventListener('resize', fitVideo, { signal: events.signal });
   const headerObserver = new ResizeObserver(fitVideo);
   headerObserver.observe(document.querySelector('.app-header'));
@@ -762,11 +753,11 @@ export function createViewer({ onExit }) {
     dockTimer = setTimeout(() => $('immersiveToolbar').classList.remove('visible'), 2800);
   }
   $('stage').addEventListener('pointermove', (event) => {
-    if (distanceFromTop(event, $('stage').getBoundingClientRect(), rotated()) < 110) revealDock();
+    if (event.clientY - $('stage').getBoundingClientRect().top < 110) revealDock();
   });
   $('immersiveToolbar').addEventListener('pointerenter', revealDock);
   $('stage').addEventListener('pointerdown', (event) => {
-    if (distanceFromTop(event, $('stage').getBoundingClientRect(), rotated()) < 60) revealDock();
+    if (event.clientY - $('stage').getBoundingClientRect().top < 60) revealDock();
   });
   renderControl();
   renderAudio();
@@ -779,7 +770,6 @@ export function createViewer({ onExit }) {
       video.getBoundingClientRect(),
       video.videoWidth || statsSize?.width,
       video.videoHeight || statsSize?.height,
-      rotated(),
     );
   }
   let lastMove = 0;
