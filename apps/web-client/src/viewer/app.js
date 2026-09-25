@@ -96,6 +96,10 @@ export function createViewer({ onExit }) {
       `${Math.max(1, (window.visualViewport?.height || window.innerHeight) - ($('stage').getBoundingClientRect().top + window.scrollY) - 4) * ratio}px`,
     );
   }
+  // iOS plays video inline and without a gesture only while it is muted and inline; set
+  // the properties too, not only the markup attributes.
+  Object.assign($('video'), { muted: true, defaultMuted: true, playsInline: true, autoplay: true });
+  $('video').setAttribute('webkit-playsinline', '');
   $('video').addEventListener('loadedmetadata', fitVideo);
   $('video').addEventListener('loadedmetadata', renderPictureInPicture);
   $('video').addEventListener('resize', fitVideo);
@@ -535,6 +539,10 @@ export function createViewer({ onExit }) {
     };
     const peers = (subscriptions = new StreamSubscriptions({
       api: request,
+      playback: () => ({
+        videoPaused: Number($('video').paused),
+        videoReadyState: $('video').readyState,
+      }),
       onSelect: (row) => {
         if (subscriptions !== peers) return;
         pc = row?.pc;

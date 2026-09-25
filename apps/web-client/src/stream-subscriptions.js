@@ -7,8 +7,8 @@ const DECODE_CHECK_PROFILE = { width: 1920, height: 1080, fps: 30, bitrateKbps: 
 
 // One browser device owns several video peers and one independent audio peer.
 export class StreamSubscriptions {
-  constructor({ api, onSelect, onMetrics, onState, onControl, onAudio }) {
-    Object.assign(this, { api, onSelect, onMetrics, onState, onControl, onAudio });
+  constructor({ api, onSelect, onMetrics, onState, onControl, onAudio, playback = () => ({}) }) {
+    Object.assign(this, { api, onSelect, onMetrics, onState, onControl, onAudio, playback });
     this.rows = new Map();
     this.selected = null;
     this.closed = false;
@@ -175,7 +175,9 @@ export class StreamSubscriptions {
           const metrics = summarizeReceiver(report, row.previous, pair);
           row.previous = report;
           if (this.selected === row) this.onMetrics(metrics);
-          await this.api('stream-telemetry', { streamId: row.id, ...metrics });
+          // The video element shows only the selected stream, so only its row reports playback.
+          const playback = this.selected === row ? this.playback() : {};
+          await this.api('stream-telemetry', { streamId: row.id, ...metrics, ...playback });
         }),
       );
     } catch {

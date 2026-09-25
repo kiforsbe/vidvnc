@@ -179,9 +179,13 @@ async function enterViewer(result, attempt) {
     if (!response.ok) throw new Error('Viewer is unavailable. Sign in again.');
     const fragment = document.createElement('template');
     fragment.innerHTML = await response.text();
-    const identity = fragment.content.querySelector('#sessionIdentity');
-    const disconnect = fragment.content.querySelector('#disconnect');
-    const panel = fragment.content.querySelector('#viewer');
+    // Import rather than adopt: WebKit fixes a media element's inline-playback policy when
+    // the element is created, and one created in the inert template document plays only in
+    // full screen on iOS, leaving a black box inline.
+    const content = document.importNode(fragment.content, true);
+    const identity = content.querySelector('#sessionIdentity');
+    const disconnect = content.querySelector('#disconnect');
+    const panel = content.querySelector('#viewer');
     if (!identity || !disconnect || !panel)
       throw new Error('Viewer is unavailable. Sign in again.');
     $('viewerHeaderMount').replaceChildren(identity, disconnect);
