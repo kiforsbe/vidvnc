@@ -1,6 +1,6 @@
 # LAN-only HTTP and fail-closed TLS (F1/F3) — design
 
-Date: 2026-09-24. Status: proposed for written-spec review. This design implements the owner's choices after the [current security review](../../security/internet-exposure-review-2026-09-24.md): fix F1's production LAN-scope wiring; make HTTP accessible only through loopback or eligible physical Private-LAN interfaces, with both narrow binds and peer checks; retain full LAN HTTP **only** when TLS was deliberately configured `off`; and close the remaining F3 plaintext fallback, request-target, and remote trust-enrollment paths. It does not claim the application is ready for Internet exposure or solve F6 WebRTC routing.
+Date: 2026-09-24. Status: proposed for written-spec review. This design implements the owner's choices after the [current security review](../../security/internet-exposure.md): fix F1's production LAN-scope wiring; make HTTP accessible only through loopback or eligible physical Private-LAN interfaces, with both narrow binds and peer checks; retain full LAN HTTP **only** when TLS was deliberately configured `off`; and close the remaining F3 plaintext fallback, request-target, and remote trust-enrollment paths. It does not claim the application is ready for Internet exposure or solve F6 WebRTC routing.
 
 ## Existing behavior and root causes
 
@@ -42,7 +42,7 @@ Write failing tests before implementation for each behavior. In particular:
 - Trust routes/assets are reachable from eligible local peers, denied to remote peers on both schemes, and never leak a private key. Existing diagnostics `404` tests remain true on every main listener.
 - Address/status and Windows-host navigation tests show truthful pending/failure/recovery and intentional-off states; no HTTPS failure is worded as full HTTP fallback. Run the full Node suite, formatting, host tests/build, runtime-start check, and focused raw-socket tests. A real Internet scan, hardware WebRTC run, physical NIC/profile transition, and native media test remain separate release validation.
 
-Update the [current security review](../../security/internet-exposure-review-2026-09-24.md), [implementation status](../../security/internet-exposure-hardening-status-2026-09-24.md), README/architecture as needed, and `CHANGELOG.md` after implementation. Mark F1's wiring issue closed only after the production-assembly regression passes; mark F3's code paths closed only after the fail-closed, locality, and absolute-form tests pass. Keep F6 and remote-release approval open.
+Update the [current security review](../../security/internet-exposure.md), [implementation status](../../security/internet-exposure.md), README/architecture as needed, and `CHANGELOG.md` after implementation. Mark F1's wiring issue closed only after the production-assembly regression passes; mark F3's code paths closed only after the fail-closed, locality, and absolute-form tests pass. Keep F6 and remote-release approval open.
 
 ## Residual risk and non-goals
 

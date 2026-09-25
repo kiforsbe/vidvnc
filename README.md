@@ -338,11 +338,13 @@ None of these generated/dependency directories belongs in version control.
 - [Original UI guide](docs/vnc-ui-guide.html) / [POC mockup](docs/vnc-poc-mockup.html)
 - [iOS investigation](docs/investigations/IOS-COMPATIBILITY.md)
 - [Transport investigation](docs/investigations/TRANSPORT-INVESTIGATION.md)
-- [Current Internet-exposure security review](docs/security/internet-exposure-review-2026-09-24.md)
+- [Internet exposure: security analysis and status](docs/security/internet-exposure.md)
+- [Remote access setup guide](docs/security/remote-access.md)
 
-This is a LAN-focused preview. Passkeys, remote access/hub, multi-monitor routing,
-signed release packages, and production security hardening remain future work. Do not
-expose this development server to the public internet.
+This is a LAN-focused preview. An opt-in remote access mode exists but is not yet validated
+on real networks; see the [security analysis](docs/security/internet-exposure.md) for what
+is still open, and prefer a self-hosted VPN for now. Passkeys, a relay/hub, multi-monitor
+routing, signed release packages, and production security hardening remain future work.
 
 ## Feedback and contributions
 

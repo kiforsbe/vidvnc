@@ -1,6 +1,6 @@
 # F2/F4/F5 follow-up security design
 
-Approved 2026-09-24 for implementation on main. This supersedes the F2/F4/F5 implementation details in the [selected hardening design](2026-09-23-selected-internet-exposure-hardening-design.md), not its F1/F7 decisions. The [security status](../../security/internet-exposure-hardening-status-2026-09-24.md) remains the release-status source.
+Approved 2026-09-24 for implementation on main. This supersedes the F2/F4/F5 implementation details in the [selected hardening design](2026-09-23-selected-internet-exposure-hardening-design.md), not its F1/F7 decisions. The [security status](../../security/internet-exposure.md) remains the release-status source.
 
 ## F2: active-client permission changes
 

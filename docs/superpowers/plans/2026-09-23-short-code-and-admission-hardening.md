@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js 20.6+ ES modules and `node:test`, browser JavaScript, WinUI/C# host, existing JSON settings/owner pipe.
 
-**Spec:** [Selected Internet-exposure hardening design](../specs/2026-09-23-selected-internet-exposure-hardening-design.md), F1/F7 and CLI/config sections. Read the [source review](../../security/internet-exposure-review-2026-09-23.md) before changing the HTTP entry points.
+**Spec:** [Selected Internet-exposure hardening design](../specs/2026-09-23-selected-internet-exposure-hardening-design.md), F1/F7 and CLI/config sections. Read the [source review](../../security/internet-exposure.md) before changing the HTTP entry points.
 
 ## Global Constraints
 

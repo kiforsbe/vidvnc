@@ -10,7 +10,7 @@ Historical completed plan. The [2026-09-24 follow-up plan](2026-09-24-revocation
 
 **Tech Stack:** Node.js 20.6+ ES modules, `node:test`, Windows host owner pipe and WinUI/C#.
 
-**Spec:** [Selected Internet-exposure hardening design](../specs/2026-09-23-selected-internet-exposure-hardening-design.md), F2 and F5. Read the [source review](../../security/internet-exposure-review-2026-09-23.md) and [remediation proposals](../../security/internet-exposure-remediation-proposals-2026-09-23.md).
+**Spec:** [Selected Internet-exposure hardening design](../specs/2026-09-23-selected-internet-exposure-hardening-design.md), F2 and F5. Read the [source review](../../security/internet-exposure.md) and [remediation proposals](../../security/internet-exposure.md).
 
 ## Global Constraints
 

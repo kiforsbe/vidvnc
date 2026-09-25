@@ -98,7 +98,7 @@ Windows asks when the first stream starts, allow it on the network profile your 
 
 ## Limits you should know
 
-The [2026-09-25 security review](internet-exposure-review-2026-09-25.md) lists what is still
+The [security analysis](internet-exposure.md) lists what is still
 open. Two of those findings matter most in practice: an outsider can temporarily block
 approved-device sign-in by flooding it (R1), and a router that rewrites the source address of
 forwarded connections makes internet clients look local (R2).

@@ -251,7 +251,7 @@ async function retireAdmission(sessionId) {
 ### Task 5: Cross-Surface Verification and Security Documentation
 
 **Files:**
-- Modify: `README.md`, `CHANGELOG.md`, `docs/security/internet-exposure-review-2026-09-24.md`
+- Modify: `README.md`, `CHANGELOG.md`, `docs/security/internet-exposure.md`
 - Test/check: full portable suite, formatting, host test, runtime startup check, browser fixtures, manual route probe
 
 **Interfaces:** No new code interface. The review states precisely which anonymous routes/assets remain, the certificate-SAN identity leak, and why F6/remote deployment is still open.

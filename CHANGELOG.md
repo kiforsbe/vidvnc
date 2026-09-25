@@ -37,6 +37,9 @@ may include breaking changes.
 
 ### Changed
 
+- The security reviews, remediation proposals and status notes are collected into one
+  current document, [Internet exposure: security analysis and status](docs/security/internet-exposure.md).
+
 - Removed the browser-credential explanation from the web sign-in form; registration still
   asks for a browser/client label, and the credential's security behavior is unchanged.
 - Re-audited Internet exposure through `8308b55` using a correctly configured,
@@ -85,7 +88,7 @@ may include breaking changes.
   Internet. Remote trust enrollment and WebRTC routing remain unresolved, and a same-host
   proxy can make remote clients appear local. An approved browser's secret is still copyable;
   in-process limits do not replace an Internet-facing traffic filter. See the
-  [security implementation status](docs/security/internet-exposure-hardening-status-2026-09-24.md).
+  [security analysis and status](docs/security/internet-exposure.md).
 
 ## [0.8.0] - 2026-09-23
 
