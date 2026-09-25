@@ -249,6 +249,12 @@ public sealed partial class HostWindow
         var generate = new Button { Content = "Generate code", Tag = "generate-code" };
         generate.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         var showQr = new Button { Content = "Show QR code", Tag = "show-qr" };
+        // One row for the buttons, re-added on every render: a WinUI element can have only one
+        // parent, and Parent does not reliably report a panel outside the live tree.
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related,
+            Margin = new Thickness(0, HostSpacing.Small, 0, 0) };
+        actions.Children.Add(generate);
+        actions.Children.Add(showQr);
         var mode = new StackPanel { Spacing = HostSpacing.Related, Tag = "connection-mode" };
         body.Children.Add(mode);
         var dialog = new ContentDialog { Title = "Connect a device", Content = body,
@@ -365,13 +371,7 @@ public sealed partial class HostWindow
             }
             if (clientError is not null) mode.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
                 Severity = InfoBarSeverity.Error, Message = clientError });
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = HostSpacing.Related,
-                Margin = new Thickness(0, HostSpacing.Small, 0, 0) };
-            (generate.Parent as Panel)?.Children.Remove(generate);
-            (showQr.Parent as Panel)?.Children.Remove(showQr);
-            actions.Children.Add(generate);
             showQr.IsEnabled = current is not null;
-            actions.Children.Add(showQr);
             mode.Children.Add(actions);
             mode.Children.Add(Secondary(ConnectionSecurityNote(), 12));
         }
