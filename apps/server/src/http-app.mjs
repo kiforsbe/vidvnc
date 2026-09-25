@@ -19,6 +19,17 @@ import { createLocalSessionScope } from './local-session-scope.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { parseRequestTarget } from './http-request-target.mjs';
+import { ViewerAssetGrants, clearViewerCookie, viewerCookie } from './viewer-asset-grants.mjs';
+
+const VIEWER_ASSETS = new Map([
+  ['/viewer/fragment.html', 'viewer/fragment.html'],
+  ['/viewer/app.js', 'viewer/app.js'],
+  ['/viewer/style.css', 'viewer/style.css'],
+  ['/viewer/receiver-stats.js', 'receiver-stats.js'],
+  ['/viewer/stream-subscriptions.js', 'stream-subscriptions.js'],
+  ['/viewer/codec-preferences.js', 'codec-preferences.js'],
+  ['/viewer/profile-labels.js', 'profile-labels.js'],
+]);
 
 function send(response, status, body) {
   response.writeHead(status, {
@@ -147,6 +158,7 @@ export function createHttpApp({
   localSessionScope = createLocalSessionScope(),
   interfaces = networkInterfaces,
   admission = null,
+  assetReader = readFile,
   log = console.error,
   // Injectable TLS status: `{ status() }` returning `{ active, port }`, read on every
   // request. Omitted, the app behaves as if TLS is inactive, which keeps every existing
@@ -165,6 +177,7 @@ export function createHttpApp({
   if (approvedClients && !approvedClients.admission) approvedClients.admission = admission;
   const reconnecting = new Set();
   const telemetryTimes = new Map();
+  const viewerGrants = new ViewerAssetGrants();
   const connectionMode = () => access?.snapshot().connectionMode ?? 'session-key';
   const ordinaryKeyAllowed = (purpose) =>
     (purpose === 'session' && connectionMode() === 'session-key') ||
@@ -208,7 +221,11 @@ export function createHttpApp({
       ),
     };
   }
-  function sendAdmission(response, result, plan) {
+  function setViewerGrant(request, response, sessionId) {
+    const value = viewerGrants.issue(sessionId, request.socket.remoteAddress);
+    response.setHeader('set-cookie', viewerCookie(value, Boolean(request.socket.encrypted)));
+  }
+  function sendAdmission(request, response, result, plan) {
     if (!result.ok)
       return send(response, { busy: 409, 'rate-limited': 429 }[result.reason] || 401, {
         error:
@@ -220,6 +237,7 @@ export function createHttpApp({
     sessionStore.setDisplay(result.sessionId, plan.selectedDisplay, inventory?.revision);
     if (plan.effective) sessionStore.setPolicyRevision(result.sessionId, plan.effective.revision);
     sessionStore.setAudio(result.sessionId, plan.audio);
+    setViewerGrant(request, response, result.sessionId);
     return send(response, 201, {
       sessionId: result.sessionId,
       mode: runtime ? 'streams' : undefined,
@@ -288,6 +306,33 @@ export function createHttpApp({
       }
       if (!isAllowedOrigin(scheme, request.headers.host, request.headers.origin))
         return send(response, 403, { error: 'Cross-origin request denied' });
+      const viewerFile = VIEWER_ASSETS.get(route);
+      if (request.method === 'GET' && viewerFile) {
+        const peer = request.socket.remoteAddress;
+        const cookie = request.headers.cookie;
+        if (!viewerGrants.allows(cookie, peer, sessionStore))
+          return send(response, 404, { error: 'Not found' });
+        let body;
+        try {
+          body = await assetReader(
+            new URL(import.meta.resolve(`@vidvnc/web-client/${viewerFile}`)),
+          );
+        } catch (error) {
+          if (error.code === 'ENOENT') return send(response, 404, { error: 'Not found' });
+          throw error;
+        }
+        if (!viewerGrants.allows(cookie, peer, sessionStore))
+          return send(response, 404, { error: 'Not found' });
+        response.writeHead(200, {
+          'content-type': viewerFile.endsWith('.js')
+            ? 'text/javascript'
+            : viewerFile.endsWith('.css')
+              ? 'text/css'
+              : 'text/html',
+          'cache-control': 'no-store',
+        });
+        return response.end(body);
+      }
       if (
         request.method === 'GET' &&
         [
@@ -473,7 +518,7 @@ export function createHttpApp({
         }
         const result = sessionStore.connect(body.key, peer, request.headers['user-agent'] || '');
         keyAttempt.finish(record.purpose, result.ok || result.reason === 'busy');
-        return sendAdmission(response, result, plan);
+        return sendAdmission(request, response, result, plan);
       }
       if (route === '/api/approved-clients/register') {
         if (!approvedClients)
@@ -539,7 +584,7 @@ export function createHttpApp({
             });
           }
         }
-        return sendAdmission(response, admission, plan);
+        return sendAdmission(request, response, admission, plan);
       }
       const token = request.headers.authorization?.match(/^Bearer ([a-f0-9-]{36})$/)?.[1];
       const session = sessionStore.get(token);
@@ -682,6 +727,7 @@ export function createHttpApp({
           sessionStore.setDisplay(result.sessionId, selectedDisplay, inventory?.revision);
           sessionStore.setAudio(result.sessionId, audio);
           if (policy) sessionStore.setPolicyRevision(result.sessionId, effective.revision);
+          setViewerGrant(request, response, result.sessionId);
           return send(response, 201, {
             sessionId: result.sessionId,
             controlEnabled: false,
@@ -705,6 +751,7 @@ export function createHttpApp({
       }
       if (route === '/api/disconnect') {
         sessionStore.disconnect(token);
+        response.setHeader('set-cookie', clearViewerCookie(Boolean(request.socket.encrypted)));
         await runtime?.stopSession(token);
         await media?.stop(token);
         return send(response, 204);
@@ -749,6 +796,7 @@ export function createHttpApp({
   const server = createServer(requestListener);
   const revoke = sessionStore.onRevoke;
   sessionStore.onRevoke = (id) => {
+    viewerGrants.revoke(id);
     telemetryTimes.delete(id);
     revoke(id);
     media?.stop(id);
@@ -762,6 +810,7 @@ export function createHttpApp({
         .catch((error) => log(`Approved-client expiry cleanup failed: ${error.message}`));
     }, 60_000).unref();
   server.on('close', () => {
+    viewerGrants.clear();
     clearInterval(sweep);
     clearInterval(claimSweep);
     sessionStore.stop();

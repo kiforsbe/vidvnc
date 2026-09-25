@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { createHttpApp } from '../src/http-app.mjs';
 import { DiagnosticsCapabilities } from '../src/diagnostics-capabilities.mjs';
 import { SessionStore } from '../src/session-store.mjs';
@@ -62,6 +63,66 @@ test('serves every browser entry asset through workspace resolution', () =>
     }
     assert.equal((await fetch(url + '/package.json')).status, 404);
   }));
+
+test('viewer assets require a live session grant while cookies cannot authorize APIs', () =>
+  withServer(async (url, server) => {
+    const asset = '/viewer/receiver-stats.js';
+    assert.equal((await fetch(url + asset)).status, 404);
+    const admission = await post(url + '/api/key-start', { key: server.sessionStore.password });
+    assert.equal(admission.status, 201);
+    const setCookie = admission.headers.get('set-cookie');
+    assert.match(
+      setCookie,
+      /^vidvnc-viewer=[A-Za-z0-9_-]{43}; Path=\/viewer; HttpOnly; SameSite=Strict$/,
+    );
+    const cookie = setCookie.split(';', 1)[0];
+    const allowed = await fetch(url + asset, {
+      headers: { cookie, 'x-forwarded-for': '203.0.113.4' },
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get('cache-control'), 'no-store');
+    assert.match(await allowed.text(), /summarizeReceiver/);
+    assert.equal(
+      (await fetch(url + asset, { headers: { cookie: cookie + '; ' + cookie } })).status,
+      404,
+    );
+    assert.equal((await fetch(url + '/viewer/unknown.js', { headers: { cookie } })).status, 404);
+    assert.equal((await post(url + '/api/profiles', {}, null, { cookie })).status, 401);
+    server.sessionStore.disconnect((await admission.json()).sessionId);
+    assert.equal((await fetch(url + asset, { headers: { cookie } })).status, 404);
+  }));
+
+test('revocation during a viewer asset read prevents protected bytes from being returned', () => {
+  let readStarted;
+  const started = new Promise((resolve) => {
+    readStarted = resolve;
+  });
+  let finishRead;
+  const held = new Promise((resolve) => {
+    finishRead = resolve;
+  });
+  return withServer(
+    async (url, server) => {
+      const admitted = await post(url + '/api/key-start', { key: server.sessionStore.password });
+      const cookie = admitted.headers.get('set-cookie').split(';', 1)[0];
+      const { sessionId } = await admitted.json();
+      const responsePromise = fetch(url + '/viewer/receiver-stats.js', { headers: { cookie } });
+      await started;
+      server.sessionStore.disconnect(sessionId);
+      finishRead();
+      const response = await responsePromise;
+      assert.equal(response.status, 404);
+      assert.doesNotMatch(await response.text(), /summarizeReceiver/);
+    },
+    {
+      assetReader: async (url) => {
+        readStarted();
+        await held;
+        return readFile(url);
+      },
+    },
+  );
+});
 
 test('Host allowlist accepts bracketed IPv6 and follows adapter changes after app construction', () => {
   const adapters = {
@@ -129,7 +190,7 @@ test('accepts a dashless lowercase password through the real HTTP endpoint', () 
 test('inactive required HTTPS denies every viewer, admission, bearer, and signaling path on HTTP', () =>
   withServer(
     async (url, server) => {
-      for (const path of ['/', '/api/info']) {
+      for (const path of ['/', '/api/info', '/viewer/receiver-stats.js']) {
         const response = await fetch(url + path);
         assert.equal(response.status, 503, path);
         assert.equal(response.headers.get('cache-control'), 'no-store', path);

@@ -130,14 +130,14 @@ function httpCall(port, path, { method = 'GET', headers = {} } = {}) {
 }
 
 // `rejectUnauthorized: false`: the fixtures are self-signed.
-function httpsCall(port, path, { method = 'GET' } = {}) {
+function httpsCall(port, path, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
     const request = httpsRequest(
-      { host: '127.0.0.1', port, path, method, rejectUnauthorized: false },
+      { host: '127.0.0.1', port, path, method, headers, rejectUnauthorized: false },
       (response) => collect(response, resolve),
     );
     request.on('error', reject);
-    request.end();
+    request.end(body);
   });
 }
 
@@ -147,6 +147,23 @@ const json = (response) => JSON.parse(response.text);
 // from raw bytes, so a served file can be compared with what the status endpoint reports.
 const sha256Colon = (bytes) =>
   createHash('sha256').update(bytes).digest('hex').toUpperCase().match(/.{2}/g).join(':');
+
+test('viewer grant cookie is Secure on the real HTTPS listener', async (t) => {
+  const { server } = await startApp(t);
+  const secure = createTlsServer(VALID, server.requestListener);
+  await new Promise((resolve) => secure.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => secure.close(resolve)));
+  const admitted = await httpsCall(secure.address().port, '/api/key-start', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ key: server.sessionStore.password }),
+  });
+  assert.equal(admitted.status, 201);
+  assert.match(
+    admitted.headers['set-cookie']?.[0],
+    /^vidvnc-viewer=[A-Za-z0-9_-]{43}; Path=\/viewer; HttpOnly; SameSite=Strict; Secure$/,
+  );
+});
 
 test('out-of-scope peers cannot fetch trust pages, assets, status, or anchor on either scheme', async (t) => {
   const { server, port: httpPort } = await startApp(t, {

@@ -43,7 +43,10 @@ test('authenticated catalog and reconnect enforce host settings before stopping 
   assert.equal((await post('reconnect', { profile: 'balanced' })).status, 401);
   const info = await (await fetch(url + '/api/info')).json();
   assert.deepEqual(info, { publicName: 'VidVNC host' }, 'display inventory is not public');
-  const connected = await (await post('key-start', { key: server.sessionStore.password })).json();
+  const admission = await post('key-start', { key: server.sessionStore.password });
+  const firstCookie = admission.headers.get('set-cookie')?.split(';', 1)[0];
+  assert.match(firstCookie, /^vidvnc-viewer=[A-Za-z0-9_-]{43}$/);
+  const connected = await admission.json();
   const catalog = await (await post('profiles', {}, connected.sessionId)).json();
   assert.equal(catalog.clientMode, 'options');
   assert.equal(catalog.allowAudio, false);
@@ -54,10 +57,15 @@ test('authenticated catalog and reconnect enforce host settings before stopping 
     catalog.profiles.slice(0, 2).map((p) => p.id),
     ['balanced', 'mobile'],
   );
-  assert.equal((await post('reconnect', { profile: 'desktop' }, connected.sessionId)).status, 403);
+  const denied = await post('reconnect', { profile: 'desktop' }, connected.sessionId);
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers.get('set-cookie'), null);
   assert.equal(stopped.length, 0, 'denied change must retain current media');
   const result = await post('reconnect', { profile: 'balanced', audio: 'on' }, connected.sessionId);
   assert.equal(result.status, 201);
+  const nextCookie = result.headers.get('set-cookie')?.split(';', 1)[0];
+  assert.match(nextCookie, /^vidvnc-viewer=[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(nextCookie, firstCookie);
   const changed = await result.json();
   assert.notEqual(changed.sessionId, connected.sessionId);
   assert.equal(changed.profile.name, 'balanced');
@@ -65,4 +73,12 @@ test('authenticated catalog and reconnect enforce host settings before stopping 
   assert.ok(stopped.includes(connected.sessionId));
   assert.equal((await post('heartbeat', {}, connected.sessionId)).status, 401);
   assert.equal((await post('heartbeat', {}, changed.sessionId)).status, 204);
+  assert.equal(
+    (await fetch(url + '/viewer/receiver-stats.js', { headers: { cookie: firstCookie } })).status,
+    404,
+  );
+  assert.equal(
+    (await fetch(url + '/viewer/receiver-stats.js', { headers: { cookie: nextCookie } })).status,
+    200,
+  );
 });
