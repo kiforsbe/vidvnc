@@ -21,7 +21,7 @@
   ([stage-geometry.js](../../apps/web-client/src/viewer/stage-geometry.js) maps touches). A
   page can't hide Safari's bars; added to the Home Screen, VidVNC opens without them. iOS
   keeps the Home Screen app's storage, including the approved device key, separate from
-  Safari's.
+  Safari's. Validated by hand on the owner's iPhone: it works, with rough edges left.
 
 ## Packet-loss experiment (history)
 

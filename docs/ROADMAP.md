@@ -156,9 +156,10 @@ A disconnect error in SCTP was fixed by stopping the sender before closing brows
 peers, while still releasing input immediately. Two-monitor use has been checked by
 hand, not by automated hardware runs.
 
-Still to verify with two clients: iPhone touch and the in-page full-screen mode, input
-routing with automatic and manual control, independent stops, audio, display hotplug,
-and cleanup when the host exits.
+The iPhone's in-page full-screen mode works in a hands-on check with one client, with
+rough edges left. Still to verify with two clients: iPhone touch, input routing with
+automatic and manual control, independent stops, audio, display hotplug, and cleanup
+when the host exits.
 
 Design:
 
@@ -191,10 +192,10 @@ resource use and no orphaned processes after the host exits.
   isn't granted.
 - iPhone: touch-friendly display cards, an explicit input mode, orientation handling,
   a legible fullscreen toolbar and safe control release. Don't assume desktop
-  multi-window or fullscreen APIs exist in mobile Safari. Started: with keyboard and mouse
-  on, the stage fills the screen inside the page (Safari's only full screen is its video
-  player, which takes input away), and from the Home Screen VidVNC runs without Safari's
-  bars.
+  multi-window or fullscreen APIs exist in mobile Safari. Working, not yet polished: with
+  keyboard and mouse on, the stage fills the screen inside the page (Safari's only full
+  screen is its video player, which takes input away), and from the Home Screen VidVNC
+  runs without Safari's bars.
 - Native viewers: WinUI 3 on Windows; Swift, SwiftUI and AppKit on macOS. Map server
   streams to one or more client windows or monitors, with visual mapping previews and
   remembered layouts. Handle a client monitor being removed gracefully.
@@ -350,10 +351,10 @@ unauthenticated network administration endpoint is added for UI convenience.
 1. Investigate the intermittent GStreamer `on_rtpbin_request_aux_receiver` warning and
    startup timeout with repeated, instrumented startup runs. Keep current quality
    settings; an unchanged successful retry is not a fix.
-2. Finish multi-device acceptance: iPhone touch and the in-page full-screen mode, input
-   routing with automatic and manual control, independent stops, audio, hotplug and
-   cleanup when the host exits. Mark a scenario verified only when a test or a hands-on check
-   supports it, and close milestone 2 when its acceptance criteria pass.
+2. Finish multi-device acceptance: iPhone touch with two clients, input routing with
+   automatic and manual control, independent stops, audio, hotplug and cleanup when the
+   host exits. Mark a scenario verified only when a test or a hands-on check supports it,
+   and close milestone 2 when its acceptance criteria pass.
 3. Close R8 for remote access: a phone confirmed on mobile data, an IPv6 run and a
    packet capture.
 4. Continue Windows distribution in parallel: clean-machine acceptance, trusted signing,
