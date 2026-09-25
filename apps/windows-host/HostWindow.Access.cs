@@ -180,7 +180,7 @@ public sealed partial class HostWindow
         {
             var child = server ?? throw new InvalidOperationException("Start sharing before changing access settings.");
             var message = new Dictionary<string, object?> { ["type"] = "access-set", ["requestId"] = accessRequestId, ["revision"] = accessRevision };
-            foreach (var (key, value) in changes) message[key] = value;
+            foreach (var (field, change) in changes) message[field] = change;
             await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(message));
             await child.StandardInput.FlushAsync();
             var reply = await accessReply.Task.WaitAsync(TimeSpan.FromSeconds(10));
