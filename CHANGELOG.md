@@ -9,6 +9,10 @@ may include breaking changes.
 
 ### Added
 
+- A **Versions** card at the end of Settings in the VidVNC app: the app's version (with its
+  source commit when the build recorded one), the server, Node.js and GStreamer versions
+  while sharing, .NET and the Windows version, with **Copy versions** for bug reports.
+
 - `media-port [auto|<port>]` in the command line: the one UDP port every viewer's video, audio
   and input use (default 4384). Forward that single port on the router for remote access.
 - `media-relay` in the command line: the media relay's port, how many streams are registered

@@ -92,6 +92,10 @@ public sealed partial class HostWindow : Window
                 if (ready.TryGetProperty("policy", out var policy)) UpdatePolicy(policy);
                 if (ready.TryGetProperty("access", out var access)) UpdateAccess(access);
                 if (ready.TryGetProperty("clients", out var clients)) UpdateClients(clients);
+                if (ready.TryGetProperty("versions", out var versions) && versions.ValueKind == JsonValueKind.Object)
+                    serverVersions = versions.EnumerateObject()
+                        .Where(entry => entry.Value.ValueKind == JsonValueKind.String)
+                        .ToDictionary(entry => entry.Name, entry => entry.Value.GetString()!);
                 SetSharing(true);
             }
             await child.WaitForExitAsync();

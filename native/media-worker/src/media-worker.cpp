@@ -1734,6 +1734,10 @@ int main(int argc, char **argv) {
             json_object_set_int_member(object, "width", GetSystemMetrics(SM_CXSCREEN));
             json_object_set_int_member(object, "height", GetSystemMetrics(SM_CYSCREEN));
             json_object_set_string_member(object, "capture", "dxgi");
+            // Shown in the host's Settings with the other component versions.
+            gchar *gstreamer = gst_version_string();
+            json_object_set_string_member(object, "gstreamer", gstreamer);
+            g_free(gstreamer);
             // `codecs` keeps its meaning and shape: what this machine can encode with any
             // backend. `backends` is the detail the server needs to pick one.
             auto codecs = json_array_new();

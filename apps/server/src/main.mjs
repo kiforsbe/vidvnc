@@ -1,4 +1,5 @@
 import { networkInterfaces, hostname } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { StreamPolicyStore } from './stream-policy-store.mjs';
 import { PolicyController } from './policy-controller.mjs';
 import { createHttpStack } from './server-http-stack.mjs';
@@ -57,6 +58,15 @@ import { createDiagnosticsHttp, diagnosticsUrl } from './diagnostics-http.mjs';
 // hours catches a laptop that moved networks, or a certificate entering its renewal
 // window, well inside a single day.
 const TLS_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+// The server's own version, from its package.json (tools/version.mjs keeps it current).
+function serverVersion() {
+  try {
+    return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  } catch {
+    return null;
+  }
+}
 
 if (process.argv[2] === 'config') {
   process.exitCode = await runOffline(process.argv.slice(3), {
@@ -770,6 +780,12 @@ async function serve() {
             clients: approvedClients.status(store.list()),
             codecs: hostCodecs,
             backends: info.backends.map(({ id, label, codecs }) => ({ id, label, codecs })),
+            // For the host's Settings: what this server runs on.
+            versions: {
+              server: serverVersion(),
+              node: process.versions.node,
+              gstreamer: typeof info.gstreamer === 'string' ? info.gstreamer : null,
+            },
           }),
         );
       } else {
