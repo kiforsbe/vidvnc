@@ -22,6 +22,13 @@
   page can't hide Safari's bars; added to the Home Screen, VidVNC opens without them. iOS
   keeps the Home Screen app's storage, including the approved device key, separate from
   Safari's. Validated by hand on the owner's iPhone: it works, with rough edges left.
+- **Touch as a mouse:** a touch used to press the left button as it landed, so dragging a
+  finger to move the pointer clicked when the finger lifted. Touch now works like a
+  touchpad: a drag only moves, a tap clicks, and drag and drop is tap-then-drag or
+  hold-then-drag (see [Input and control](../ARCHITECTURE.md#input-and-control)). The
+  video suppresses the iOS long-press callout and text selection so a hold is not
+  cancelled. iOS Safari has no vibration API, so the press gives no haptic cue there.
+  Not yet validated by hand on an iPhone.
 
 ## Packet-loss experiment (history)
 

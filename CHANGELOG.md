@@ -9,9 +9,17 @@ may include breaking changes.
 
 ### Fixed
 
-- Touch control in the browser viewer: dragging a finger now only moves the pointer instead of
-  clicking when the finger lifts. A quick tap clicks. To drag and drop, tap and then touch again
-  and drag, or touch and hold still briefly before dragging.
+- Touch control in the browser viewer no longer clicks when a finger lifts after a drag. Touch
+  now behaves like a touchpad: dragging a finger only moves the pointer, and a quick tap clicks
+  (two quick taps double-click).
+
+### Added
+
+- Touch drag and drop in the browser viewer. Tap, then touch again within about a third of a
+  second and drag, or touch and hold still for about half a second before dragging. The left
+  button stays pressed until the finger lifts. Where the browser supports vibration, a short
+  pulse confirms the press. The video also suppresses iOS long-press callouts and text
+  selection, which could otherwise interrupt a hold.
 
 ## [0.9.0] - 2026-09-25
 

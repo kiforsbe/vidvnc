@@ -369,6 +369,23 @@ trusts nothing on the channel:
 
 Granting control to a second peer revokes it from the first; only one peer holds it.
 
+Touch gestures are interpreted in the browser
+([viewer/app.js](../apps/web-client/src/viewer/app.js)); the worker only ever sees the
+same `move` and `button` messages a mouse produces. A touch does not press a button when
+it lands, because a finger that drags to move the pointer would otherwise click when it
+lifts. Instead:
+
+| Gesture                                                            | Messages sent                                         |
+| ------------------------------------------------------------------ | ----------------------------------------------------- |
+| Drag                                                               | `move` only                                           |
+| Tap (lifted within 10 px of where it landed, before the hold time) | left `button` down then up on lift                    |
+| Tap, then touch again within 350 ms and 40 px, and drag            | left `button` down at once, `move`, up on lift        |
+| Touch and hold still for 450 ms, then drag                         | left `button` down after the hold, `move`, up on lift |
+
+Only the first finger is tracked; a second concurrent touch is ignored. A cancelled
+touch releases control like any other `pointercancel`. Mouse and pen input still press
+and release buttons exactly as the device reports them.
+
 ## Resilience
 
 Recovery is driven by what the browser reports, and is deliberately damped.

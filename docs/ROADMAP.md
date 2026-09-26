@@ -195,7 +195,8 @@ resource use and no orphaned processes after the host exits.
   multi-window or fullscreen APIs exist in mobile Safari. Working, not yet polished: with
   keyboard and mouse on, the stage fills the screen inside the page (Safari's only full
   screen is its video player, which takes input away), and from the Home Screen VidVNC
-  runs without Safari's bars.
+  runs without Safari's bars. Touch works like a touchpad: drag moves, tap clicks, and
+  tap-then-drag or hold-then-drag drags and drops.
 - Native viewers: WinUI 3 on Windows; Swift, SwiftUI and AppKit on macOS. Map server
   streams to one or more client windows or monitors, with visual mapping previews and
   remembered layouts. Handle a client monitor being removed gracefully.
