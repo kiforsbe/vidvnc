@@ -584,49 +584,477 @@ because the worker chooses its encoder once per stream and never switches mid-st
 Which GPU is encoding is host-facing only. It appears in host status and diagnostics, and
 no client ever sees it.
 
-## Trust boundaries
+## Security architecture
 
-Stated plainly, because the scope limit is a design decision rather than an oversight:
+This section is the security view of the architecture. It follows the usual structure of
+an architecture-level security description: scope, objectives, assets, actors, trust
+zones and data flows, the attack surface, the controls by domain, a STRIDE threat model,
+and the residual risk that remains. The threat model uses Microsoft's STRIDE categories
+over the data flow diagram. Controls are grouped by the chapters of the OWASP Application
+Security Verification Standard (ASVS) 4.0 so they can be checked against it. This is a
+design description, not an assurance claim: VidVNC has had source reviews and targeted
+tests, but no external penetration test.
 
-- **The control plane serves HTTPS by default**
-  ([http-app.mjs](../apps/server/src/http-app.mjs)). On first run VidVNC provisions its
-  own certificate automatically, trying an operator-supplied certificate first, then
-  mkcert's local CA, then a self-signed certificate issued through Windows — see [TLS and
-  trust provisioning](#tls-and-trust-provisioning) below for the exact order and why. A
-  local-only HTTP listeners stay up alongside the TLS one to serve the enrolment page and
-  redirect everything else to HTTPS while TLS is live. If HTTPS is pending or fails,
-  viewer/auth/session/signaling requests receive no-store `503`, not a plaintext fallback.
-  The one case where the old description — plain HTTP, no TLS, nothing readable-in-transit protection —
-  still holds exactly is **`off` mode**, an explicit opt-out that restores today's
-  LAN-only HTTP viewer behaviour with no redirect. Exposing a port to an untrusted network
-  is supported only through remote access (next point).
-- **Internet clients are decided by the socket's source address, never a header**
-  ([peer-network.mjs](../apps/server/src/peer-network.mjs)). With remote access off (the
-  default) they are refused. With it on, which requires `approved-only` mode, they get
-  HTTPS only and approved-device sign-in only, with their own admission budget
-  ([admission-budget.mjs](../apps/server/src/admission-budget.mjs)). The operator's steps
-  and the open findings are in [remote access](security/remote-access.md) and the
-  [security analysis](security/internet-exposure.md).
-- **The viewer is served only after admission.** Its markup, script and styles under
-  `/viewer/` need a session-bound cookie that revocation invalidates; the API still needs
-  the bearer token. The login page imports the viewer into the live document, not by
-  adopting nodes from a template: WebKit sets a media element's inline-playback policy when
-  the element is created.
-- **The media plane is encrypted regardless**, since WebRTC mandates DTLS-SRTP. Pixels
-  and audio are not in the clear; signaling uses HTTPS by default or deliberate LAN HTTP.
-- **Approved-client credentials are stored hashed**, with a per-client salt, scrypt, and
-  constant-time comparison ([approved-clients.mjs](../apps/server/src/approved-clients.mjs)).
-  Tokens and claim values are 32 random bytes.
-- **The desktop owner is the root of trust.** The server does not listen until the local
-  host approves, and the host outlives nothing it started.
-- **The worker trusts only its owner pipe.** Everything arriving from a peer — SDP, data
-  channel input, telemetry — is validated before use.
+Related documents, and what each one owns:
 
-Pairing and passkeys are future work; see [ROADMAP.md](ROADMAP.md).
+| Document                                           | Owns                                                                        |
+| -------------------------------------------------- | --------------------------------------------------------------------------- |
+| This section                                       | The security design: zones, flows, controls, threat model                   |
+| [Security analysis](security/internet-exposure.md) | Findings register (F1–F8, R1–R8), their status, and the verification record |
+| [Remote access guide](security/remote-access.md)   | The operator's steps and required checks for internet exposure              |
+| [SECURITY.md](../SECURITY.md)                      | Support position and private vulnerability reporting                        |
 
-## TLS and trust provisioning
+### Security objectives
 
-### Two listeners
+| ID  | Objective                                                                                                          | Property        |
+| --- | ------------------------------------------------------------------------------------------------------------------ | --------------- |
+| O1  | Only a client the desktop owner has admitted can see the screen or hear the audio                                  | Confidentiality |
+| O2  | Only the one session the owner has granted control can send keyboard and mouse input, and only while it is granted | Integrity       |
+| O3  | No client can change host policy, access settings, approved devices or who holds control                           | Integrity       |
+| O4  | Pixels, audio, input and credentials are never readable on the network in the default configuration                | Confidentiality |
+| O5  | The owner can end any session, revoke any device and stop sharing at once, and nothing outlives the host           | Integrity       |
+| O6  | One misbehaving client cannot lock out others or exhaust the host                                                  | Availability    |
+| O7  | Internet clients are refused unless the owner turned remote access on, and then get only approved-device sign-in   | Confidentiality |
+
+**Non-goals.** VidVNC does not defend against an attacker who already runs code as the
+desktop user or as an administrator on the host, or who has physical access to it: such an
+attacker can read the settings files and inject input directly. It does not provide
+anonymity, multi-tenant isolation between Windows users on one PC, or protection against
+volumetric network floods (see A5 below). Security of the client device itself (a
+compromised browser or phone) is out of scope.
+
+### Assets
+
+| Asset                           | Where it lives                                                                             | Sensitivity                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Desktop video and system audio  | GPU memory in the worker, then DTLS-SRTP to the viewer                                     | High: anything on screen, including other secrets         |
+| Input injection capability      | `SendInput` in the worker, gated by the control lease                                      | Critical: equivalent to the user's own keyboard and mouse |
+| Standing session password       | Server memory only; regenerated on every server start; shown in the host UI                | High: admits LAN clients in `session-key` mode            |
+| One-time and setup codes        | Server memory as SHA-256 digests; the plaintext is shown once to the owner                 | High until used or expired (300 s default)                |
+| Approved-device credential      | Client: device secret in IndexedDB plus the user's password. Host: `approved-clients.json` | High: long-lived remote identity                          |
+| Session bearer token            | Client page memory; server memory                                                          | High for its lifetime (seconds after the last request)    |
+| Viewer grant cookie             | Client cookie jar (`HttpOnly`); server memory                                              | Medium: loads viewer assets only, not the API             |
+| TLS private key                 | Per-user state directory (PFX and passphrase sidecar, or mkcert/provided files)            | High: impersonating the host to enrolled devices          |
+| Trust anchor certificate        | Served at `/trust` to local peers; installed on client devices                             | Public, but its integrity matters                         |
+| Diagnostics bearer              | Owner's browser; server memory as a SHA-256 digest                                         | Medium: local diagnostics for 15 minutes                  |
+| Host policy and access settings | `%LOCALAPPDATA%\VidVNC\*.json`                                                             | Medium: decide who may connect and how                    |
+| Server log                      | `%LOCALAPPDATA%\VidVNC\...\server.log` (desktop host only)                                 | Low: lifecycle messages, no secrets by design             |
+
+### Actors and trust levels
+
+| Actor                           | Trust     | How it is identified                                                               | May                                                                                        |
+| ------------------------------- | --------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Desktop owner                   | Full      | Runs the WinUI host or CLI as the desktop user                                     | Start and stop sharing, set policy and access, issue codes, approve devices, grant control |
+| Admitted viewer                 | Limited   | Session bearer bound to its socket address                                         | Subscribe to streams the policy allows; send input only while granted control              |
+| Approved device (not signed in) | Limited   | Client id, 256-bit device secret, username and password                            | Sign in; at most one live session per identity                                             |
+| Local-network peer              | Untrusted | Source address on an eligible Private physical LAN                                 | Reach sign-in, codes, `/trust`; nothing else before admission                              |
+| Private-network peer            | Untrusted | VPN, loopback, link-local, overlay `100.64.0.0/10`, IPv6 ULA or this PC's prefixes | As a local peer, except the standing password and `/trust`                                 |
+| Internet peer                   | Hostile   | Any other source address; unknown addresses fail closed as internet                | Nothing while remote access is off; approved-device sign-in over HTTPS when it is on       |
+| Local process (same user)       | Trusted   | Out of scope (see non-goals)                                                       | Could read settings and inject input without VidVNC                                        |
+
+Peer classification comes from the socket's source address, never from a header
+([peer-network.mjs](../apps/server/src/peer-network.mjs),
+[local-session-scope.mjs](../apps/server/src/local-session-scope.mjs)).
+
+### Assumptions and operating conditions
+
+The design holds under these conditions. VidVNC checks or prompts for some of them but
+cannot establish them alone; the [security analysis](security/internet-exposure.md#scope-and-assumptions)
+lists them as Security-Related Application Conditions and says what changes when one is
+not met.
+
+- **A1** The host PC, its Windows account and the VidVNC binaries are not compromised.
+- **A2** The LAN is the owner's own network. Plain HTTP (`tls.mode: off`) is only used where
+  everyone on path is trusted.
+- **A3** With remote access on, only the HTTPS port and the media UDP range are forwarded,
+  and nothing between the router and the PC rewrites the client's source address.
+- **A4** Codes and trust-anchor fingerprints reach the viewer over a channel the owner
+  trusts (reading the host screen counts), and the owner checks each pending approval.
+- **A5** An upstream edge absorbs volumetric floods; VidVNC only bounds its own work.
+- **A6** Lost devices are revoked promptly and approved-device passwords are strong.
+
+### Trust zones and data flows
+
+```mermaid
+flowchart LR
+    subgraph Z0["Z0 Internet (hostile)"]
+        inet["Internet peer"]
+    end
+    subgraph Z1["Z1 Client device (untrusted until admitted)"]
+        browser["Browser viewer<br/>bearer in memory,<br/>device secret in IndexedDB"]
+    end
+    subgraph Z2["Z2 Owner LAN / VPN (untrusted peers)"]
+        lanpeer["LAN or VPN peer"]
+    end
+    subgraph Z3["Z3 Host PC, desktop user account (trusted)"]
+        subgraph Z3a["Z3a Network-facing, validates everything"]
+            https["HTTPS listener :4383"]
+            http["HTTP listener :4382<br/>loopback + Private LAN only"]
+            ice["Worker ICE/DTLS<br/>media ports"]
+        end
+        subgraph Z3b["Z3b Owner-only"]
+            host["WinUI host / CLI"]
+            diag["Diagnostics listener<br/>127.0.0.1 only"]
+        end
+        server["Node server"]
+        worker["media-worker"]
+        store[("Settings, approved devices,<br/>TLS key (per-user)")]
+        os["DXGI, WASAPI, SendInput"]
+    end
+
+    inet -->|"B1 HTTPS (remote access on only)"| https
+    inet -.->|"B2 UDP ICE, DTLS-SRTP"| ice
+    browser -->|"B1 HTTPS signaling"| https
+    lanpeer -->|"B3 HTTP: /trust, redirect, or off mode"| http
+    browser -.->|"B2 SRTP media, SCTP input"| ice
+    https --> server
+    http --> server
+    ice --> worker
+    host -->|"B4 stdin/stdout, owner commands"| server
+    server -->|"B5 stdin/stdout, owner pipe"| worker
+    host -->|"B6 bearer, local only"| diag
+    diag --> server
+    server --> store
+    worker --> os
+```
+
+| Boundary | Crossing                                  | Authentication                                       | Protection in transit                          |
+| -------- | ----------------------------------------- | ---------------------------------------------------- | ---------------------------------------------- |
+| B1       | Client or internet peer to HTTPS listener | Code or approved device, then session bearer         | TLS; HSTS on public names                      |
+| B2       | Client to worker media ports              | ICE credentials and DTLS fingerprint from B1         | DTLS-SRTP (media), DTLS-SCTP (input)           |
+| B3       | LAN peer to HTTP listener                 | As B1 in off mode; none for `/trust`                 | None; local peers only; redirect when TLS live |
+| B4       | Host to server                            | Process ownership (inherited pipe), exact start line | In-process pipe                                |
+| B5       | Server to worker                          | Process ownership (inherited pipe)                   | In-process pipe                                |
+| B6       | Owner browser to diagnostics listener     | 256-bit bearer, 15-minute lifetime                   | Loopback only                                  |
+
+### Attack surface
+
+| Entry point                | Protocol and port                     | Reachable by                                     | Pre-authentication exposure                                              |
+| -------------------------- | ------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
+| Login shell, `/api/info`   | HTTPS `4383` (HTTP in off mode)       | Local, private; internet if remote access on     | Static assets and the owner-chosen public name only                      |
+| `/api/key-start`           | HTTPS                                 | Local and private only                           | Metered code check; standing password from local peers only              |
+| `/api/approved-clients/*`  | HTTPS                                 | Local, private; internet if remote access on     | Ticketed registration, claim polling, sign-in; separate budgets per zone |
+| Session and signaling APIs | HTTPS                                 | Admitted sessions                                | None: bearer bound to the socket address                                 |
+| Viewer assets `/viewer/*`  | HTTPS                                 | Admitted sessions                                | None: session- and peer-bound grant cookie                               |
+| `/trust`, `/api/trust/*`   | HTTP `4382` and HTTPS                 | Local peers only                                 | Public certificate and fingerprint                                       |
+| Media ports                | UDP (TCP too without a media range)   | Anyone who can reach them while a stream is live | libnice STUN parsing before message integrity (finding R4)               |
+| Diagnostics                | HTTP on an ephemeral `127.0.0.1` port | Local processes                                  | None: owner-issued bearer                                                |
+| Owner pipe                 | stdin/stdout                          | The parent process only                          | Exact approval line before anything listens                              |
+
+There is no owner-management route on any HTTP listener. Everything that changes policy,
+access, devices or control arrives over B4.
+
+### Authentication (ASVS V2)
+
+Three admission modes, set by the owner
+([access-settings.mjs](../apps/server/src/access-settings.mjs)):
+
+| Mode            | Credential                                                | Accepted from           | Notes                                                            |
+| --------------- | --------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `session-key`   | Standing 8-character password, regenerated each start     | Local peers             | One-time codes also work                                         |
+| `one-time-keys` | Owner-issued 8-character code, single use, 300 s default  | Local and private peers | Standing password refused                                        |
+| `approved-only` | Device secret + username + password, after owner approval | All permitted zones     | Required whenever remote access is on; setup codes only register |
+
+Codes are 8 symbols drawn by rejection sampling; the default alphabet has 31 symbols
+without look-alike characters (about 40 bits), are compared
+as SHA-256 digests, never encode their purpose, and are metered before lookup: 120 per
+minute overall, 10 per source, and per code class 20 failures overall and 5 per source for
+each code generation ([connection-keys.mjs](../apps/server/src/connection-keys.mjs),
+[admission-budget.mjs](../apps/server/src/admission-budget.mjs)). Failures return the
+same `401` whatever the reason, so there is no validity oracle.
+
+An approved device is registered once, on the LAN or VPN, and signs in from then on:
+
+```mermaid
+sequenceDiagram
+    participant Device as Browser (new device)
+    participant Server as Node server
+    participant Owner as Host UI / CLI
+
+    Owner->>Server: issue setup code
+    Server-->>Owner: code (shown once, 300 s)
+    Note over Owner,Device: code handed over on a trusted channel (A4)
+    Device->>Server: POST /api/key-start {setup code}
+    Server-->>Device: 202 registration ticket (one use)
+    Device->>Server: POST /api/approved-clients/register {ticket, username, password}
+    Server-->>Device: 202 {requestId, claimToken}
+    Server-->>Owner: pending request, labelled Local / Private / Internet
+    Owner->>Server: approve
+    Note over Server: store clientId, SHA-256(device secret),<br/>scrypt(password, 16-byte salt)
+    Device->>Server: POST /api/approved-clients/status {requestId, claimToken}
+    Server-->>Device: approved {clientId, device secret} (released once)
+    Device->>Device: store secret in IndexedDB for this origin
+
+    Device->>Server: POST /api/approved-clients/sign-in {clientId, username, secret, password}
+    Note over Server: secret compared in constant time first,<br/>then scrypt (at most 4 at once)
+    Server-->>Device: session bearer + viewer grant cookie
+```
+
+Approved-device credentials are stored as a SHA-256 hash of the 256-bit device secret and an
+scrypt verifier of the password with a per-device 16-byte salt; both comparisons are
+constant-time ([approved-clients.mjs](../apps/server/src/approved-clients.mjs)). Passwords
+are 10 to 256 characters. At most 64 registrations may be pending, and tickets and claims
+expire. Owner edits or removal bump a generation counter that ends the device's live
+session synchronously.
+
+The owner is authenticated by the operating system: whoever runs the host or CLI as the
+desktop user is the owner. The server accepts owner commands only on the stdio pipe of the
+process that started it (B4), and will not listen at all until that pipe delivers an
+exact approval line ([owner-start.mjs](../apps/server/src/owner-start.mjs)).
+
+### Session management (ASVS V3)
+
+- The session bearer is a random UUID, returned in the admission response, kept in page
+  memory (never a cookie or storage), and sent as `Authorization: Bearer`. The server
+  accepts it only from the socket address that was admitted.
+- A session ends after 20 seconds without an authenticated request, on `/api/disconnect`,
+  when the owner revokes it or rotates the password, when the device is edited or removed,
+  and when host policy changes under it. Turning remote access off ends every internet
+  session at once. The [session state diagram](#resilience) shows the transitions.
+- Reconnecting replaces the session id; the old worker is stopped before the new id is
+  issued, and other API calls are refused meanwhile.
+- The viewer grant cookie is 32 random bytes, `HttpOnly`, `SameSite=Strict`, `Path=/viewer`,
+  `Secure` over HTTPS, bound to the session and peer, and invalidated with the session
+  ([viewer-asset-grants.mjs](../apps/server/src/viewer-asset-grants.mjs)). It loads viewer
+  assets only; the API still needs the bearer. The login page imports the viewer into the
+  live document rather than adopting nodes from a template, because WebKit sets a media
+  element's inline-playback policy when the element is created.
+- The owner sets how many sessions may be live at once (1 to 64); each approved identity may
+  hold one.
+
+### Access control (ASVS V4)
+
+| Privilege                      | Granted by                                          | Enforced at                                                         |
+| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------- |
+| Reach a route                  | Peer zone and listener                              | HTTP handler, before routing                                        |
+| View a display or audio        | Admission, within host stream policy                | Server policy resolution on every offer and reconnect               |
+| Choose custom stream settings  | Owner enables client options                        | Server validates against approved bounds                            |
+| Send input                     | Owner grant, or a per-device or default `available` | `ControlLease` in the server and the permission lease in the worker |
+| Change policy, access, devices | Owner only                                          | No HTTP route exists; owner pipe only                               |
+| Read diagnostics               | Owner-issued bearer                                 | Separate loopback listener                                          |
+
+Input is authorized twice, independently: the server's `ControlLease` decides who holds
+control, and the worker enforces it on every message because the data channel bypasses the
+server. The worker accepts permission only from its owner pipe, as a 5-second lease the
+server renews every 2 seconds; a peer cannot extend or grant it
+([Input and control](#input-and-control)). A blanket `available` default does not give
+internet sessions control automatically; only a per-device setting does.
+
+### Cryptography and key management (ASVS V6)
+
+| Purpose                          | Mechanism                                                                 | Secret and lifetime                                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Control plane transport          | TLS via Node.js defaults                                                  | Server certificate: provided, mkcert, or self-signed for 2 years; reissued within 30 days of expiry or when addresses change |
+| Media and input transport        | DTLS-SRTP and DTLS-SCTP (WebRTC mandatory)                                | Per-connection DTLS keys; fingerprints exchanged over authenticated signaling                                                |
+| Device secret                    | `crypto.randomBytes(32)`, stored as SHA-256                               | Until the owner revokes the device                                                                                           |
+| Device password                  | scrypt, 16-byte random salt, 32-byte output                               | Until changed or revoked                                                                                                     |
+| Registration ticket, claim token | `crypto.randomBytes(32)`, tickets stored as SHA-256                       | Minutes; single use                                                                                                          |
+| Codes and standing password      | 8 symbols from `crypto.randomBytes`, rejection-sampled; stored as SHA-256 | 300 s default (60–600) and single use; standing password per server run                                                      |
+| Session bearer                   | `crypto.randomUUID()`                                                     | Session lifetime                                                                                                             |
+| Viewer grant                     | `crypto.randomBytes(32)`                                                  | Session lifetime                                                                                                             |
+| Diagnostics bearer               | `crypto.randomBytes(32)`, stored as SHA-256, constant-time compare        | 15 minutes                                                                                                                   |
+| Self-signed PFX                  | Exported by `Export-PfxCertificate` with a random passphrase              | Key removed from the Windows store after export; PFX and passphrase in the per-user directory                                |
+
+All randomness comes from the operating system CSPRNG through Node's `crypto` module. No
+custom cryptography is implemented. The certificate provisioning details are in
+[TLS and trust provisioning](#tls-and-trust-provisioning) below.
+
+### Data protection (ASVS V8, V9)
+
+**In transit.** With the default `tls.mode`, all admission, signaling and viewer traffic uses
+HTTPS; if HTTPS is pending or failed those routes return `503` rather than fall back to
+plaintext. Media and input always use DTLS. The only plaintext is certificate enrolment
+for local peers (the anchor is public; its integrity is checked by fingerprint, A4) and the
+deliberate `off` mode.
+
+**At rest.** VidVNC keeps no recordings or screenshots. Persistent files are in the desktop
+user's profile (`%LOCALAPPDATA%\VidVNC`, or `~/Library/Application Support/VidVNC` for the
+CLI on macOS) and rely on the operating system's per-user file permissions:
+
+| File                                       | Contents                                            | Secrets                                             |
+| ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------- |
+| `access-settings.json`                     | Mode, limits, remote access, public names and ports | None                                                |
+| `approved-clients.json`                    | Devices, usernames, labels, generation              | Hashes and scrypt verifiers only                    |
+| `stream-policy.json`, `profile-order.json` | Stream policy                                       | None                                                |
+| `tls-settings.json`                        | TLS mode, ports, provided certificate paths         | A provided PFX passphrase, if the operator sets one |
+| TLS state directory                        | Certificate, private key or PFX, passphrase sidecar | Private key (plaintext sidecar by design)           |
+| `server.log`                               | Lifecycle messages                                  | None by design                                      |
+
+Settings are written to a temporary file and renamed, so a crash cannot leave a half-written
+file. Standing passwords, codes, bearers and grants are never written to disk. On the
+client, the approved-device secret is kept in IndexedDB for the origin, and the bearer only
+in page memory.
+
+**Minimisation.** The anonymous `/api/info` returns only the owner-chosen public name. Which
+GPU encodes, the host's display inventory and diagnostics are never sent to unadmitted
+clients, and the encoder is never sent to any client.
+
+### Input validation and output handling (ASVS V5)
+
+- **HTTP.** Bodies are capped at 128 KiB and parsed as JSON only; SDP must start with `v=0`
+  and be at most 64 KiB. Absolute-form request targets must match the listener's scheme,
+  authority and port. Credentials and names are length-bounded and type-checked.
+- **SDP.** For internet clients the offer keeps only candidates on public IP addresses, so a
+  client cannot aim the host's ICE checks at LAN machines or hostnames, and the answer
+  carries only the public address ([sdp-candidates.mjs](../apps/server/src/sdp-candidates.mjs)).
+- **Host policy.** Stream policy and access settings are validated as a whole before they
+  are stored; a client can never widen them.
+- **Worker.** Messages from peers are parsed as JSON objects. Coordinates must be finite and
+  within 0..1; buttons and key codes pass through explicit allow-lists
+  ([input-policy.hpp](../native/media-worker/src/input-policy.hpp)); more than 1000 input
+  messages a second revokes control. The owner pipe accepts only known message types.
+- **Output.** The web client writes server- and user-supplied text with text APIs
+  (`textContent`). Its only HTML insertion is the viewer's own same-origin fragment and
+  built-in toolbar icons, and the CSP below forbids inline script.
+
+### Browser and HTTP security headers (ASVS V14)
+
+Every response the page loads carries:
+
+| Header                      | Value                                                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Content-Security-Policy`   | `default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` |
+| `X-Content-Type-Options`    | `nosniff`                                                                                                                                                          |
+| `Referrer-Policy`           | `no-referrer`                                                                                                                                                      |
+| `Cache-Control`             | `no-store` on API, admission and failure responses                                                                                                                 |
+| `Strict-Transport-Security` | `max-age=15552000` (180 days), on the configured public names while remote access is on                                                                            |
+
+Requests whose `Origin` does not match `Host`, including the port, are refused with `403`
+([tls/origin.mjs](../apps/server/src/tls/origin.mjs)). The approved-device handoff to the
+remote origin carries the device secret in the URL fragment, which browsers never send to a
+server; the receiving page strips it and refuses to replace a different stored secret.
+
+### Availability and resource limits
+
+- Each listener accepts 32 connections in total and 12 per source address (IPv6 grouped per
+  /64); loopback is exempt. Header and request timeouts are set.
+- Admission budgets are kept separately for internet peers and for local and private peers,
+  so an internet flood cannot lock out LAN or VPN devices. Approved sign-in and registration:
+  600 per minute overall and 10 per source; claim polling: 1200 and 60; 10 per minute per
+  identity. scrypt runs at most 4 at a time and only after the device secret matches.
+- Every admission map is bounded and every pending registration, ticket and claim expires.
+- Telemetry is rate-limited per stream, and keyframe requests are damped twice
+  ([Resilience](#resilience)), so a client cannot drive the shared encoder into an IDR storm.
+- Per-peer media queues are leaky, so one slow viewer cannot stall others.
+
+### Process isolation and least privilege
+
+- All three processes run as the interactive desktop user, without elevation. The
+  self-signed certificate is created in `Cert:\CurrentUser` for the same reason.
+- The host places the server in a Win32 job object with `KILL_ON_JOB_CLOSE`; the server owns
+  one worker process per source. No process outlives its parent.
+- The worker never authenticates anyone and trusts only its owner pipe; the server never
+  handles pixels. A defect in media parsing is therefore contained to one source, but the
+  worker is **not sandboxed** and holds input injection, which is why its pre-authentication
+  exposure is tracked as a residual risk (R4).
+- Diagnostics run on a separate listener bound to `127.0.0.1`, not routed by the main
+  handler at all.
+
+### Logging and monitoring (ASVS V7)
+
+- The server writes concise lifecycle messages to stderr and, under the desktop host, to
+  `server.log` in the per-user directory. Log messages are written to exclude passwords,
+  codes, bearers and device secrets, and a logging failure never affects the server.
+- The host's Sessions view is the live audit surface: each session with its source
+  address, its streams, and who holds control. Pending registrations are labelled Local
+  network, Private network or Internet from the registering peer's address.
+- Diagnostics (owner-only) record the selected encoder, stream state, transport and
+  client-reported metrics per worker.
+- There is no persistent security audit trail or alerting yet.
+
+### Secure defaults
+
+| Setting          | Default                                | Effect                                                                  |
+| ---------------- | -------------------------------------- | ----------------------------------------------------------------------- |
+| Server listening | Only after the owner's approval line   | A server started by anything else never listens                         |
+| TLS              | `auto` (HTTPS, fail closed)            | No plaintext admission unless the owner picks `off`                     |
+| HTTP bind        | Loopback and eligible Private-LAN only | Never a wildcard or public address                                      |
+| Remote access    | Off; each host start is local-only     | Internet peers get `403` everywhere                                     |
+| Remote access on | Forces `approved-only`                 | Standing password and one-time codes stop working for everyone          |
+| Control          | Keyboard and mouse start off           | Nobody can inject input until the owner grants it                       |
+| Codes            | Issued on request, single use, 300 s   | No standing code sits waiting                                           |
+| Media ports      | Ephemeral, LAN only                    | A fixed UDP range, with ICE-TCP off, only when the owner configures one |
+
+### Supply chain and build
+
+- JavaScript dependencies are pinned by one root `package-lock.json` and installed with
+  `npm ci`. The server and web client have no third-party npm runtime dependencies (only
+  development tooling), and `npm audit --omit=dev` has reported no advisories.
+- Native dependencies come from one pinned GStreamer SDK (1.28.6), checked before every test
+  run; its headers and runtime DLLs must come from the same install. `npm audit` does not
+  cover GStreamer or libnice, so they are tracked separately (R4).
+- The repository does not accept outside pull requests (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
+  CI runs only when started manually.
+- Packaging produces self-contained products per [PACKAGING.md](PACKAGING.md). Code signing
+  and SBOM generation are not in place yet.
+
+### Threat model
+
+STRIDE applied to the elements and boundaries above. "Residual" refers to the findings
+register in the [security analysis](security/internet-exposure.md#findings-register).
+
+| ID  | Element or flow         | STRIDE | Threat                                                           | Mitigation                                                                                                     | Residual                   |
+| --- | ----------------------- | ------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| T1  | Admission (B1, B3)      | S      | Guess a code or the standing password                            | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`              | F1                         |
+| T2  | Approved sign-in (B1)   | S      | Use a copied device secret and password                          | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration | F5                         |
+| T3  | Peer classification     | S      | Appear local through source NAT or a proxy                       | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)   | R2                         |
+| T4  | Session bearer (B1)     | S      | Replay a stolen bearer                                           | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                              | —                          |
+| T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                           | Local peers only; fingerprint shown on the host screen for comparison (A4)                                     | F3                         |
+| T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates | Offer candidates filtered to public IPs for internet clients; answers rewritten                                | R3 fixed                   |
+| T7  | Settings files          | T      | Change policy or approved devices on disk                        | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope         | —                          |
+| T8  | Owner pipe (B4, B5)     | T, E   | Start or command a server or worker from another process         | Inherited pipes only; exact approval line; no owner route on any listener; job object                          | —                          |
+| T9  | Browser page            | T, I   | Script injection or framing                                      | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                              | —                          |
+| T10 | Owner actions           | R      | A viewer denies having connected or acted                        | Sessions view shows each session's address live; lifecycle log                                                 | No persistent audit trail  |
+| T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                           | HTTPS by default and fail closed; `off` only by explicit choice                                                | F3 (off mode)              |
+| T12 | Media (B2)              | I      | Capture screen or audio on the network                           | DTLS-SRTP with fingerprints from authenticated signaling                                                       | —                          |
+| T13 | Public endpoints        | I      | Learn host details before sign-in                                | `/api/info` returns the public name only; certificate omits the hostname in remote mode                        | R7                         |
+| T14 | Diagnostics (B6)        | I      | Read diagnostics from the network or a proxy                     | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                   | F4 fixed                   |
+| T15 | Admission endpoints     | D      | Flood sign-in to lock devices out                                | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                    | R1, F7                     |
+| T16 | Listeners and media     | D      | Exhaust connections, memory or the encoder                       | Connection caps, body and SDP caps, timeouts, bounded maps, keyframe damping, leaky queues                     | F7 (volumetric)            |
+| T17 | Worker media ports (B2) | E      | Exploit native STUN/DTLS parsing before authentication           | UDP only with a media range; current GStreamer; parsing isolated per source                                    | R4                         |
+| T18 | Input path (B2)         | E      | Inject input without a grant, or keep it after revoke            | Worker-side lease from the owner pipe only, 5 s expiry, allow-lists, rate limit, release of held keys          | F2 (queued message window) |
+| T19 | Viewer assets           | E      | Load the viewer or its code without admission                    | Session- and peer-bound `HttpOnly` grant cookie                                                                | —                          |
+
+### Residual risk and open items
+
+The current register, with severity and verification, is kept in the
+[security analysis](security/internet-exposure.md#open-and-residual-findings). In summary:
+
+- **R4** Native ICE/STUN parsing is reachable before authentication on the media ports while
+  a stream is live. Reduced to UDP; a lower-privilege worker is the long-term fix.
+- **R8** The remote media path has run through one real router; IPv6, carrier NAT and a
+  packet capture are still to do.
+- **R2, R1, F7** depend on the operating conditions A3 and A5.
+- **F5** An approved-device credential can be copied; passkeys (WebAuthn) are the proposed
+  stronger model.
+- Not in place yet: sandboxing of the worker, a persistent audit trail, code signing, an
+  SBOM, and an external penetration test.
+
+Until R8 is closed, a self-hosted VPN with remote access off is the recommended way to reach
+VidVNC from outside, as [SECURITY.md](../SECURITY.md) states.
+
+### Security verification
+
+- `npm test` includes regression tests for the controls above: admission budgets and IPv6
+  grouping, peer classification, origin and host checks, redirect and fail-closed TLS,
+  diagnostics isolation, viewer grants, approved-device registration and revocation, SDP
+  candidate filtering, and settings validation. HTTPS regressions drive an internet client
+  against a real TLS listener.
+- Native unit tests (CTest) cover the input allow-lists, peer permission and the media port
+  range; `npm run test:hardware` exercises the real worker.
+- The [verification record](security/internet-exposure.md#verification-record) lists each
+  review and run, including what was not tested.
+
+### Keeping this section current
+
+Update this section in the same change as any code that adds an entry point, a secret, a
+persisted file, a boundary crossing or a new privilege; add the threat to the table and,
+if it is not fully mitigated, a finding to the security analysis. Report vulnerabilities
+privately as described in [SECURITY.md](../SECURITY.md).
+
+### TLS and trust provisioning
+
+#### Two listeners
 
 The plaintext listener keeps the product's original port, `4382` by default
 (`VIDVNC_PORT`-overridable, [main.mjs](../apps/server/src/main.mjs)). The TLS listener
@@ -658,7 +1086,7 @@ that does not yet trust the host has no un-warned way to fetch the trust anchor 
 exists to authenticate, so those routes remain reachable locally in the clear
 ([http-app.mjs](../apps/server/src/http-app.mjs)).
 
-### Strategy order and reissue
+#### Strategy order and reissue
 
 Provisioning tries strategies in a fixed order — `provided`, then `mkcert`, then
 `windows-self-signed` — and uses the first one that is available and succeeds
@@ -682,7 +1110,7 @@ or a laptop moving networks
 `renewalStatus`/`checkCoverage`). Each strategy owns this check for its own credential
 type; `ensure-certificate.mjs` only selects a strategy and forwards the result unchanged.
 
-### Enrolment flow
+#### Enrolment flow
 
 The host offers the current trust anchor at `/trust`, a page served over plaintext (see
 above) that explains what to do with it per platform. `/api/trust/anchor` downloads the
@@ -714,7 +1142,7 @@ sequenceDiagram
     TLS-->>Device: response, now warning-free
 ```
 
-### Known limitations
+#### Known limitations
 
 - **Explicit LAN HTTP is not encrypted.** A valid `off` setting keeps the viewer and
   admission on local HTTP; clients on that network should treat passwords and session
