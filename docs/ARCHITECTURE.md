@@ -55,14 +55,40 @@ The WinUI host owns the server, and the server owns its workers. Both links fail
   process to it, so the server cannot outlive the host even if the host is killed. The
   handle is non-inheritable and belongs only to the host ([ServerJob.cs](../apps/windows-host/ServerJob.cs)).
 - The server does not open its port until the desktop owner approves. It reads one line
-  from stdin and accepts only the exact bytes `{"type":"start"}`; anything else, an
-  over-long line, or a closed stream aborts startup
+  from stdin and accepts only one of three exact approval lines: `{"type":"start"}`, or the
+  same with `"sharing":"local"` or `"sharing":"remote"` added. Anything else, a line over
+  64 bytes, or a closed stream aborts startup
   ([owner-start.mjs](../apps/server/src/owner-start.mjs)). A server launched by something
   other than its host therefore never begins listening.
 - After startup the same stdio channel carries host commands in and `status` events out,
   which is what the host UI renders.
 - The CLI server is the same Node application driven from a terminal instead of the
   WinUI host.
+
+```mermaid
+sequenceDiagram
+    participant Host as WinUI host
+    participant Job as Win32 job object
+    participant Server as Node server
+    participant Worker as media-worker (C++)
+
+    Host->>Job: create (KILL_ON_JOB_CLOSE)
+    Host->>Server: spawn with --desktop --await-owner
+    Host->>Job: assign server process
+    Host->>Server: stdin {"type":"start","sharing":"local" or "remote"}
+    Note over Server: waitForOwner: exact line or abort
+    Server->>Worker: probe (short-lived child)
+    Worker-->>Server: codecs, backends
+    Server->>Server: bind loopback and Private-LAN HTTP listeners
+    Server-->>Host: stdout ready {urls, tls, password, displays, policy, ...}
+    Note over Server: TLS provisioning starts on the next turn
+    loop while sharing
+        Host->>Server: owner commands (policy, access, sessions, clients)
+        Server-->>Host: status ticks and *-result replies
+    end
+    Host--xJob: host exits or is killed
+    Job--xServer: job closes, server is terminated
+```
 
 ## Sessions, streams and sources
 
@@ -109,6 +135,36 @@ Profile names and ids are deliberately excluded, so two differently named but nu
 identical profiles encode once and fan out to both viewers rather than running two
 encoders. Audio keys on its format alone.
 
+A subscription and its source each move through a small, one-way state machine
+([stream-registry.mjs](../apps/server/src/stream-registry.mjs)). A new subscription
+either joins a live source with the same `sourceKey` or creates one; the source stops
+when its last subscription closes.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Subscription" as sub {
+        [*] --> s_starting : subscribe()
+        s_starting --> s_live : worker ready and peer answered
+        s_starting --> s_closing : negotiation failed or session ended
+        s_live --> s_closing : stream-stop, disconnect, source ended
+        s_closing --> [*] : peer removed
+        s_starting : starting
+        s_live : live
+        s_closing : closing
+    }
+    state "Source" as src {
+        [*] --> w_starting : first subscription for this sourceKey
+        w_starting --> w_ready : worker reports ready
+        w_starting --> w_closing : start failed
+        w_ready --> w_closing : last subscription closed or worker exited
+        w_closing --> [*] : worker process exited, budget released
+        w_starting : starting
+        w_ready : ready
+        w_closing : closing
+    }
+```
+
 Input is governed by a **control lease** held by at most one session. The lease is a
 host-only coordinator: a client request never grants control to itself, and the grant is
 serialized so overlapping requests cannot interleave
@@ -125,6 +181,47 @@ four groups:
 | Negotiation | `/api/offer`, `/api/stream-offer`, `/api/audio-offer`, `/api/streams`, `/api/stream-select`, `/api/stream-stop` | Start, pick and tear down media                                                         |
 | Liveness    | `/api/heartbeat`, `/api/reconnect`, `/api/disconnect`                                                           | Keep, recover or end a session                                                          |
 | Reporting   | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info`                 | Client-side metrics and public-safe status on the normal listener                       |
+
+A viewer's path from sign-in to video, with a second viewer on an identical plan
+joining the same source instead of starting a new worker
+([stream-runtime.mjs](../apps/server/src/stream-runtime.mjs)):
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Server as Node server
+    participant Registry as StreamRegistry
+    participant Worker as media-worker (per source)
+
+    Browser->>Server: POST admission (key or approved client)
+    Server-->>Browser: session token + viewer cookie
+    Browser->>Server: GET /api/profiles
+    Server-->>Browser: profiles, displays, policy revision
+    Browser->>Browser: createOffer, wait for ICE gathering
+    Browser->>Server: POST /api/stream-offer {sdp, profile, displayId}
+    Server->>Server: resolve policy, select display, backend, codec
+    Server->>Registry: subscribe(session, plan)
+    alt no source with this sourceKey
+        Registry-->>Server: new source (starting)
+        par
+            Server->>Worker: spawn, start {video, profile, display, codec, encoderBackend}
+            Worker-->>Server: ready {encoder, ...}
+        and
+            Server->>Worker: add-peer {streamId, sdp}
+            Worker-->>Server: answer sdp
+        end
+    else source already running
+        Registry-->>Server: existing source
+        Server->>Worker: add-peer {streamId, sdp}
+        Worker-->>Server: answer sdp
+    end
+    Server->>Registry: subscription starting to live
+    Server-->>Browser: {streamId, sdp answer, profile, codec}
+    Browser-)Worker: DTLS-SRTP media and data channel
+    loop every few seconds
+        Browser->>Server: /api/heartbeat, /api/stream-telemetry
+    end
+```
 
 Three connection modes are supported, set by the host
 ([access-settings.mjs](../apps/server/src/access-settings.mjs)):
@@ -369,11 +466,68 @@ trusts nothing on the channel:
 
 Granting control to a second peer revokes it from the first; only one peer holds it.
 
+Permission is a short lease the server must keep renewing. The server sends
+`control-permission` with a 5-second `leaseMs` and renews it every 2 seconds while the
+owning session is still active; client pings cannot extend it
+([host-input-permission.hpp](../native/media-worker/src/host-input-permission.hpp)). If
+the server stops renewing, input stops within the lease. A peer also loses control if
+its data-channel pings stop for 5 seconds, or if it sends more than 1000 input messages
+in a second.
+
+```mermaid
+sequenceDiagram
+    participant Owner as Host UI / CLI
+    participant Server as Node server
+    participant Lease as ControlLease
+    participant Worker as media-worker
+    participant Browser
+    participant OS as Windows SendInput
+
+    Owner->>Server: grant control to session
+    Server->>Lease: grant(session, stream)
+    Lease->>Worker: control-permission {peerId, allowed: true, leaseMs: 5000}
+    Worker-->>Lease: acknowledged
+    Browser->>Server: GET /api/heartbeat
+    Server-->>Browser: controlAllowed: true
+    Browser->>Worker: data channel {type: control, enabled: true}
+    Note over Worker: peer.control = permission allowed
+    loop every 2 s
+        Lease->>Worker: control-permission renew
+    end
+    Browser->>Worker: move / button / key / wheel
+    Worker->>Worker: permission, rate and allow-list checks
+    Worker->>OS: SendInput
+    Browser->>Worker: {type: release}
+    Worker->>OS: release held keys and buttons
+```
+
 Touch gestures are interpreted in the browser
 ([viewer/app.js](../apps/web-client/src/viewer/app.js)); the worker only ever sees the
 same `move` and `button` messages a mouse produces. A touch does not press a button when
 it lands, because a finger that drags to move the pointer would otherwise click when it
 lifts. Instead:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Down : first finger down (move to point)
+    state "Finger down" as Down {
+        state armed <<choice>>
+        [*] --> armed
+        armed --> Pressed : within 350 ms and 40 px of last tap, button down
+        armed --> Touching : otherwise
+        Touching --> Moved : moved more than 10 px
+        Touching --> Pressed : still for 450 ms, button down
+        Touching --> [*] : lift, click, remember tap
+        Moved --> [*] : lift, no button
+        Pressed --> [*] : lift, button up
+        Touching : Touching (move only)
+        Moved : Moved (move only)
+        Pressed : Pressed (dragging)
+    }
+    Down --> Idle : lifted
+    Down --> Idle : pointercancel, release control
+```
 
 | Gesture                                                            | Messages sent                                         |
 | ------------------------------------------------------------------ | ----------------------------------------------------- |
@@ -402,6 +556,20 @@ across several viewers would otherwise produce an IDR storm that worsens the los
 Sessions are kept by heartbeat and can be resumed through `/api/reconnect` while a
 session is in a reconnecting state; ordinary API calls are rejected meanwhile so a
 half-recovered client cannot act on stale state.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active : admitted, token issued
+    Active --> Active : any authenticated request refreshes lastSeenAt
+    Active --> Reconnecting : POST /api/reconnect (validated)
+    Reconnecting : Reconnecting (only heartbeat and disconnect answered)
+    Reconnecting --> Active : old worker stopped, new session id issued
+    Reconnecting --> Ended : host settings changed or another client connected
+    Active --> Ended : no request for 20 s (sweep)
+    Active --> Ended : /api/disconnect, revoke, password rotation
+    Active --> Ended : policy revision changed (409, reconnect)
+    Ended --> [*] : streams stopped, control released, viewer cookie invalid
+```
 
 ## Diagnostics
 
@@ -541,7 +709,7 @@ sequenceDiagram
     Note over Device,Host: Device compares fingerprint against Host UI, then installs the anchor
 
     Device->>Plain: GET /app-route (any other path)
-    Plain-->>Device: 307 redirect while HTTPS is live; otherwise 503
+    Plain-->>Device: 307 redirect while HTTPS is live, otherwise 503
     Device->>TLS: GET /app-route (redirect followed)
     TLS-->>Device: response, now warning-free
 ```
@@ -609,6 +777,26 @@ is only for checks that exercise the assembled product. A root runner aggregates
 tests without taking ownership away from modules.
 
 ## Dependency boundaries
+
+```mermaid
+flowchart LR
+    subgraph npm["npm workspaces (one root lockfile)"]
+        server["@vidvnc/server<br/>apps/server"]
+        web["@vidvnc/web-client<br/>apps/web-client"]
+        mw["@vidvnc/media-worker<br/>native/media-worker (JS adapter)"]
+    end
+    cpp["media-worker C++<br/>CMake + CTest"]
+    host["WinUI 3 host<br/>MSBuild"]
+    gst["GStreamer SDK"]
+
+    server -->|"static assets, password helper"| web
+    server -->|"runtime path adapter"| mw
+    web -.->|"dev only: HTTP test fixture"| server
+    mw -.->|"locates binary"| cpp
+    cpp --> gst
+    host -->|"process protocol (stdin/stdout)"| server
+    server -->|"process protocol (stdin/stdout)"| cpp
+```
 
 - The Node server depends on the web client's exported assets and password helper,
   and the native worker's small exported JS runtime-path adapter.
