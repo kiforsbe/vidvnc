@@ -1289,7 +1289,9 @@ headless Chromium and reports each gate question. The relay is not yet part of t
 `sandbox-check.mjs` runs gate P3: `sandbox-probe.exe` starts itself under the planned sandbox for
 the network process and reports what it can and cannot do. If the full sandbox fails, it runs
 the probe again with one part turned off at a time (`sandbox-probe --relax <part>`) and shows
-which part the failure depends on. Neither is part of the product yet.
+which part the failure depends on. When it passes, it runs gate P4: the probe again with
+Arbitrary Code Guard and Win32k lockdown turned on (`--harden`), reporting what breaks. Neither
+is part of the product yet.
 
 The second captures the real desktop and requires Windows and a hardware encoder.
 Chromium with an

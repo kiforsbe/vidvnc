@@ -1,5 +1,6 @@
-// Prototype gate P3 of docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-
-// design.md: can the network process run webrtcbin under the tier T1 sandbox?
+// Prototype gates P3 and P4 of docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-
+// split-design.md: can the network process run webrtcbin under the tier T1 sandbox, and with
+// Arbitrary Code Guard or Win32k lockdown (--harden) on as well?
 //
 // Run without arguments (sandbox-check.mjs does, with the worker's environment). The parent
 // creates a secret file in the user's profile, a UDP echo socket on loopback and a result
@@ -156,7 +157,29 @@ bool gather(std::string &detail) {
     return ok;
 }
 
-int child(HANDLE pipe, unsigned short echo_port, const std::wstring &secret) {
+// Gate P4: turn on Arbitrary Code Guard and Win32k lockdown at run time, before any untrusted
+// input, and see whether the network work still runs.
+void harden(const std::wstring &list) {
+    if (list.find(L"acg") != std::wstring::npos) {
+        PROCESS_MITIGATION_DYNAMIC_CODE_POLICY policy{};
+        policy.ProhibitDynamicCode = 1;
+        check("Arbitrary Code Guard turned on",
+              SetProcessMitigationPolicy(ProcessDynamicCodePolicy, &policy, sizeof(policy)) !=
+                  FALSE,
+              error_text(GetLastError()));
+    }
+    if (list.find(L"win32k") != std::wstring::npos) {
+        PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY policy{};
+        policy.DisallowWin32kSystemCalls = 1;
+        check("Win32k lockdown turned on",
+              SetProcessMitigationPolicy(ProcessSystemCallDisablePolicy, &policy, sizeof(policy)) !=
+                  FALSE,
+              error_text(GetLastError()));
+    }
+}
+
+int child(HANDLE pipe, unsigned short echo_port, const std::wstring &secret,
+          const std::wstring &hardening) {
     results = pipe;
     // Before lowering: prove the impersonation token is in effect, start Winsock and load every
     // library the network process needs.
@@ -194,7 +217,7 @@ int child(HANDLE pipe, unsigned short echo_port, const std::wstring &secret) {
         rid = *GetSidSubAuthority(sid, *GetSidSubAuthorityCount(sid) - 1);
     }
     check("integrity level is Low", rid == SECURITY_MANDATORY_LOW_RID,
-          "RID 0x" + std::to_string(rid));
+          "RID " + std::to_string(rid));
     check("token is restricted", IsTokenRestricted(token) != FALSE);
     auto user = sandbox::token_information(token, TokenUser);
     check("user SID is deny-only",
@@ -246,6 +269,7 @@ int child(HANDLE pipe, unsigned short echo_port, const std::wstring &secret) {
         CloseHandle(exe);
 
     // What it must still be able to do.
+    harden(hardening);
     std::string detail;
     check("UDP on loopback works after lowering", udp_echo(echo_port, detail), detail);
     check("webrtcbin gathers on loopback after lowering", gather(detail), detail);
@@ -284,7 +308,7 @@ bool relax(const std::wstring &list, sandbox::Options &options, std::string &nam
 }
 
 int parent(const std::wstring &executable, const sandbox::Options &options,
-           const std::string &relaxed) {
+           const std::string &relaxed, const std::wstring &hardening) {
     WSADATA winsock;
     if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0) {
         std::cerr << "WSAStartup failed" << std::endl;
@@ -341,15 +365,18 @@ int parent(const std::wstring &executable, const sandbox::Options &options,
         return 2;
     }
     SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
-    const std::wstring command =
-        L"\"" + executable + L"\" --child " + std::to_wstring(reinterpret_cast<ULONG_PTR>(write)) +
-        L" " + std::to_wstring(ntohs(address.sin_port)) + L" \"" + secret.wstring() + L"\"";
+    const std::wstring command = L"\"" + executable + L"\" --child " +
+                                 std::to_wstring(reinterpret_cast<ULONG_PTR>(write)) + L" " +
+                                 std::to_wstring(ntohs(address.sin_port)) + L" \"" +
+                                 secret.wstring() + L"\" " + (hardening.empty() ? L"-" : hardening);
     sandbox::Launched launched;
     const auto result = sandbox::launch(executable, command, {write}, launched, options);
     CloseHandle(write);
     int status = 1;
     if (!relaxed.empty())
         std::cout << "INFO: relaxed: " << relaxed << std::endl;
+    if (!hardening.empty())
+        std::cout << "INFO: hardened: " << utf8(hardening) << std::endl;
     if (!result.ok) {
         std::cout << "FAIL: launching the sandboxed probe - " << result.error << std::endl;
     } else {
@@ -381,19 +408,32 @@ int parent(const std::wstring &executable, const sandbox::Options &options,
 } // namespace
 
 int wmain(int argc, wchar_t **argv) {
-    if (argc == 5 && std::wstring(argv[1]) == L"--child")
+    if (argc == 6 && std::wstring(argv[1]) == L"--child")
         return child(reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(std::stoull(argv[2]))),
-                     static_cast<unsigned short>(std::stoul(argv[3])), argv[4]);
+                     static_cast<unsigned short>(std::stoul(argv[3])), argv[4], argv[5]);
     sandbox::Options options;
     std::string relaxed;
-    if (!(argc == 1 ||
-          (argc == 3 && std::wstring(argv[1]) == L"--relax" && relax(argv[2], options, relaxed)))) {
+    std::wstring hardening;
+    bool valid = true;
+    for (int i = 1; valid && i < argc; i += 2) {
+        const std::wstring name = argv[i];
+        if (i + 1 >= argc)
+            valid = false;
+        else if (name == L"--relax")
+            valid = relax(argv[i + 1], options, relaxed);
+        else if (name == L"--harden") {
+            hardening = argv[i + 1];
+            valid = hardening == L"acg" || hardening == L"win32k" || hardening == L"acg,win32k";
+        } else
+            valid = false;
+    }
+    if (!valid) {
         std::cerr << "Usage: sandbox-probe [--relax restricted,initial-token,job,desktop,"
-                     "mitigations,object-security,detached]"
+                     "mitigations,object-security,detached] [--harden acg|win32k|acg,win32k]"
                   << std::endl;
         return 2;
     }
     wchar_t executable[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, executable, MAX_PATH);
-    return parent(executable, options, relaxed);
+    return parent(executable, options, relaxed, hardening);
 }

@@ -5,6 +5,10 @@
 //
 // Usage: node sandbox-check.mjs [--diagnose]
 //
+// Gate P4 follows when the sandbox passes: the probe runs again with Arbitrary Code Guard, then
+// Win32k lockdown, then both turned on before the network checks, and the output says what
+// breaks. P4 only informs the design, so it does not change the exit code.
+//
 // Builds the worker and sandbox-probe.exe if their sources changed, then runs the probe with
 // the worker's environment. The probe prints one PASS, FAIL or INFO line per check. When the
 // full sandbox fails (or with --diagnose), the probe runs again with one part of the sandbox
@@ -28,8 +32,12 @@ const PARTS = [
   'restricted',
 ];
 
-function run(relaxed) {
-  const result = spawnSync(probe, relaxed ? ['--relax', relaxed] : [], {
+function run(relaxed, hardening) {
+  const args = [
+    ...(relaxed ? ['--relax', relaxed] : []),
+    ...(hardening ? ['--harden', hardening] : []),
+  ];
+  const result = spawnSync(probe, args, {
     env: workerEnvironment(),
     encoding: 'utf8',
     timeout: 90_000,
@@ -67,5 +75,29 @@ if (full.status !== 0 || process.argv.includes('--diagnose')) {
       for (const line of result.stdout.split(/\r?\n/))
         if (line.startsWith('FAIL:')) console.log(`  ${line}`);
     }
+}
+if (full.status === 0) {
+  console.log('\nGate P4: the same probe with mitigations turned on after lowering.');
+  for (const hardening of ['acg', 'win32k', 'acg,win32k']) {
+    const result = run('', hardening);
+    const failing = result.stdout.split(/\r?\n/).filter((line) => line.startsWith('FAIL:'));
+    const finished = /^RESULT: /m.test(result.stdout);
+    console.log(
+      `  with ${hardening.padEnd(11)} child exit ${result.child}, ` +
+        (result.status === 0
+          ? 'every check passes'
+          : finished
+            ? `${failing.length} check(s) fail`
+            : 'the child died before finishing'),
+    );
+    for (const line of failing) console.log(`    ${line}`);
+    if (!finished) {
+      const last = result.stdout
+        .trim()
+        .split(/\r?\n/)
+        .filter((line) => !line.startsWith('INFO: the probe exited'));
+      console.log(`    last line: ${last.at(-1)}`);
+    }
+  }
 }
 process.exitCode = full.status === 0 ? 0 : 1;

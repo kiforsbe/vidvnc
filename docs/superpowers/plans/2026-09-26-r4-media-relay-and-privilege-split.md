@@ -137,7 +137,24 @@ the child-process policy forbids children, which is the likely cause. The launch
 the child with `DETACHED_PROCESS`. `sandbox-check.mjs` now reruns a failing probe with each part
 of the sandbox turned off in turn (`--relax detached`, `job`, `desktop`, `mitigations`,
 `object-security`, `initial-token`, `restricted`, then all of them) to isolate the cause if that
-is not it. Not yet rerun.
+is not it.
+
+Second run, 2026-09-26, Windows 10.0.26200, GStreamer 1.28.6, the development build (CLI layout,
+repository under the user profile): **P3 passes at tier T1** with `DETACHED_PROCESS`, so the
+console was the cause. The child started impersonating the initial token, started Winsock,
+initialised GStreamer and preloaded coreelements, app, rtp, rtpmanager, webrtc, nice, dtls, srtp
+and sctp, then called `RevertToSelf`. On the primary token it ran at low integrity (RID 4096,
+0x1000), restricted, with the user SID deny-only. Denied: reading a file in
+`%LOCALAPPDATA%\VidVNC` (error 5), `OpenProcess` on itself (error 5), starting `cmd.exe` (error
+367, `ERROR_CHILD_PROCESS_BLOCKED`). It ran on the alternate desktop. Still working: UDP on
+loopback, and `webrtcbin` gathering on 127.0.0.1 with a DTLS fingerprint. Its own executable is
+not readable after lowering, so every library must load before `RevertToSelf`. Not yet checked:
+the MSIX layout, and the real worker (`--network` with `appsrc ! tee ! webrtcbin`) rather than
+the probe.
+
+`sandbox-check.mjs` now also runs gate P4 when P3 passes: the probe again with Arbitrary Code
+Guard, Win32k lockdown, and both, turned on at run time after lowering, reporting which checks
+break. Not yet run.
 
 - [ ] A minimal `media-worker.exe --network` that starts under the tier T1 token (spec,
       "Token for `media-net`"), preloads plugins under the impersonation token, calls
@@ -145,6 +162,7 @@ is not it. Not yet rerun.
 - [ ] Check in the MSIX layout and the CLI layout (unzipped into the profile): Winsock UDP on
       loopback after `RevertToSelf`; a profile file cannot be opened; another `media-net`
       cannot open this process; no plugin loads after lowering. Record the tier (T1, T2 or T3).
+      CLI layout (development build): T1 passes with the probe, above. MSIX: not yet.
 - [ ] P4: enable Win32k lockdown and ACG one at a time and record what breaks.
 
 ### Task 0.4: Gate P5 (firewall) and P6 (iCloud Private Relay)
