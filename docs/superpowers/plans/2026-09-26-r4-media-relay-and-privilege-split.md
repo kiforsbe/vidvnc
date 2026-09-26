@@ -90,7 +90,7 @@ security analysis's verification record) before phase 1 starts.
   If the answer fails validation, the check prints the offending line and the full answer:
   add the attribute to the allow-list in `sdp-candidates.mjs` only if it is harmless.
 
-- [ ] Run it with video for P2, once at 1080p60 and once with `--seconds 60`:
+- [x] Run it with video for P2, once at 1080p60 and once with `--seconds 60`:
 
   ```powershell
   node native/media-worker/tests/relay-check.mjs C:\path\to\playwright --video --seconds 60
@@ -98,6 +98,22 @@ security analysis's verification record) before phase 1 starts.
 
   Then run the same with `--direct` for the baseline (no relay, the worker gathers on every
   interface as today). Gate: the relay adds at most 1 ms at the 95th percentile.
+
+  **2026-09-26, owner's Windows machine, two 1080p60 H.264 streams (Media Foundation,
+  20 Mbit/s each), browser on the same PC through its LAN address: P2 passed at 1080p60.**
+
+  | Measure                            | Through the relay                                            | Direct                       |
+  | ---------------------------------- | ------------------------------------------------------------ | ---------------------------- |
+  | Time inside the relay per datagram | p50 0.009 ms, p95 0.032 ms, p99 0.057 ms (168,913 datagrams) | —                            |
+  | Mean ICE round trip                | 1.37 ms (52 checks)                                          | 0.23 ms (53 checks)          |
+  | Receive jitter                     | p50 3 ms, p95 5 ms, p99 5 ms                                 | p50 3 ms, p95 5 ms, p99 5 ms |
+  | Packets received, lost             | 168,608, 0                                                   | 156,462, 0                   |
+
+  The relay's own processing is far inside the 1 ms gate, and jitter and loss are unchanged.
+  The mean ICE round trip rose by about 1.1 ms, which is two relay traversals (about 0.6 ms
+  each way); the per-datagram timing does not include the wait between the kernel receiving a
+  datagram and Node's event loop handling it, which is the likely difference. Not yet
+  measured: 4K30, a busy host, and a client on another machine.
 
 - [ ] Firefox and Safari (P1, by hand): not automated yet. Record whether they connect
       through the relay; if one rejects the loopback mapped address, implement the relay's
