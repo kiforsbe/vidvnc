@@ -37,6 +37,13 @@ import {
 } from '../../../apps/server/src/sdp-candidates.mjs';
 import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
 
+if (!process.argv[2] || process.argv[2].startsWith('--')) {
+  console.error(
+    'Usage: node relay-check.mjs <playwright> [--video] [--direct] [--peers N] [--seconds N] [--port N]',
+  );
+  process.exit(2);
+}
+
 ensureJsDependencies();
 ensureNativeWorker();
 

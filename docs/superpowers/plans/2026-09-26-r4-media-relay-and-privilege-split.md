@@ -68,7 +68,12 @@ security analysis's verification record) before phase 1 starts.
 
 - [x] Pull the branch, then run the portable suite: `npm test`. **2026-09-26, owner's Windows
       machine:** 899/899 passed.
-- [ ] Run the check with audio (P1):
+- [ ] Run the check with audio (P1). **First run, 2026-09-26:** failed before any gate
+      question, with "Unable to bind WebRTC to loopback" on the first peer. Likely cause:
+      libnice parses the address with `getaddrinfo`, which fails on Windows until Winsock is
+      started, and nothing had started it. Fix: the worker calls `WSAStartup` when
+      `VIDVNC_ICE_BIND=loopback` is set, and the two failure cases now have separate
+      messages. Rerun pending.
 
   ```powershell
   node native/media-worker/tests/relay-check.mjs C:\path\to\playwright

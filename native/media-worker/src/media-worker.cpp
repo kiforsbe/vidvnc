@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <winsock2.h>
 #include <gst/gst.h>
 #include <gst/webrtc/webrtc.h>
 #include <gst/sdp/sdp.h>
@@ -1276,9 +1277,9 @@ static void add_peer(const std::string &id, const std::string &text) {
                     g_object_set(ice, "ice-tcp", FALSE, nullptr);
                 gst_object_unref(ice);
                 if (ice_loopback && !added)
-                    failure = "Unable to bind WebRTC to loopback.";
+                    failure = "Unable to bind WebRTC to loopback: the ICE agent refused 127.0.0.1.";
             } else
-                failure = ice_loopback ? "Unable to bind WebRTC to loopback."
+                failure = ice_loopback ? "Unable to bind WebRTC to loopback: no ICE agent."
                                        : "Unable to apply the media port range.";
         }
         g_signal_connect(
@@ -1642,6 +1643,13 @@ int main(int argc, char **argv) {
         // Refuse anything unknown rather than fall back to every interface.
         if (std::string(bind) != "loopback") {
             std::cerr << "Invalid VIDVNC_ICE_BIND" << std::endl;
+            return 2;
+        }
+        // libnice turns "127.0.0.1" into an address with getaddrinfo, which fails on Windows
+        // until Winsock is started; nothing else has started it before the first peer.
+        WSADATA winsock;
+        if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0) {
+            std::cerr << "Unable to start Winsock" << std::endl;
             return 2;
         }
         ice_loopback = true;
