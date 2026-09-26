@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mediaPortsEnvironment } from '../src/native-media.mjs';
+import { iceBindEnvironment, mediaPortsEnvironment } from '../src/native-media.mjs';
 import { validMediaPorts } from '../src/access-settings.mjs';
 
 test('the worker gets the port range as VIDVNC_ICE_PORTS, and nothing when it is automatic', () => {
@@ -24,4 +24,10 @@ test('a media port range is 8 to 1000 unprivileged ports', () => {
     undefined,
   ])
     assert.equal(validMediaPorts(value), false, JSON.stringify(value));
+});
+
+test('the worker is told to gather on loopback only when the relay carries its traffic', () => {
+  assert.deepEqual(iceBindEnvironment('loopback'), { VIDVNC_ICE_BIND: 'loopback' });
+  assert.deepEqual(iceBindEnvironment(null), {});
+  assert.throws(() => iceBindEnvironment('any'), /Invalid ICE bind/);
 });

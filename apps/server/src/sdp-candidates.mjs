@@ -103,3 +103,140 @@ export async function publicIpv4Addresses(names, { resolve = lookup, timeoutMs =
   }
   return [...new Set(found)].filter((address) => !isPrivateAddress(address));
 }
+
+// --- Media relay (design: docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-
+// split-design.md). With the relay, the worker gathers on 127.0.0.1 only and learns clients
+// solely from their authenticated checks through the relay.
+
+const ICE_CREDENTIAL = /^[A-Za-z0-9+/]+$/;
+const MAX_ANSWER_BYTES = 65536;
+// Lines a worker answer may contain. Anything else fails the peer, so a worker (and, once
+// the network process is sandboxed, a compromised one) cannot smuggle unexpected SDP to the
+// browser.
+const ANSWER_LINE = /^(v=0|o=|s=|t=|c=|b=|m=)/;
+const ANSWER_ATTRIBUTES = new Set([
+  'group',
+  'msid-semantic',
+  'mid',
+  'ice-ufrag',
+  'ice-pwd',
+  'ice-options',
+  'fingerprint',
+  'setup',
+  'sendrecv',
+  'sendonly',
+  'recvonly',
+  'inactive',
+  'rtcp',
+  'rtcp-mux',
+  'rtcp-rsize',
+  'rtpmap',
+  'fmtp',
+  'rtcp-fb',
+  'ssrc',
+  'ssrc-group',
+  'msid',
+  'extmap',
+  'sctp-port',
+  'sctpmap',
+  'max-message-size',
+  'candidate',
+  'end-of-candidates',
+]);
+
+// The client's offer with every candidate removed, so the worker sends connectivity checks
+// to nobody and learns the client only through the relay. The ICE credentials stay.
+export function stripOfferCandidates(sdp) {
+  return sdp
+    .split(/\r\n/)
+    .filter((line) => !line.startsWith('a=candidate:'))
+    .join('\r\n');
+}
+
+// The ICE username fragment and password of a description (session or first media level).
+export function iceCredentials(sdp) {
+  const value = (name) =>
+    sdp
+      .split(/\r\n/)
+      .find((line) => line.startsWith(`a=${name}:`))
+      ?.slice(name.length + 3);
+  const ufrag = value('ice-ufrag');
+  const pwd = value('ice-pwd');
+  if (
+    typeof ufrag !== 'string' ||
+    typeof pwd !== 'string' ||
+    ufrag.length < 4 ||
+    ufrag.length > 256 ||
+    pwd.length < 22 ||
+    pwd.length > 256 ||
+    !ICE_CREDENTIAL.test(ufrag) ||
+    !ICE_CREDENTIAL.test(pwd)
+  )
+    throw new Error('Invalid ICE credentials');
+  return { ufrag, pwd };
+}
+
+// Checks a worker answer for relay mode and returns its credentials and loopback port.
+// It must hold exactly one candidate: UDP, component 1, 127.0.0.1, host.
+export function validateRelayAnswer(sdp) {
+  if (typeof sdp !== 'string' || Buffer.byteLength(sdp) > MAX_ANSWER_BYTES)
+    throw new Error('Invalid answer: size');
+  const lines = sdp.split(/\r\n/);
+  if (lines.at(-1) === '') lines.pop();
+  const candidates = [];
+  for (const line of lines) {
+    if (ANSWER_LINE.test(line)) continue;
+    const attribute = /^a=([a-z0-9-]+)(?::|$)/i.exec(line)?.[1]?.toLowerCase();
+    if (!attribute || !ANSWER_ATTRIBUTES.has(attribute))
+      throw new Error(`Invalid answer: unexpected line ${JSON.stringify(line.slice(0, 40))}`);
+    if (attribute === 'candidate') candidates.push(line);
+  }
+  if (candidates.length !== 1) throw new Error('Invalid answer: expected one candidate');
+  const match =
+    /^a=candidate:(\S+) 1 udp (\d+) 127\.0\.0\.1 (\d+) typ host(?: generation \d+)?$/i.exec(
+      candidates[0],
+    );
+  const port = match ? Number(match[3]) : NaN;
+  if (!match || port < 1024 || port > 65535)
+    throw new Error('Invalid answer: candidate is not a loopback UDP host candidate');
+  return { ...iceCredentials(sdp), port };
+}
+
+// Replaces the worker's loopback candidate with the relay's addresses on the media port.
+// `addresses` are what this client can reach: the public addresses for an internet client,
+// the address it used for HTTPS for everyone else.
+export function announceRelay(sdp, addresses, mediaPort) {
+  const usable = [...new Set(addresses.map((address) => address.split('%')[0]))].filter(
+    (address) => isIP(address) !== 0,
+  );
+  if (!usable.length) throw new Error('No address to announce for the media relay');
+  const ordered = [
+    ...usable.filter((address) => isIP(address) === 4),
+    ...usable.filter((address) => isIP(address) === 6),
+  ];
+  const first = ordered[0];
+  const family = isIP(first) === 6 ? 'IP6' : 'IP4';
+  const out = [];
+  for (const line of sdp.split(/\r\n/)) {
+    if (line.startsWith('c=')) {
+      out.push(`c=IN ${family} ${first}`);
+      continue;
+    }
+    if (line.startsWith('a=rtcp:')) {
+      out.push(`a=rtcp:${mediaPort} IN ${family} ${first}`);
+      continue;
+    }
+    const match = /^a=candidate:(\S+) (\d+) (udp) (\d+) 127\.0\.0\.1 \d+ typ host(.*)$/i.exec(line);
+    if (!match) {
+      out.push(line);
+      continue;
+    }
+    const [, foundation, component, transport, priority, rest] = match;
+    ordered.forEach((address, index) =>
+      out.push(
+        `a=candidate:${foundation}r${index} ${component} ${transport} ${Number(priority) - index} ${address} ${mediaPort} typ host${rest}`,
+      ),
+    );
+  }
+  return out.join('\r\n');
+}

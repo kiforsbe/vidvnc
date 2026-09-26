@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceCandidates, publicIpv4Addresses } from '../src/sdp-candidates.mjs';
+import {
+  announceCandidates,
+  announceRelay,
+  iceCredentials,
+  publicIpv4Addresses,
+  stripOfferCandidates,
+  validateRelayAnswer,
+} from '../src/sdp-candidates.mjs';
 
 const answer = [
   'v=0',
@@ -93,4 +100,93 @@ test('an internet client offer keeps only candidates on public addresses', async
   );
   assert.ok(filtered.includes('c=IN IP4 0.0.0.0'));
   assert.ok(filtered.includes('a=end-of-candidates'));
+});
+
+// --- Media relay helpers.
+
+const relayAnswer = [
+  'v=0',
+  'o=- 4611731400430051336 0 IN IP4 0.0.0.0',
+  's=-',
+  't=0 0',
+  'a=group:BUNDLE video0',
+  'a=ice-options:trickle',
+  'm=video 9 UDP/TLS/RTP/SAVPF 96',
+  'c=IN IP4 127.0.0.1',
+  'a=rtcp:9 IN IP4 127.0.0.1',
+  'a=mid:video0',
+  'a=sendonly',
+  'a=rtcp-mux',
+  'a=ice-ufrag:WkR1',
+  'a=ice-pwd:0123456789abcdefghijklmn',
+  'a=setup:active',
+  'a=fingerprint:sha-256 AA:BB',
+  'a=rtpmap:96 H264/90000',
+  'a=rtcp-fb:96 nack pli',
+  'a=ssrc:10000001 msid:user1 video0',
+  'a=candidate:1 1 UDP 2015363327 127.0.0.1 51234 typ host',
+  'a=end-of-candidates',
+  '',
+].join('\r\n');
+
+test('offers lose every candidate but keep their ICE credentials', () => {
+  const offer = [
+    'v=0',
+    'a=ice-ufrag:Cli3',
+    'a=ice-pwd:abcdefghijklmnopqrstuvwx',
+    'a=candidate:1 1 udp 2122260223 192.168.1.30 55000 typ host',
+    'a=candidate:2 1 udp 2122260223 abc.local 55001 typ host',
+    'a=end-of-candidates',
+  ].join('\r\n');
+  const stripped = stripOfferCandidates(offer);
+  assert.equal(stripped.includes('a=candidate'), false);
+  assert.deepEqual(iceCredentials(stripped), {
+    ufrag: 'Cli3',
+    pwd: 'abcdefghijklmnopqrstuvwx',
+  });
+});
+
+test('a relay-mode answer yields its credentials and loopback port', () => {
+  assert.deepEqual(validateRelayAnswer(relayAnswer), {
+    ufrag: 'WkR1',
+    pwd: '0123456789abcdefghijklmn',
+    port: 51234,
+  });
+});
+
+test('answers with other candidates, extra candidates or unexpected lines are refused', () => {
+  const swap = (from, to) => relayAnswer.replace(from, to);
+  for (const bad of [
+    swap('127.0.0.1 51234', '192.168.1.20 51234'),
+    swap(' UDP ', ' TCP '),
+    swap('typ host', 'typ srflx raddr 0.0.0.0 rport 0'),
+    swap('127.0.0.1 51234', '127.0.0.1 80'),
+    swap(
+      'a=end-of-candidates',
+      'a=candidate:2 1 UDP 2015363327 127.0.0.1 51235 typ host\r\na=end-of-candidates',
+    ),
+    swap('a=end-of-candidates', 'a=x-injected:1'),
+    swap('a=ice-pwd:0123456789abcdefghijklmn', 'a=ice-pwd:short'),
+    relayAnswer + 'x'.repeat(70000),
+  ])
+    assert.throws(() => validateRelayAnswer(bad));
+});
+
+test('the relay address replaces the loopback candidate for each client', () => {
+  const internet = announceRelay(relayAnswer, ['203.0.113.10', '2001:db8::5'], 4384);
+  assert.equal(internet.includes('127.0.0.1'), false);
+  assert.deepEqual(
+    internet.split('\r\n').filter((line) => line.startsWith('a=candidate:')),
+    [
+      'a=candidate:1r0 1 UDP 2015363327 203.0.113.10 4384 typ host',
+      'a=candidate:1r1 1 UDP 2015363326 2001:db8::5 4384 typ host',
+    ],
+  );
+  assert.ok(internet.includes('c=IN IP4 203.0.113.10'));
+  assert.ok(internet.includes('a=ice-ufrag:WkR1'));
+
+  const lan = announceRelay(relayAnswer, ['fd00::20%12'], 4384);
+  assert.ok(lan.includes('a=candidate:1r0 1 UDP 2015363327 fd00::20 4384 typ host'));
+  assert.ok(lan.includes('c=IN IP6 fd00::20'));
+  assert.throws(() => announceRelay(relayAnswer, ['not-an-address'], 4384));
 });

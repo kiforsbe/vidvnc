@@ -190,6 +190,10 @@ static std::ofstream error_log;
 // Fixed ICE port range from VIDVNC_ICE_PORTS, so a router can forward it; unset, the system
 // picks any free port.
 static std::optional<IcePorts> ice_ports;
+// VIDVNC_ICE_BIND=loopback: gather on 127.0.0.1 only, for the authenticating media relay
+// (docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md). The
+// worker is then unreachable from the network; clients arrive only through the relay.
+static bool ice_loopback = false;
 static std::atomic<bool> shutdown_started{false};
 // Losing the server's pipe must also stop a worker whose GStreamer thread is
 // blocked. Attempt orderly cleanup first; the deadline kills only this process.
@@ -1252,22 +1256,30 @@ static void add_peer(const std::string &id, const std::string &text) {
     else {
         g_object_set(peer.webrtc, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "latency",
                      0, nullptr);
-        if (ice_ports) {
-            // GstWebRTCICE's min-rtp-port/max-rtp-port (GStreamer 1.20+) bound the host
-            // candidates this peer allocates.
+        if (ice_ports || ice_loopback) {
             GstWebRTCICE *ice = nullptr;
             g_object_get(peer.webrtc, "ice-agent", &ice, nullptr);
             if (ice) {
-                g_object_set(ice, "min-rtp-port", ice_ports->min, "max-rtp-port", ice_ports->max,
-                             nullptr);
-                // A fixed range is for forwarding to the internet: offer UDP only, so the
-                // forwarded ports expose one transport's parser instead of two. Older
-                // GStreamer without the property keeps its default.
+                // GstWebRTCICE's min-rtp-port/max-rtp-port (GStreamer 1.20+) bound the host
+                // candidates this peer allocates.
+                if (ice_ports)
+                    g_object_set(ice, "min-rtp-port", ice_ports->min, "max-rtp-port",
+                                 ice_ports->max, nullptr);
+                // Adding a local address stops automatic interface discovery, so the peer
+                // gathers on loopback alone.
+                gboolean added = FALSE;
+                if (ice_loopback)
+                    g_signal_emit_by_name(ice, "add-local-ip-address", "127.0.0.1", &added);
+                // Offer UDP only, so a reachable port exposes one transport's parser instead
+                // of two. Older GStreamer without the property keeps its default.
                 if (g_object_class_find_property(G_OBJECT_GET_CLASS(ice), "ice-tcp"))
                     g_object_set(ice, "ice-tcp", FALSE, nullptr);
                 gst_object_unref(ice);
+                if (ice_loopback && !added)
+                    failure = "Unable to bind WebRTC to loopback.";
             } else
-                failure = "Unable to apply the media port range.";
+                failure = ice_loopback ? "Unable to bind WebRTC to loopback."
+                                       : "Unable to apply the media port range.";
         }
         g_signal_connect(
             peer.webrtc, "on-new-transceiver",
@@ -1625,6 +1637,14 @@ int main(int argc, char **argv) {
             std::cerr << "Invalid VIDVNC_ICE_PORTS" << std::endl;
             return 2;
         }
+    }
+    if (const char *bind = g_getenv("VIDVNC_ICE_BIND")) {
+        // Refuse anything unknown rather than fall back to every interface.
+        if (std::string(bind) != "loopback") {
+            std::cerr << "Invalid VIDVNC_ICE_BIND" << std::endl;
+            return 2;
+        }
+        ice_loopback = true;
     }
     try {
         if (argc == 2 && std::string(argv[1]) == "--list-displays") {

@@ -38,6 +38,14 @@ export function mediaPortsEnvironment(range) {
   return range ? { VIDVNC_ICE_PORTS: `${range.min}-${range.max}` } : {};
 }
 
+// VIDVNC_ICE_BIND=loopback makes the worker gather on 127.0.0.1 only, for the authenticating
+// media relay; absent, it gathers on every interface.
+export function iceBindEnvironment(bind) {
+  if (bind === null || bind === undefined) return {};
+  if (bind !== 'loopback') throw new Error('Invalid ICE bind');
+  return { VIDVNC_ICE_BIND: bind };
+}
+
 // One worker per source (a capture/encode or an audio mix); each viewer is a peer inside it.
 export class NativeMedia {
   constructor({
@@ -53,9 +61,15 @@ export class NativeMedia {
     // The media port range (access-settings.mjs `mediaPorts`), read when each worker starts,
     // so a change applies to new streams without a restart.
     mediaPorts = () => null,
+    // 'loopback' while the media relay carries every viewer's traffic; null otherwise.
+    iceBind = () => null,
     launch = () =>
       spawn(executable, ['--session'], {
-        env: { ...workerEnvironment(), ...mediaPortsEnvironment(mediaPorts()) },
+        env: {
+          ...workerEnvironment(),
+          ...mediaPortsEnvironment(mediaPorts()),
+          ...iceBindEnvironment(iceBind()),
+        },
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       }),
