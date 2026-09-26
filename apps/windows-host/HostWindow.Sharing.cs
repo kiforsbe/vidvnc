@@ -338,6 +338,8 @@ public sealed partial class HostWindow
         content.Children.Add(header);
         if (sharingNotice is not null) content.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
             Severity = InfoBarSeverity.Warning, Message = sharingNotice });
+        if (server is not null && mediaUnavailable is not null) content.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+            Severity = InfoBarSeverity.Error, Message = $"Media is unavailable: {mediaUnavailable}" });
         if (remoteAccess && sharing) content.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
             Severity = InfoBarSeverity.Warning, Title = "Check the source address once",
             Message = "Connect from a phone on mobile data and open Sessions. It must show a public address, not your router's. If it shows the router, your router rewrites forwarded connections: fix its port forwarding or use a VPN instead." });

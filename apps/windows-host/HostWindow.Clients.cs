@@ -22,6 +22,21 @@ public sealed partial class HostWindow
     bool sessionPasswordLocked;
     Action? refreshConnectionDialog;
 
+    // Why media is unavailable (the media relay could not listen), or null while it works.
+    string? mediaUnavailable;
+
+    void UpdateRelayStatus(JsonElement status)
+    {
+        string? next = null;
+        if (status.TryGetProperty("relay", out var relay) && relay.ValueKind == JsonValueKind.Object &&
+            relay.TryGetProperty("state", out var state) && state.GetString() == "unavailable")
+            next = relay.TryGetProperty("reason", out var reason) && reason.ValueKind == JsonValueKind.String
+                ? reason.GetString() : "The media relay is not running.";
+        if (next == mediaUnavailable) return;
+        mediaUnavailable = next;
+        if (currentPage is "Overview" or "Access" or "Settings") RenderPage();
+    }
+
     void UpdateCodeStatus(JsonElement status)
     {
         if (!status.TryGetProperty("codes", out var codes)) return;

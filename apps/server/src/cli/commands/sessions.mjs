@@ -1,5 +1,5 @@
 import { capitalize, expectArguments } from '../arguments.mjs';
-import { formatSessions } from '../format.mjs';
+import { formatRelay, formatSessions } from '../format.mjs';
 import { resolveSession } from '../resolve.mjs';
 
 const findSession = (context, selector) =>
@@ -15,6 +15,18 @@ export const sessionCommands = [
     run: (context, { positionals }) => {
       expectArguments(positionals, 0);
       return { text: formatSessions(context.sessions.status(), context.sessions.numbers) };
+    },
+  },
+  {
+    name: 'media-relay',
+    usage: 'media-relay',
+    summary: 'Show the media relay: its port, authenticated media paths and dropped datagrams.',
+    where: 'live',
+    json: true,
+    run: (context, { positionals }) => {
+      expectArguments(positionals, 0);
+      const relay = context.sessions.status().relay;
+      return { text: formatRelay(relay), data: relay };
     },
   },
   {

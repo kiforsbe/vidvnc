@@ -8,6 +8,7 @@ import { peerSample } from './media-sample.mjs';
 import { selectVideoCodec } from './video-codecs.mjs';
 import { selectEncoderBackend } from './encoder-backends.mjs';
 import { effectivePermission } from './approved-client-permission.mjs';
+import { sourceGroup } from './peer-network.mjs';
 import {
   announceRelay,
   iceCredentials,
@@ -230,6 +231,7 @@ export class StreamRuntime {
           // What the worker actually chose, not what policy asked for: the two differ when a
           // named backend is absent and the worker substitutes one.
           encoder: this.media.encoder?.(stream.sourceId) ?? null,
+          ...this.#mediaPath(stream.id, session.clientKey),
         };
       });
       row.health =
@@ -247,6 +249,7 @@ export class StreamRuntime {
         primaryDisplayOnly: false,
         hostControl: true,
       },
+      relay: this.relay?.status() ?? null,
       // Host-facing only. Which GPU encodes is the host's business; no client ever sees this.
       encoders: {
         available: this.videoBackends.map(({ id, label, codecs }) => ({ id, label, codecs })),
@@ -369,6 +372,18 @@ export class StreamRuntime {
     });
     this.relayPaths.set(streamId, { https: clientHint, media: null });
     return announceRelay(answer, addresses, this.relay.port);
+  }
+  // Where a stream's media comes from, as the relay authenticated it, and whether that
+  // differs from the address the device signed in from (allowed: iCloud Private Relay and
+  // carrier-grade NAT do it).
+  #mediaPath(streamId, httpsAddress) {
+    const media = this.relayPaths.get(streamId)?.media ?? null;
+    if (!media) return { mediaAddress: null, mediaDiffers: false };
+    const host = media.startsWith('[') ? media.slice(1, media.indexOf(']')) : media.split(':')[0];
+    return {
+      mediaAddress: media,
+      mediaDiffers: sourceGroup(host) !== sourceGroup(httpsAddress),
+    };
   }
   // Relay events for a stream: a media path authenticated or ended, or nobody authenticated
   // in time (the stream then fails).

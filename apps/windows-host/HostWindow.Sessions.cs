@@ -104,7 +104,7 @@ public sealed partial class HostWindow
     sealed class StreamVisual
     {
         public readonly Grid Root = new() { ColumnSpacing = 20, Padding = new Thickness(0, 8, 0, 8) };
-        readonly TextBlock name = Label("", 16), resolution = Label(""), fps = Label(""), profile = Label(""), codec = Label(""), encoder = Label("");
+        readonly TextBlock name = Label("", 16), resolution = Label(""), fps = Label(""), profile = Label(""), codec = Label(""), encoder = Label(""), mediaPath = Label("");
         readonly TextBlock shared = new() { FontSize = 12, Visibility = Visibility.Collapsed };
         readonly SessionGraph graph = new();
         public StreamVisual(string? id, Func<string, string?, Task> command)
@@ -129,7 +129,9 @@ public sealed partial class HostWindow
             }
             var encoderRow = new StackPanel { Spacing = HostSpacing.Small };
             encoderRow.Children.Add(Label("Encoder", 12)); encoderRow.Children.Add(encoder);
-            content.Children.Add(values); content.Children.Add(encoderRow); Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
+            var mediaRow = new StackPanel { Spacing = HostSpacing.Small };
+            mediaRow.Children.Add(Label("Media from", 12)); mediaRow.Children.Add(mediaPath);
+            content.Children.Add(values); content.Children.Add(encoderRow); content.Children.Add(mediaRow); Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
             Root.SizeChanged += (_, _) => {
                 var narrow = Root.ActualWidth < 580;
                 Grid.SetColumn(graph, narrow ? 0 : 1); Grid.SetRow(graph, narrow ? 1 : 0);
@@ -173,6 +175,12 @@ public sealed partial class HostWindow
                 ? (encoderValue.TryGetProperty("label", out var label) ? label.GetString() : null) ?? "Unknown"
                 : "Waiting for worker";
             encoder.Text = encoderLabel;
+            // The authenticated media path through the relay; it can differ from the HTTPS address
+            // (iCloud Private Relay, carrier-grade NAT), which is allowed but shown.
+            var media = row.TryGetProperty("mediaAddress", out var mediaValue) && mediaValue.ValueKind == JsonValueKind.String
+                ? mediaValue.GetString() : null;
+            var differs = row.TryGetProperty("mediaDiffers", out var differsValue) && differsValue.ValueKind == JsonValueKind.True;
+            mediaPath.Text = media is null ? "Waiting for the device" : differs ? $"{media} (differs from the sign-in address)" : media;
             // One capture/encode serves every device on the same display and profile.
             var viewers = row.TryGetProperty("viewers", out var count) && count.ValueKind == JsonValueKind.Number ? count.GetInt32() : 1;
             shared.Text = viewers > 1 ? $"Shared · {viewers} devices" : "";

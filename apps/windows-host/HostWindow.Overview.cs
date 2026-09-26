@@ -50,6 +50,8 @@ public sealed partial class HostWindow
         page.Children.Add(Secondary("Your desktop, ready to share", 16));
         if (sharingNotice is not null) page.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
             Severity = InfoBarSeverity.Warning, Message = sharingNotice });
+        if (server is not null && mediaUnavailable is not null) page.Children.Add(new InfoBar { IsOpen = true, IsClosable = false,
+            Severity = InfoBarSeverity.Error, Title = "No picture or sound", Message = $"Devices can sign in, but media is unavailable: {mediaUnavailable}" });
         var host = new StackPanel { Spacing = 8 };
         var name = Label(Environment.MachineName, 24); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         host.Children.Add(name);

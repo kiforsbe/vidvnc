@@ -295,10 +295,45 @@ export function formatSessions(status, numbers) {
           stream.viewers > 1 ? `×${stream.viewers}` : '',
         ]),
       );
-      return `${header}\n${streams
-        .split('\n')
-        .map((line) => `    ${line}`)
-        .join('\n')}`;
+      // The relay-authenticated media path, once there is one; it may differ from the
+      // sign-in address (iCloud Private Relay, carrier-grade NAT).
+      const paths = row.streams
+        .filter((stream) => stream.mediaAddress)
+        .map(
+          (stream) =>
+            `${stream.id} media from ${clean(stream.mediaAddress)}${stream.mediaDiffers ? ' (differs from the sign-in address)' : ''}`,
+        );
+      return `${header}\n${[...streams.split('\n'), ...paths].map((line) => `    ${line}`).join('\n')}`;
     })
     .join('\n');
+}
+
+// The media relay's state (media-relay.mjs `status()`), for the media-relay command.
+export function formatRelay(relay) {
+  if (!relay) return 'Media relay: not running.';
+  const state =
+    relay.state === 'listening'
+      ? `listening on UDP ${relay.port} (${relay.families.join(', ')})`
+      : relay.state === 'unavailable'
+        ? `unavailable: ${relay.reason}`
+        : relay.state;
+  const lines = [`Media relay: ${state}`];
+  const metrics = relay.metrics;
+  if (metrics) {
+    lines.push(
+      `Streams registered: ${metrics.registrations} · authenticated media paths: ${metrics.pins}`,
+      `Forwarded: ${metrics.forwarded.toWorker.packets} datagrams in, ${metrics.forwarded.toClient.packets} out`,
+    );
+    const dropped = Object.entries(metrics.dropped).filter(([, count]) => count > 0);
+    lines.push(
+      dropped.length
+        ? `Dropped: ${dropped.map(([reason, count]) => `${reason} ${count}`).join(', ')}`
+        : 'Dropped: none',
+    );
+    if (metrics.addressDiffers)
+      lines.push(
+        `Media from a different address than sign-in: ${metrics.addressDiffers} (allowed; iCloud Private Relay and carrier NAT do this)`,
+      );
+  }
+  return lines.join('\n');
 }
