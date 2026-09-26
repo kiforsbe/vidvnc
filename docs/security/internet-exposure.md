@@ -311,7 +311,9 @@ inject input. ICE-TCP is off whenever a range is set, so only the UDP parser is 
 
 The design options for closing R4 without a third party (an authenticating relay, a
 privilege split, media over HTTPS, a memory-safe ICE stack, firewall and router
-configuration) are compared in [R4 hardening: design options](r4-hardening-options.md).
+configuration) are compared in [R4 hardening: design options](r4-hardening-options.md),
+which proposes an authenticating relay and install-time firewall rules first, then a
+privilege split ([recommendation](r4-hardening-options.md#recommendation)).
 
 ### R2: the boundary trusts the source address (contained, conditional)
 

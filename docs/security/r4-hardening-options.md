@@ -1,10 +1,11 @@
 # R4 hardening: design options
 
-**Status: options for selection, 2026-09-26.** Nothing here is decided or implemented. This
-document collects the analysis needed to choose a design for finding
+**Status: options and a proposed recommendation, 2026-09-26.** Nothing here is decided or
+implemented. This document collects the analysis needed to choose a design for finding
 [R4](internet-exposure.md#r4-native-parsing-is-reachable-before-authentication-on-the-media-ports-open-reduced)
 (native parsing reachable before authentication on the media ports). The next step is to
-pick options from the [decision points](#decision-points) and write a dated spec and plan.
+confirm or change the [recommendation](#recommendation) against the
+[decision points](#decision-points), then write a dated spec and plan.
 
 Constraint for every option: **no third-party service or operator** (no hosted relay, no
 cloud TURN, no external scanner). Bundled open-source code is allowed but is called out
@@ -27,6 +28,7 @@ relying on them.
 - [Option F: host firewall configuration](#option-f-host-firewall-configuration)
 - [Option G: automatic router configuration](#option-g-automatic-router-configuration)
 - [How the options combine](#how-the-options-combine)
+- [Recommendation](#recommendation)
 - [Decision points](#decision-points)
 - [Open questions to prototype](#open-questions-to-prototype)
 - [Sources](#sources)
@@ -330,6 +332,32 @@ A layered selection keeps each layer honest about what it guarantees: A is the
 authentication gate, B limits the damage, F1 removes needless exposure, D shrinks the
 parser risk over time, G is convenience.
 
+## Recommendation
+
+Proposed, not yet decided. Build in this order:
+
+| Order | Option                                     | Decision                                                  | Why                                                                                                                                                                                  |
+| ----- | ------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | **A** Authenticating UDP relay             | **Do first**, as a separate process, in remote mode first | The only option that stops unauthenticated internet senders reaching the C parser, with no browser change, no administrator rights and no router dependency, and VidVNC can check it |
+| 2     | **F1** Install-time firewall rules         | **Do** alongside A                                        | Cheap. Once the worker listens on loopback it needs no inbound rule, which removes the broad "allow this app" permission                                                             |
+| 3     | **B** Privilege split                      | **Do next**                                               | Limits what an exploit in network-facing code can do, on the LAN as well as the internet. More work: the pipeline is split across processes                                          |
+| 4     | **D** Memory-safe ICE (`webrtcbin2`)       | **Track**; evaluate when feature parity is known          | Shrinks the parser risk without changing the architecture, but it is new and its feature coverage for VidVNC is unknown                                                              |
+| 5     | **G** Automatic router configuration       | **Keep manual** for now; opt-in convenience at most later | Per-client filtering is unreliable (error 726 on many routers, PCP FILTER not enforced by miniupnpd), VidVNC cannot verify it, and it needs UPnP enabled                             |
+| 6     | **C** Media over HTTPS                     | **Park** as a possible fallback for UDP-blocked networks  | Removes the media ports but means rewriting the player; WebSocket stalls on lossy links and WebTransport needs a new HTTP/3 stack                                                    |
+| —     | **E** ICE-TCP on the HTTPS port            | **Don't**                                                 | Fewer ports but the same pre-authentication parsing, plus TCP head-of-line blocking                                                                                                  |
+| —     | **F2/F3** Per-client firewall via a helper | **Don't**, unless OS-enforced address filtering is wanted | Needs a new privileged service, and filtering by address is weaker than A's password check                                                                                           |
+
+**Gate before committing to A:** a prototype must show that `webrtcbin` completes ICE and DTLS
+when the peer's packets arrive through a loopback relay while the answer advertises the
+public address, and measure the latency and jitter the relay adds (see
+[open questions](#open-questions-to-prototype)). If either fails, revisit decision point 1:
+the fallback is B plus D, with C for the longer term.
+
+**What R4 becomes after steps 1–3:** unauthenticated senders reach only the relay's small,
+memory-safe STUN check, in a process with no input rights; libnice sees only peers that hold
+the session's ICE password; and an exploit in the network process can no longer inject input
+directly. R4 could then be recorded as mitigated, with the relay's parser as the residual.
+
 ## Decision points
 
 1. **Primary exposure control:** Option A (relay), Option C (no media ports), or accept the
@@ -345,8 +373,7 @@ parser risk over time, G is convenience.
 7. **ICE stack** (D): track `webrtcbin2` and evaluate once feature parity is known?
 8. **Fallback transport** (C1): worth adding for UDP-blocked networks, independent of R4?
 
-A possible default, for discussion: **A** (separate process, remote mode first) + **F1**, then
-**B**, track **D**, keep **G** manual-only for now, and park **C** as a future fallback.
+The [recommendation](#recommendation) above answers each of these; confirm or change it.
 
 ## Open questions to prototype
 
