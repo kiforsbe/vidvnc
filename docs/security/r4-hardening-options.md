@@ -3,11 +3,11 @@
 **Status: options, recommendation and selection, 2026-09-26.** Options **A**, **F1** and **B**
 were selected on 2026-09-26; their design is
 [R4: authenticating media relay, firewall rules and privilege split](../superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md).
-Nothing here is implemented yet. This document collects the analysis needed to choose a design for finding
+The design review then decided to route **every** session through the relay, LAN included,
+rather than remote access first as recommended below (decision point 3). Nothing here is
+implemented yet. This document collects the analysis that led to that choice for finding
 [R4](internet-exposure.md#r4-native-parsing-is-reachable-before-authentication-on-the-media-ports-open-reduced)
-(native parsing reachable before authentication on the media ports). The next step is to
-confirm or change the [recommendation](#recommendation) against the
-[decision points](#decision-points), then write a dated spec and plan.
+(native parsing reachable before authentication on the media ports).
 
 Constraint for every option: **no third-party service or operator** (no hosted relay, no
 cloud TURN, no external scanner). Bundled open-source code is allowed but is called out
