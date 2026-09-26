@@ -1278,7 +1278,13 @@ Existing opt-in browser checks require an installed Playwright module path:
 ```powershell
 node apps/web-client/tests/toolbar-browser-check.mjs C:\path\to\playwright
 node tests/system/browser-media-check.mjs C:\path\to\playwright iphone-720p-test
+node native/media-worker/tests/relay-check.mjs C:\path\to\playwright
 ```
+
+`relay-check.mjs` is the prototype check for the planned authenticating media relay (gates P1
+and P2 of the [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md)):
+it runs the relay core and a loopback-only worker (`VIDVNC_ICE_BIND=loopback`) against
+headless Chromium and reports each gate question. The relay is not yet part of the product.
 
 The second captures the real desktop and requires Windows and a hardware encoder.
 Chromium with an
