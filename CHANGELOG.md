@@ -29,8 +29,8 @@ may include breaking changes.
   Clients page still needs the host, and after you revoke a device's control it cannot take
   it again until it reconnects.
 - Sessions in the VidVNC app shows each stream's details in a compact row, Profile first,
-  with Encoder and Media from beneath, so a long profile name no longer wraps into a narrow
-  column.
+  with Encoder beneath Profile and Media from beneath Resolution, so a long profile name no
+  longer wraps into a narrow column.
 - All media, on the local network and from the internet, now goes through VidVNC's media relay
   on one UDP port (4384 by default) instead of ports the media worker opened for each viewer.
   The relay answers only devices that prove they belong to a stream they were just given, and

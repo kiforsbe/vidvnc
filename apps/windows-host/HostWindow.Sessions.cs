@@ -120,10 +120,11 @@ public sealed partial class HostWindow
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(stop, "Stop stream"); ToolTipService.SetToolTip(stop, "Stop stream");
             stop.Click += async (_, _) => { stop.IsEnabled = false; try { await command("stop-stream", id); } finally { stop.IsEnabled = id is not null; } };
             Grid.SetColumn(stop, 1); header.Children.Add(stop); content.Children.Add(header); content.Children.Add(shared);
-            // One compact row, Profile first: the other three values are short, so they size to
-            // their content and the profile name gets the rest instead of a quarter of the width.
-            // Encoder and the media address share a second row of their own, so a long (IPv6)
-            // address never widens the first.
+            // One grid, so the rows share columns: Profile, then Resolution, Target FPS and Codec,
+            // which size to their content while the profile name gets the rest. Beneath, Encoder
+            // sits under Profile and Media from under Resolution, spanning to the end. The media
+            // cell is capped at the width of those three columns, so a long (IPv6) address wraps
+            // instead of widening them.
             static StackPanel Cell(string label, TextBlock value)
             {
                 value.TextWrapping = TextWrapping.Wrap;
@@ -131,20 +132,29 @@ public sealed partial class HostWindow
                 cell.Children.Add(Label(label, 12)); cell.Children.Add(value);
                 return cell;
             }
-            static Grid Row(params (StackPanel Cell, GridLength Width)[] cells)
+            const double valueSpacing = 16;
+            var values = new Grid { ColumnSpacing = valueSpacing, RowSpacing = HostSpacing.Related };
+            values.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+            for (var column = 1; column < 4; column++) values.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            values.RowDefinitions.Add(new() { Height = GridLength.Auto }); values.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            var media = Cell("Media from", mediaPath);
+            media.MaxWidth = 160;
+            foreach (var (cell, row, column, span) in new[] {
+                (Cell("Profile", profile), 0, 0, 1), (Cell("Resolution", resolution), 0, 1, 1),
+                (Cell("Target FPS", fps), 0, 2, 1), (Cell("Codec", codec), 0, 3, 1),
+                (Cell("Encoder", encoder), 1, 0, 1), (media, 1, 1, 3) })
             {
-                var grid = new Grid { ColumnSpacing = 16 };
-                foreach (var (cell, width) in cells)
-                {
-                    Grid.SetColumn(cell, grid.ColumnDefinitions.Count);
-                    grid.ColumnDefinitions.Add(new() { Width = width }); grid.Children.Add(cell);
-                }
-                return grid;
+                Grid.SetRow(cell, row); Grid.SetColumn(cell, column); Grid.SetColumnSpan(cell, span);
+                values.Children.Add(cell);
             }
-            var star = new GridLength(1, GridUnitType.Star);
-            content.Children.Add(Row((Cell("Profile", profile), star), (Cell("Resolution", resolution), GridLength.Auto),
-                (Cell("Target FPS", fps), GridLength.Auto), (Cell("Codec", codec), GridLength.Auto)));
-            content.Children.Add(Row((Cell("Encoder", encoder), star), (Cell("Media from", mediaPath), star)));
+            // After any layout pass: the columns change when their values do, not only when the
+            // card resizes. The cap never widens the columns, so this settles after one pass.
+            values.LayoutUpdated += (_, _) =>
+            {
+                var width = values.ColumnDefinitions.Skip(1).Sum(column => column.ActualWidth) + 2 * valueSpacing;
+                if (width > 0 && Math.Abs(media.MaxWidth - width) > 0.5) media.MaxWidth = width;
+            };
+            content.Children.Add(values);
             Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
             Root.SizeChanged += (_, _) => {
                 var narrow = Root.ActualWidth < 580;
