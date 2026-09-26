@@ -241,6 +241,15 @@ blocking I/O on dedicated threads instead of overlapped I/O (the main loop still
 waits on a pipe); `ready` is held until media-net reports `net-ready`, and viewers that
 arrive before then wait in the worker; capture starts at the first answer.
 
+Windows, 2026-09-26, owner's machine: the MSVC build is clean; `npm run test:hardware` 18/18
+(the worker session tests start media-net and hand it a viewer). `relay-check.mjs --video`
+passed through the relay and media-net: 2 peers at 1080p60, ICE and DTLS complete, every
+worker UDP socket on 127.0.0.1, 23,207 packets received and 0 lost; time inside the relay p95
+0.034 ms. The mean ICE round trip was 3.20 ms over 15 checks (1.37 ms over 52 in the phase 0
+run); ICE checks do not cross the new pipes, so this is likely noise, to be watched. Not yet
+checked: the host app with a real browser and an iPhone, input through the broker, and the
+`NET ready` line in `native-worker.log`.
+
 - [x] **2.1 Sandbox launcher** for media-net (`--network`) with tier T1, job, desktop and
       mitigations (`sandbox.hpp`, detached); Arbitrary Code Guard after `RevertToSelf`. The
       relay's `--sandbox` launcher is 2.6.

@@ -433,6 +433,11 @@ the public host avoids the rest.
 
 ## Verification record
 
+- **2026-09-26, `claude/epic-maxwell-jt98x1`, privilege split (R4 phase 2), owner's Windows
+  machine:** MSVC build clean; `npm run test:hardware` 18/18; `relay-check.mjs --video`
+  passed with WebRTC in the sandboxed media-net (2 peers at 1080p60, 0 packets lost, worker
+  UDP sockets on 127.0.0.1 only). **Not run yet:** the host app end to end, input through the
+  broker, the sandbox's token and code guard confirmed in a live session.
 - **2026-09-26, `claude/epic-maxwell-jt98x1`, media relay (R4 phase 1):**
   - `npm test` 915/915 and `npm run format:check` clean, on Linux.
   - New portable tests: STUN parsing and MESSAGE-INTEGRITY against the RFC 5769 vectors,
