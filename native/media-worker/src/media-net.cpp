@@ -857,10 +857,9 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
                 return G_SOURCE_REMOVE;
             }
             enter(1);
+            // Frames pushed, once a minute.
             static unsigned ticks = 0;
-            if (++ticks <= 10)
-                log_line("TICK " + std::to_string(ticks));
-            if (ticks % 5 == 0)
+            if (++ticks % 60 == 0)
                 log_line("FRAMES pushed video=" + std::to_string(pushed_video.load()) +
                          " audio=" + std::to_string(pushed_audio.load()) +
                          " last-failure=" + std::to_string(last_push_failure.load()) +

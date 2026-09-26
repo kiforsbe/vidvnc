@@ -1575,9 +1575,17 @@ static int session() {
             if (!net)
                 continue;
             const auto now = now_ms();
+            // Only when something looks wrong: a main loop or media-net silent for over
+            // 5 seconds, or frames dropped since the last report.
+            static unsigned reported_overflows = 0;
+            const auto overflows = frame_overflows.load();
+            if (now - main_loop_tick < 5000 && now - net_heard < 5000 &&
+                overflows == reported_overflows)
+                continue;
+            reported_overflows = overflows;
             std::cerr << "media-worker status: main loop " << (now - main_loop_tick) / 1000.0
                       << " s ago; media-net heard " << (now - net_heard) / 1000.0
-                      << " s ago; frames sent " << frames_sent << ", overflows " << frame_overflows
+                      << " s ago; frames sent " << frames_sent << ", overflows " << overflows
                       << ", queued " << (net->frame_writer ? net->frame_writer->queued() : 0)
                       << " bytes" << std::endl;
         }
@@ -1623,8 +1631,10 @@ int main(int argc, char **argv) {
     }
     if (const char *log_path = g_getenv("VIDVNC_NATIVE_LOG"))
         error_log.open(std::filesystem::u8path(log_path), std::ios::app);
-    if (error_log.is_open())
-        error_log << "START native worker" << std::endl;
+    // The server also runs this binary for a moment every few seconds (--list-displays, to
+    // notice display changes); only a stream's worker is worth a line.
+    if (error_log.is_open() && argc == 2 && std::string(argv[1]) == "--session")
+        error_log << "START native worker pid=" << GetCurrentProcessId() << std::endl;
     // media-net always gathers on 127.0.0.1 alone; the server still says so explicitly, and
     // anything else is refused rather than guessed at.
     if (const char *bind = g_getenv("VIDVNC_ICE_BIND"); bind && std::string(bind) != "loopback") {

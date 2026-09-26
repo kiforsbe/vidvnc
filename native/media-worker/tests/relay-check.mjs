@@ -138,6 +138,16 @@ try {
         const pc = new RTCPeerConnection({ iceServers: [] });
         window.pcs[index] = pc;
         pc.addTransceiver(video ? 'video' : 'audio', { direction: 'recvonly' });
+        // Like the viewer: an input channel that pings every second. media-net passes each
+        // ping to the worker's broker, which answers with the control state.
+        if (video) {
+          window.replies ??= [];
+          window.replies[index] = 0;
+          const channel = pc.createDataChannel('input', { ordered: true });
+          channel.onopen = () =>
+            setInterval(() => channel.send(JSON.stringify({ type: 'ping' })), 1000);
+          channel.onmessage = () => window.replies[index]++;
+        }
         await pc.setLocalDescription(await pc.createOffer());
         if (pc.iceGatheringState !== 'complete')
           await new Promise((resolve) =>
@@ -240,7 +250,18 @@ try {
       selected.every((row) => row.local && row.remote),
     );
 
-  const pids = [...media.workers.values()].map((active) => active.child.pid);
+  // Every media-worker.exe: the workers and their sandboxed network processes, which own the
+  // sockets since the privilege split.
+  const pids = execFileSync(
+    'tasklist',
+    ['/FI', 'IMAGENAME eq media-worker.exe', '/FO', 'CSV', '/NH'],
+    {
+      encoding: 'utf8',
+    },
+  )
+    .split(/\r?\n/)
+    .map((line) => Number(line.split('","')[1]))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
   const exposed = pids.flatMap((pid) =>
     sockets(pid, 'udp').filter(({ local }) => !local.startsWith('127.0.0.1:')),
   );
@@ -254,6 +275,11 @@ try {
       sockets(pid, 'tcp').filter(({ state }) => state === 'LISTENING'),
     );
     report('netstat: no worker listens on TCP', listening.length === 0);
+    report(
+      'the workers and their network processes are running',
+      pids.length >= 2 * PEERS,
+      `${pids.length} media-worker.exe processes for ${PEERS} sources`,
+    );
     report(
       `all ${PEERS} peers share the relay's port ${PORT}`,
       events.filter((event) => event.type === 'pinned').length >= PEERS,
@@ -289,6 +315,14 @@ try {
     });
     for (const row of last) if (row.jitter !== null) jitter.push(row.jitter * 1000);
     await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (VIDEO) {
+    const replies = await page.evaluate(() => window.replies);
+    report(
+      'input: every peer’s pings were answered through media-net, and every worker survived',
+      replies.every((count) => count >= Math.min(3, SECONDS - 1)) && media.workers.size === PEERS,
+      `replies ${replies.join(', ')}; workers ${media.workers.size}`,
+    );
   }
   const label = DIRECT ? 'direct (baseline)' : 'through the relay';
   const format = (values) =>
