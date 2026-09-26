@@ -13,6 +13,7 @@
 #include <gst/gst.h>
 #include <gst/webrtc/webrtc.h>
 #include <gst/sdp/sdp.h>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -254,7 +255,36 @@ int child(HANDLE pipe, unsigned short echo_port, const std::wstring &secret) {
 
 // ---- Parent: prepares the probe and reports what the child found.
 
-int parent(const std::wstring &executable) {
+// --relax takes a comma-separated list of sandbox parts to turn off, for diagnosis.
+bool relax(const std::wstring &list, sandbox::Options &options, std::string &names) {
+    size_t start = 0;
+    while (start <= list.size()) {
+        const size_t end = std::min(list.find(L',', start), list.size());
+        const std::wstring name = list.substr(start, end - start);
+        if (name == L"restricted")
+            options.restricted = false;
+        else if (name == L"initial-token")
+            options.initial_token = false;
+        else if (name == L"job")
+            options.job = false;
+        else if (name == L"desktop")
+            options.alternate_desktop = false;
+        else if (name == L"mitigations")
+            options.mitigations = false;
+        else if (name == L"object-security")
+            options.object_security = false;
+        else if (name == L"detached")
+            options.detached = false;
+        else if (!name.empty())
+            return false;
+        start = end + 1;
+    }
+    names = utf8(list);
+    return true;
+}
+
+int parent(const std::wstring &executable, const sandbox::Options &options,
+           const std::string &relaxed) {
     WSADATA winsock;
     if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0) {
         std::cerr << "WSAStartup failed" << std::endl;
@@ -315,9 +345,11 @@ int parent(const std::wstring &executable) {
         L"\"" + executable + L"\" --child " + std::to_wstring(reinterpret_cast<ULONG_PTR>(write)) +
         L" " + std::to_wstring(ntohs(address.sin_port)) + L" \"" + secret.wstring() + L"\"";
     sandbox::Launched launched;
-    const auto result = sandbox::launch(executable, command, {write}, launched);
+    const auto result = sandbox::launch(executable, command, {write}, launched, options);
     CloseHandle(write);
     int status = 1;
+    if (!relaxed.empty())
+        std::cout << "INFO: relaxed: " << relaxed << std::endl;
     if (!result.ok) {
         std::cout << "FAIL: launching the sandboxed probe - " << result.error << std::endl;
     } else {
@@ -352,7 +384,16 @@ int wmain(int argc, wchar_t **argv) {
     if (argc == 5 && std::wstring(argv[1]) == L"--child")
         return child(reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(std::stoull(argv[2]))),
                      static_cast<unsigned short>(std::stoul(argv[3])), argv[4]);
+    sandbox::Options options;
+    std::string relaxed;
+    if (!(argc == 1 ||
+          (argc == 3 && std::wstring(argv[1]) == L"--relax" && relax(argv[2], options, relaxed)))) {
+        std::cerr << "Usage: sandbox-probe [--relax restricted,initial-token,job,desktop,"
+                     "mitigations,object-security,detached]"
+                  << std::endl;
+        return 2;
+    }
     wchar_t executable[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, executable, MAX_PATH);
-    return parent(executable);
+    return parent(executable, options, relaxed);
 }

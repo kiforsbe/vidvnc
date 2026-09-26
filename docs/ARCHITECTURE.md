@@ -1287,7 +1287,9 @@ and P2 of the [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privil
 it runs the relay core and a loopback-only worker (`VIDVNC_ICE_BIND=loopback`) against
 headless Chromium and reports each gate question. The relay is not yet part of the product.
 `sandbox-check.mjs` runs gate P3: `sandbox-probe.exe` starts itself under the planned sandbox for
-the network process and reports what it can and cannot do. Neither is part of the product yet.
+the network process and reports what it can and cannot do. If the full sandbox fails, it runs
+the probe again with one part turned off at a time (`sandbox-probe --relax <part>`) and shows
+which part the failure depends on. Neither is part of the product yet.
 
 The second captures the real desktop and requires Windows and a hardware encoder.
 Chromium with an

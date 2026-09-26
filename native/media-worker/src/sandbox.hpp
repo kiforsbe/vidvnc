@@ -8,6 +8,10 @@
 // an explicit inherited-handle list and process mitigations. The child starts impersonating a
 // same-access restricted token at low integrity so it can load its libraries, then calls
 // RevertToSelf before touching any untrusted input. Needs no administrator rights.
+//
+// The child is started without a console (DETACHED_PROCESS): a hidden console would need a
+// conhost.exe, which the job's one-process limit and the child-process policy are expected to
+// refuse; the child then fails to initialise with STATUS_DLL_INIT_FAILED (0xC0000142).
 #include <windows.h>
 #include <sddl.h>
 #include <string>
@@ -116,7 +120,19 @@ struct Tokens {
     std::wstring logon_sid;
 };
 
-inline Result make_tokens(Tokens &out) {
+// Switches that turn off one part of the sandbox, for diagnosing a launch that fails
+// (sandbox-probe --relax). Production uses the defaults.
+struct Options {
+    bool restricted = true;        // deny-only and restricting SIDs; false: low integrity only
+    bool initial_token = true;     // start impersonating the same-access token
+    bool job = true;               // the job and its limits
+    bool alternate_desktop = true; // false: the caller's desktop
+    bool mitigations = true;       // process mitigation policies
+    bool object_security = true;   // the process and thread security descriptors
+    bool detached = true;          // no console; false: CREATE_NO_WINDOW (a hidden console)
+};
+
+inline Result make_tokens(Tokens &out, bool restricted = true) {
     HANDLE raw = nullptr;
     if (!OpenProcessToken(
             GetCurrentProcess(),
@@ -156,16 +172,17 @@ inline Result make_tokens(Tokens &out) {
         return {false, "The process token has no logon SID"};
     out.logon_sid = sid_text(logon);
 
-    WellKnownSid world, users, restricted;
+    WellKnownSid world, users, restricted_code;
     if (!world.make(WinWorldSid) || !users.make(WinBuiltinUsersSid) ||
-        !restricted.make(WinRestrictedCodeSid))
+        !restricted_code.make(WinRestrictedCodeSid))
         return failure("CreateWellKnownSid");
     SID_AND_ATTRIBUTES restricting[] = {
-        {world.sid(), 0}, {users.sid(), 0}, {restricted.sid(), 0}, {logon, 0}};
+        {world.sid(), 0}, {users.sid(), 0}, {restricted_code.sid(), 0}, {logon, 0}};
     HANDLE primary = nullptr;
     if (!CreateRestrictedToken(self.get(), DISABLE_MAX_PRIVILEGE,
-                               static_cast<DWORD>(deny_only.size()), deny_only.data(), 0, nullptr,
-                               4, restricting, &primary))
+                               restricted ? static_cast<DWORD>(deny_only.size()) : 0,
+                               restricted ? deny_only.data() : nullptr, 0, nullptr,
+                               restricted ? 4 : 0, restricted ? restricting : nullptr, &primary))
         return failure("CreateRestrictedToken (primary)");
     out.primary = Handle(primary);
     if (!set_low_integrity(primary))
@@ -239,12 +256,13 @@ struct Launched {
 
 // Starts `executable` with `command_line` in the sandbox, inheriting exactly `inherit`.
 inline Result launch(const std::wstring &executable, std::wstring command_line,
-                     std::vector<HANDLE> inherit, Launched &out) {
+                     std::vector<HANDLE> inherit, Launched &out, const Options &options = {}) {
     Tokens tokens;
-    if (auto result = make_tokens(tokens); !result.ok)
+    if (auto result = make_tokens(tokens, options.restricted); !result.ok)
         return result;
-    if (auto result = make_job(out.job); !result.ok)
-        return result;
+    if (options.job)
+        if (auto result = make_job(out.job); !result.ok)
+            return result;
 
     // An alternate desktop, labelled low, that only this user's logon session can use.
     out.desktop_name = L"vidvnc-sandbox-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
@@ -259,6 +277,11 @@ inline Result launch(const std::wstring &executable, std::wstring command_line,
     if (!out.desktop)
         return failure("CreateDesktop");
     std::wstring desktop = L"WinSta0\\" + out.desktop_name;
+    if (!options.alternate_desktop) {
+        CloseDesktop(out.desktop);
+        out.desktop = nullptr;
+        out.desktop_name = L"(the caller's)";
+    }
 
     SIZE_T size = 0;
     InitializeProcThreadAttributeList(nullptr, 3, 0, &size);
@@ -280,13 +303,14 @@ inline Result launch(const std::wstring &executable, std::wstring command_line,
                                    inherit.size() * sizeof(HANDLE), nullptr, nullptr) ||
         !UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY,
                                    &child_policy, sizeof(child_policy), nullptr, nullptr) ||
-        !UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
-                                   &mitigations, sizeof(mitigations), nullptr, nullptr))
+        (options.mitigations &&
+         !UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
+                                    &mitigations, sizeof(mitigations), nullptr, nullptr)))
         return failure("UpdateProcThreadAttribute");
 
     STARTUPINFOEXW startup{};
     startup.StartupInfo.cb = sizeof(startup);
-    startup.StartupInfo.lpDesktop = desktop.data();
+    startup.StartupInfo.lpDesktop = options.alternate_desktop ? desktop.data() : nullptr;
     startup.lpAttributeList = attributes;
     // Only SYSTEM and the unrestricted user (this worker) may open the process and its
     // threads; another sandboxed process, whose user SID is deny-only, cannot.
@@ -294,10 +318,12 @@ inline Result launch(const std::wstring &executable, std::wstring command_line,
     if (!object_sd.get())
         return failure("Building the process security descriptor");
     SECURITY_ATTRIBUTES object_attributes{sizeof(object_attributes), object_sd.get(), FALSE};
+    const auto security = options.object_security ? &object_attributes : nullptr;
     PROCESS_INFORMATION info{};
     if (!CreateProcessAsUserW(tokens.primary.get(), executable.c_str(), command_line.data(),
-                              &object_attributes, &object_attributes, TRUE,
-                              CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
+                              security, security, TRUE,
+                              CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT |
+                                  (options.detached ? DETACHED_PROCESS : CREATE_NO_WINDOW),
                               nullptr, nullptr, &startup.StartupInfo, &info))
         return failure("CreateProcessAsUser");
     out.process = Handle(info.hProcess);
@@ -309,9 +335,9 @@ inline Result launch(const std::wstring &executable, std::wstring command_line,
         TerminateProcess(info.hProcess, 1);
         return result;
     };
-    if (!AssignProcessToJobObject(out.job.get(), info.hProcess))
+    if (options.job && !AssignProcessToJobObject(out.job.get(), info.hProcess))
         return abandon("AssignProcessToJobObject");
-    if (!SetThreadToken(&thread, tokens.initial.get()))
+    if (options.initial_token && !SetThreadToken(&thread, tokens.initial.get()))
         return abandon("SetThreadToken");
     if (ResumeThread(info.hThread) == static_cast<DWORD>(-1))
         return abandon("ResumeThread");

@@ -127,8 +127,17 @@ phase 2) and `native/media-worker/tests/sandbox-probe.cpp`, run with
 sandbox; the copy loads GStreamer while impersonating the initial token, calls `RevertToSelf`,
 then reports whether it can read a file in the profile, open another sandboxed process, start a
 child process, use UDP on loopback, and gather on loopback with `webrtcbin` (including DTLS
-certificate generation). It compiles with MinGW in the Linux container (GStreamer stubbed); it has
-not been built with MSVC or run yet.
+certificate generation). It compiles with MinGW in the Linux container (GStreamer stubbed).
+
+First Windows run, 2026-09-26: it built, and the parent created the desktop and started the
+child, but the child exited with 0xC0000142 (`STATUS_DLL_INIT_FAILED`) before its first line:
+a DLL failed to initialise, so no probe code ran. The launch used `CREATE_NO_WINDOW`, which
+gives a console program a hidden console and so a `conhost.exe`; the job allows one process and
+the child-process policy forbids children, which is the likely cause. The launcher now starts
+the child with `DETACHED_PROCESS`. `sandbox-check.mjs` now reruns a failing probe with each part
+of the sandbox turned off in turn (`--relax detached`, `job`, `desktop`, `mitigations`,
+`object-security`, `initial-token`, `restricted`, then all of them) to isolate the cause if that
+is not it. Not yet rerun.
 
 - [ ] A minimal `media-worker.exe --network` that starts under the tier T1 token (spec,
       "Token for `media-net`"), preloads plugins under the impersonation token, calls
