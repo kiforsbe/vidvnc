@@ -14,10 +14,12 @@ capture, WASAPI desktop audio compressed with Opus, and host-granted browser
 keyboard/mouse control. VidVNC picks the encoder on the graphics card driving the
 display, so hybrid laptops do not copy each frame between GPUs; the host can also
 name one. There is still **no software encoder and no software capture fallback** --
-a GPU with a working hardware encoder is required. Up to two connected
-devices, each with two video streams and one independent audio stream. Only one
-device holds input permission at a time. Multi-session hardware acceptance is
-still in progress; see [the roadmap](docs/ROADMAP.md).
+a GPU with a working hardware encoder is required. Up to four devices can be connected
+at once by default (the host can allow 1 to 8), each with up to two video streams and one
+independent audio stream. Only one device holds input permission at a time. Multi-session
+hardware acceptance is still in progress; see [the roadmap](docs/ROADMAP.md). Desktop
+audio can currently sound crackly; video and input are not affected (see the
+[changelog](CHANGELOG.md)).
 
 Native macOS 27/Apple Silicon capture and native viewer clients are planned, not
 implemented. Browser testing on Apple devices is not native macOS server support.
@@ -73,7 +75,8 @@ A ZIP with a `prerequisites` folder also contains the runtime installers, and it
 
 VidVNC starts sharing and shows the address and password. On another device on
 your network, open the address in a browser and enter the password. If Windows
-asks, allow VidVNC on private networks.
+asks about VidVNC or Node.js, allow it on private networks: VidVNC's media relay runs in
+Node.js and receives all video, audio and input on one UDP port.
 
 ### Viewing on an iPhone
 
@@ -117,7 +120,10 @@ Use VidVNC on a trusted local network. Don't forward its ports unless you have s
 port, for approved devices only; a self-hosted VPN is still the safer way in. All media, on
 the LAN too, reaches the PC through VidVNC's media relay on that UDP port (4384 by default),
 which forwards only devices that have authenticated to the media worker, itself bound to
-`127.0.0.1`. The HTTP
+`127.0.0.1`. The worker's WebRTC code runs in a separate
+[sandboxed network process](docs/ARCHITECTURE.md#network-process-media-net), and on
+Windows the relay is sandboxed the same way: neither can read your files or send input to
+your desktop. The HTTP
 listener binds only loopback and eligible Private-LAN addresses. With the default TLS
 mode, the viewer is unavailable until HTTPS starts; an invalid TLS configuration or
 listener failure does not fall back to HTTP login or streaming. Only a valid, explicit
@@ -168,10 +174,17 @@ server print above the prompt. Type `help` for the full list:
 
 - Displays: `displays`, `share <display> on|off`, `display-default <display> <profile>|host`,
   `default-profile auto|<profile>`, `audio on|off`
+- Encoding: `codecs [set <codec,codec,…>]`,
+  `encoder-backend [auto|nvenc|qsv|amf|mediafoundation]`
 - Profiles: `profiles`, `profile add|edit|duplicate|remove|enable|disable|move …`
 - Client customization: `client-mode profiles|options`, `options`,
   `options add|remove size WxH|framerate N|bitrate KBPS`
-- Access: `access [approval|available]`
+- Access: `access [approval|available]`,
+  `connection-mode [session-key|one-time-keys|approved-only]`, `max-devices [1-8]`
+- Sign-in codes and passwords: `code-alphabet`, `code-ttl`, `code-attempts`,
+  `code-source-attempts`, `session-password-attempts`, `local-session-networks`
+- HTTPS: `tls`, `tls-mode [auto|provided|off]`, `tls-port`, `tls-cert <cert> <key>`,
+  `tls-pfx <pfx> [passphrase]`
 - Public login label: `public-name [name]`
 - Remote access (off by default; see [remote access](docs/security/remote-access.md)):
   `public-hosts [clear|<name-or-ip>...]`, `public-port [same|<port>]`,
@@ -316,9 +329,11 @@ to change its installation location; do not move a registered installation blind
 Visual Studio, or at `.deps/cmake/bin`. This checkout has checksum-verified portable
 CMake 3.31.6 there; it is ignored, not a checked-in dependency.
 Native output: `out/native/windows-x64/Release`. No automatic downloads at build/start.
-Windows firewall permissions are executable-path-specific: a worker built or copied
-to another path needs its own permission. Permit the worker on trusted Private
-networks/local subnet only; do not disable the firewall globally.
+The media worker listens only on `127.0.0.1` and needs no firewall exception. The media
+relay runs in Node.js, so Windows Firewall must allow that `node.exe` to receive on the
+media port. Firewall permissions are executable-path-specific, so a different Node.js
+needs its own. Allow it on trusted Private networks only; do not disable the firewall
+globally.
 
 ## Commands and ownership
 
@@ -328,6 +343,7 @@ networks/local subnet only; do not disable the firewall globally.
 | `npm test --workspace @vidvnc/server`     | Server-owned portable tests                                        |
 | `npm test --workspace @vidvnc/web-client` | Browser-owned utility tests                                        |
 | `npm run test:hardware`                   | Windows GPU worker and whole-system lifecycle checks               |
+| `npm run test:host`                       | Windows host runtime-contract tests                                |
 | `npm run build`                           | `build:native`, then `build:host`                                  |
 | `npm run build:native`                    | Native formatting, CMake Release build and module-local C++ tests  |
 | `npm run build:host`                      | Native WinUI/MSBuild project                                       |
@@ -373,8 +389,9 @@ routing, signed release packages, and production security hardening remain futur
 
 ## Feedback and contributions
 
-Bug reports and feature requests are welcome as GitHub issues. Pull requests are not
-accepted at this time; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security
+Bug reports and feature requests are welcome as GitHub issues. In a bug report, include
+the versions from **Copy versions** at the end of Settings in the VidVNC app. Pull requests
+are not accepted at this time; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security
 vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
