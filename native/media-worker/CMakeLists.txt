@@ -39,4 +39,10 @@ if(BUILD_TESTING)
   target_link_libraries(rate-control-test PRIVATE gstreamer_sdk)
   target_link_libraries(encoder-properties-test PRIVATE gstreamer_sdk)
   target_link_libraries(sdp-payload-test PRIVATE gstreamer_sdk gstsdp-1.0)
+  # Prototype gate P3 (sandbox for the network process). Run through tests/sandbox-check.mjs,
+  # not CTest: it needs the GStreamer registry and an interactive session.
+  add_executable(sandbox-probe tests/sandbox-probe.cpp)
+  configure_worker_target(sandbox-probe)
+  target_compile_definitions(sandbox-probe PRIVATE GST_USE_UNSTABLE_API)
+  target_link_libraries(sandbox-probe PRIVATE gstreamer_sdk gstwebrtc-1.0 gstsdp-1.0 ws2_32 user32 advapi32)
 endif()

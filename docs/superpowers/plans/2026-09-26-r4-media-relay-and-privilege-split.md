@@ -121,6 +121,15 @@ security analysis's verification record) before phase 1 starts.
 
 ### Task 0.3: Gate P3 and P4 (native prototype)
 
+Prototype, 2026-09-26: `native/media-worker/src/sandbox.hpp` (the tier T1 launcher, reusable in
+phase 2) and `native/media-worker/tests/sandbox-probe.cpp`, run with
+`node native/media-worker/tests/sandbox-check.mjs`. The probe starts a copy of itself in the
+sandbox; the copy loads GStreamer while impersonating the initial token, calls `RevertToSelf`,
+then reports whether it can read a file in the profile, open another sandboxed process, start a
+child process, use UDP on loopback, and gather on loopback with `webrtcbin` (including DTLS
+certificate generation). It compiles with MinGW in the Linux container (GStreamer stubbed); it has
+not been built with MSVC or run yet.
+
 - [ ] A minimal `media-worker.exe --network` that starts under the tier T1 token (spec,
       "Token for `media-net`"), preloads plugins under the impersonation token, calls
       `RevertToSelf`, then runs `appsrc ! tee ! webrtcbin` fed from a pipe.
