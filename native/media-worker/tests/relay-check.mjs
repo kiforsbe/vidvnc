@@ -81,9 +81,37 @@ const percentile = (values, p) => {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
 };
 
+// P2: time each worker-to-client datagram from its arrival on a pin's loopback socket to the
+// completion of its send on the public socket. The relay forwards the same Buffer, so the
+// arrival time can be keyed on it.
+const arrivals = new WeakMap();
+const relayDelays = [];
+function timed(socket) {
+  const on = socket.on.bind(socket);
+  socket.on = (event, listener) =>
+    on(
+      event,
+      event === 'message'
+        ? (message, rinfo) => {
+            arrivals.set(message, performance.now());
+            listener(message, rinfo);
+          }
+        : listener,
+    );
+  const send = socket.send.bind(socket);
+  socket.send = (message, port, address) => {
+    const arrived = arrivals.get(message);
+    send(message, port, address, () => {
+      if (arrived !== undefined && relayDelays.length < 2_000_000)
+        relayDelays.push(performance.now() - arrived);
+    });
+  };
+  return socket;
+}
+
 const events = [];
 const relay = new RelayCore({
-  createSocket: (options) => createSocket(options),
+  createSocket: (options) => timed(createSocket(options)),
   onEvent: (event) => events.push(event),
 });
 const sweeper = setInterval(() => relay.sweep(), 1000);
@@ -232,29 +260,50 @@ try {
     );
   }
 
-  const rtt = [];
+  // Browser-side quality over the run: mean ICE round trip from the totals, and the
+  // receive jitter and packet loss of each inbound stream, sampled every 250 ms.
+  const jitter = [];
+  let last = [];
   const until = Date.now() + SECONDS * 1000;
+  relayDelays.length = 0;
   while (Date.now() < until) {
-    const samples = await page.evaluate(async () => {
-      const values = [];
+    last = await page.evaluate(async () => {
+      const rows = [];
       for (const pc of window.pcs) {
         const stats = await pc.getStats();
-        stats.forEach((row) => {
-          if (row.type === 'candidate-pair' && row.nominated && row.currentRoundTripTime)
-            values.push(row.currentRoundTripTime * 1000);
+        const row = { rttTotal: 0, responses: 0, jitter: null, lost: 0, received: 0 };
+        stats.forEach((entry) => {
+          if (entry.type === 'candidate-pair' && entry.nominated) {
+            row.rttTotal = entry.totalRoundTripTime ?? 0;
+            row.responses = entry.responsesReceived ?? 0;
+          }
+          if (entry.type === 'inbound-rtp') {
+            row.jitter = entry.jitter ?? null;
+            row.lost = entry.packetsLost ?? 0;
+            row.received = entry.packetsReceived ?? 0;
+          }
         });
+        rows.push(row);
       }
-      return values;
+      return rows;
     });
-    rtt.push(...samples);
+    for (const row of last) if (row.jitter !== null) jitter.push(row.jitter * 1000);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  const label = DIRECT ? 'direct (baseline)' : 'through the relay';
+  const format = (values) =>
+    `p50 ${percentile(values, 50).toFixed(3)} ms, p95 ${percentile(values, 95).toFixed(3)} ms, ` +
+    `p99 ${percentile(values, 99).toFixed(3)} ms (${values.length} samples)`;
+  const responses = last.reduce((sum, row) => sum + row.responses, 0);
+  const rttTotal = last.reduce((sum, row) => sum + row.rttTotal, 0);
+  const lost = last.reduce((sum, row) => sum + row.lost, 0);
+  const received = last.reduce((sum, row) => sum + row.received, 0);
   console.log(
-    `INFO: round trip ${DIRECT ? 'direct (baseline)' : 'through the relay'} over ${SECONDS} s ` +
-      `(${rtt.length} samples): ` +
-      `p50 ${percentile(rtt, 50).toFixed(2)} ms, p95 ${percentile(rtt, 95).toFixed(2)} ms, ` +
-      `p99 ${percentile(rtt, 99).toFixed(2)} ms`,
+    `INFO: ${label}: mean ICE round trip ${responses ? ((rttTotal / responses) * 1000).toFixed(2) : '?'} ms ` +
+      `over ${responses} checks; packets received ${received}, lost ${lost}`,
   );
+  console.log(`INFO: ${label}: receive jitter ${format(jitter)}`);
+  if (!DIRECT) console.log(`INFO: time inside the relay per datagram (both directions): ${format(relayDelays)}`);
   if (!DIRECT) {
     console.log(`INFO: relay counters ${JSON.stringify(relay.metrics())}`);
     console.log(`INFO: relay events ${JSON.stringify(events)}`);

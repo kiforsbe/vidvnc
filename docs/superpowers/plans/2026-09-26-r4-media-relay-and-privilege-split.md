@@ -68,12 +68,18 @@ security analysis's verification record) before phase 1 starts.
 
 - [x] Pull the branch, then run the portable suite: `npm test`. **2026-09-26, owner's Windows
       machine:** 899/899 passed.
-- [ ] Run the check with audio (P1). **First run, 2026-09-26:** failed before any gate
-      question, with "Unable to bind WebRTC to loopback" on the first peer. Likely cause:
-      libnice parses the address with `getaddrinfo`, which fails on Windows until Winsock is
-      started, and nothing had started it. Fix: the worker calls `WSAStartup` when
-      `VIDVNC_ICE_BIND=loopback` is set, and the two failure cases now have separate
-      messages. Rerun pending.
+- [x] Run the check with audio (P1). **First run, 2026-09-26:** failed before any gate
+      question, with "Unable to bind WebRTC to loopback" on the first peer: libnice parses the
+      address with `getaddrinfo`, which fails on Windows until Winsock is started. Fixed by
+      calling `WSAStartup` when `VIDVNC_ICE_BIND=loopback` is set. **Second run, 2026-09-26,
+      Chromium: P1 passed.** Each worker offered a single `127.0.0.1` UDP host candidate; both
+      answers passed relay-mode validation; two peer connections completed ICE and DTLS through
+      the relay's one port 4384 as peer-reflexive candidates; the browser accepted the loopback
+      mapped address (selected local candidate `prflx`, address hidden by Chrome); `netstat`
+      showed the workers' UDP sockets only on `127.0.0.1` and no TCP listener; the relay
+      dropped nothing and matched both client hints. The single round-trip sample (42 ms) was
+      not a usable P2 measure, so the check now reports the time each datagram spends inside
+      the relay, the browser's receive jitter and packet loss, and the mean ICE round trip.
 
   ```powershell
   node native/media-worker/tests/relay-check.mjs C:\path\to\playwright
