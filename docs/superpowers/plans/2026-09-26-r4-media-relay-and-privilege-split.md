@@ -223,8 +223,8 @@ record). Not yet run on Windows end to end.
       diagrams, security architecture), internet-exposure (R4 reduced), remote-access,
       README, CHANGELOG (Unreleased, with the downgrade note). Packaging notes wait for F1.
 
-Validation still owed before phase 1 is done: `npm run test:hardware` and the host build on
-Windows; a real browser on the LAN and from the internet through the built-in relay; Firefox
+Windows, 2026-09-26: `npm run test:hardware` 18/18. Validation still owed before phase 1 is
+done: `npm run test:host` and the host build on Windows; a real browser on the LAN and from the internet through the built-in relay; Firefox
 and Safari (P1); an iPhone with iCloud Private Relay (P6); `netstat` showing the workers on
 `127.0.0.1` only.
 

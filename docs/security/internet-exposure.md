@@ -437,6 +437,11 @@ the public host avoids the rest.
     selection; the `mediaPort` migration and the CLI.
   - Before this, prototype gates P1 and P2 passed on Windows with headless Chromium through
     a relay prototype (see the [plan](../superpowers/plans/2026-09-26-r4-media-relay-and-privilege-split.md)).
+  - Windows, the owner's machine: `npm run test:hardware` 18/18 on this branch, including
+    the 13 C++ unit tests, hardware encoding (Media Foundation H.264, H.265, AV1) and both
+    host-pipe system tests (which start the server and so the relay). The first attempt
+    failed 13 tests before running them: the staleness check saw the worker as older than
+    `sandbox.hpp`, which the worker doesn't include; fixed in the build tooling.
   - **Not run:** the built-in relay on Windows with real browsers, Firefox, Safari, an
     iPhone, iCloud Private Relay, IPv6, a packet capture; the Windows host was not built.
 - **2026-09-25, `claude/remote-access-on-main`:**
