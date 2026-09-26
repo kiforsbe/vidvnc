@@ -49,7 +49,14 @@ export function relayBundle({
 // against a native exploit (that is the token's job), but it stops a JavaScript-level flaw.
 export function permissionFlags(flags = process.allowedNodeEnvironmentFlags) {
   if (flags.has('--permission'))
-    return ['--permission', ...(flags.has('--allow-net') ? ['--allow-net'] : [])];
+    return [
+      '--permission',
+      ...(flags.has('--allow-net') ? ['--allow-net'] : []),
+      // --allow-net is still experimental; its warning would only clutter the server log.
+      ...(flags.has('--allow-net') && flags.has('--disable-warning')
+        ? ['--disable-warning=ExperimentalWarning']
+        : []),
+    ];
   if (flags.has('--experimental-permission')) return ['--experimental-permission'];
   return [];
 }

@@ -273,6 +273,11 @@ test('the relay bundle is one module of Node built-ins that fits a Windows comma
     '--permission',
     '--allow-net',
   ]);
+  assert.deepEqual(permissionFlags(new Set(['--permission', '--allow-net', '--disable-warning'])), [
+    '--permission',
+    '--allow-net',
+    '--disable-warning=ExperimentalWarning',
+  ]);
   assert.deepEqual(permissionFlags(new Set(['--experimental-permission'])), [
     '--experimental-permission',
   ]);

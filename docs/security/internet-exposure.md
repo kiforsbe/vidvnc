@@ -456,6 +456,9 @@ the public host avoids the rest.
     (inherited, invalid standard handles under strict handle checks) and a double free of
     input messages in the worker; `relay-check.mjs` now opens an input channel so the second
     kind is caught.
+  - The relay under the full restricted token, from its bundle with no file access:
+    `relay-sandbox-check.mjs` passed (a profile file refused with `EPERM`, UDP bound on every
+    address, an authenticated check forwarded).
   - **Not run:** the firewall rules (F1), an iPhone through the sandboxed build, a packet
     capture.
 - **2026-09-26, `claude/epic-maxwell-jt98x1`, media relay (R4 phase 1):**

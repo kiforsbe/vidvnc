@@ -308,8 +308,11 @@ Tightened the same day, at the owner's request: the relay runs under the full ti
 access, because that token cannot read the relay's files under the profile. No initial
 impersonation token: Node would never drop it. `relay-sandbox-check.mjs` probes the token
 (a profile file unreadable, UDP on every address) and runs the bundled relay through the
-launcher. Portable tests run the bundle under `--permission` and forward a check; not yet run
-on Windows.
+launcher. Portable tests run the bundle under `--permission` and forward a check. Windows,
+owner's machine: `relay-sandbox-check.mjs` passed: Node starts under the token, a file in
+`%LOCALAPPDATA%\VidVNC` is refused (`EPERM`), UDP binds on every address, and the bundled relay
+listens and forwards an authenticated check. Node 26 warns that `--allow-net` is experimental;
+that warning is now disabled.
 
 - [x] **2.6 Relay at low integrity** through `media-worker.exe --sandbox -- <node> <script>`
       (`run_sandboxed`: low integrity with the user SID kept, job, desktop, mitigations, the
