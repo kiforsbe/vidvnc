@@ -303,7 +303,10 @@ try {
       `over ${responses} checks; packets received ${received}, lost ${lost}`,
   );
   console.log(`INFO: ${label}: receive jitter ${format(jitter)}`);
-  if (!DIRECT) console.log(`INFO: time inside the relay per datagram (both directions): ${format(relayDelays)}`);
+  if (!DIRECT)
+    console.log(
+      `INFO: time inside the relay per datagram (both directions): ${format(relayDelays)}`,
+    );
   if (!DIRECT) {
     console.log(`INFO: relay counters ${JSON.stringify(relay.metrics())}`);
     console.log(`INFO: relay events ${JSON.stringify(events)}`);
