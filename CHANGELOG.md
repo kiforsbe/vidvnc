@@ -59,7 +59,6 @@ may include breaking changes.
 
 - The settings file format changed: `access-settings.json` now holds `mediaPort` instead of
   `mediaPorts`. To go back to an earlier version, remove `mediaPort` from that file first.
-- Not yet validated end to end on Windows with real browsers, Firefox, Safari or an iPhone.
 - Firewall rules for the media port are not yet managed by VidVNC: Windows asks once for Node.js
   when the relay first listens.
 

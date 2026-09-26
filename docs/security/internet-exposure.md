@@ -31,16 +31,16 @@ change can close.
 
 **Remote access is only partly validated:**
 
-1. **The media path has run once through a real router** (R8). The native port range and
-   the ICE-TCP switch pass on hardware, and an iPhone at a public address signed in and
-   streamed through the owner's router. No packet capture, IPv6 run or carrier-NAT client
-   has been tried yet.
+1. **The media path runs through a real router** (R8). An iPhone at a public address has
+   streamed through the owner's router, first with the old port range and then through the
+   media relay, including with iCloud Private Relay on. No packet capture, IPv6 run or
+   carrier-NAT client has been tried yet.
 2. **The native ICE stack no longer faces the internet directly** (R4, reduced). Media,
    LAN and internet alike, reaches the PC through VidVNC's media relay on one UDP port; the
    relay forwards only senders that prove a stream's ICE password, and the worker listens on
    `127.0.0.1` only. After that proof, DTLS and RTP from the authenticated address still
-   reach native code in an unsandboxed worker. The relay is built and covered by the portable
-   suite, but not yet validated end to end on Windows with real browsers.
+   reach native code in an unsandboxed worker. The relay works end to end on Windows with
+   Chromium-based, Firefox and Safari clients, on the LAN and from the internet.
 3. **Two conditions depend on your setup.** An internet flood can still exhaust the
    _internet_ sign-in budget; it no longer affects the LAN (R1). And the boundary relies on
    a genuine source address. This is now contained by the `approved-only` requirement and a
@@ -82,12 +82,12 @@ changes.
 
 VidVNC supports the first two profiles below. Neither needs a third-party service.
 
-| Profile                                                  | Status                                  | What it needs                                                                      | Trade-off                                                                                                                                                                           |
-| -------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Self-hosted VPN** (WireGuard, Tailscale)               | **Recommended now**                     | A VPN endpoint on the router or PC; remote access stays off                        | One UDP port exposed and no VidVNC port. VPN clients count as private and use the ordinary rules, except the standing password, which stays LAN-only. Every viewer needs VPN setup. |
-| **Direct port forwarding** (`remote-access on`)          | **Implemented, not yet validated** (R8) | Public name or IP, HTTPS port and media range forwarded, devices set up on the LAN | No relay and no third party. Media depends on the router and the client's network, and the native ICE stack faces the internet (R4).                                                |
-| Owner-run TURN relay (for example coturn on a small VPS) | Not implemented                         | A public host the owner controls                                                   | Works behind carrier-grade NAT and restrictive networks; needs relay-only ICE and short-lived credentials on both peers.                                                            |
-| Product-operated outbound relay                          | Not selected                            | A hosted rendezvous and TURN service                                               | No router setup, but it is a new hosted service with its own trust, cost and security review.                                                                                       |
+| Profile                                                  | Status                                 | What it needs                                                                      | Trade-off                                                                                                                                                                           |
+| -------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Self-hosted VPN** (WireGuard, Tailscale)               | **Recommended now**                    | A VPN endpoint on the router or PC; remote access stays off                        | One UDP port exposed and no VidVNC port. VPN clients count as private and use the ordinary rules, except the standing password, which stays LAN-only. Every viewer needs VPN setup. |
+| **Direct port forwarding** (`remote-access on`)          | **Implemented, partly validated** (R8) | Public name or IP, HTTPS port and media range forwarded, devices set up on the LAN | No relay and no third party. Media depends on the router and the client's network, and the native ICE stack faces the internet (R4).                                                |
+| Owner-run TURN relay (for example coturn on a small VPS) | Not implemented                        | A public host the owner controls                                                   | Works behind carrier-grade NAT and restrictive networks; needs relay-only ICE and short-lived credentials on both peers.                                                            |
+| Product-operated outbound relay                          | Not selected                           | A hosted rendezvous and TURN service                                               | No router setup, but it is a new hosted service with its own trust, cost and security review.                                                                                       |
 
 A profile never makes authentication optional. A degraded remote configuration must refuse
 internet clients rather than fall back to plaintext or to an unintended route.
@@ -259,26 +259,26 @@ Severity reflects an internet-exposed server under the assumptions above. The **
 come from the 2026-09-23 and 2026-09-24 reviews; the **R** findings come from the 2026-09-25
 review of the remote access mode.
 
-| ID  | Finding                                                                       | Severity (at discovery) | Status                                                                    |
-| --- | ----------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------- |
-| R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)     | Fixed; an internet flood can still block _remote_ sign-in while it lasts  |
-| R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)    | Contained (`approved-only` required, source check); residual below        |
-| R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                  | Fixed                                                                     |
-| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Reduced (authenticating relay); **open** until validated and sandboxed    |
-| R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                     |
-| R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                     |
-| R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                         |
-| R8  | The media path is not fully validated on a real network                       | Assurance gap           | **Open**; live peer and one real-router run pass; capture still needed    |
-| F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only)  |
-| F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                     |
-| F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                      |
-| F4  | A loopback proxy could expose diagnostics                                     | Medium                  | Fixed                                                                     |
-| F5  | An approved-device credential is copyable                                     | Medium                  | Accepted model with mitigations; not device binding                       |
-| F6  | Direct WebRTC had no remote network policy                                    | Medium                  | Implemented (media relay, candidate policy); relay not yet validated (R8) |
-| F7  | Limits could be exhausted; some state had no lifetime                         | Medium                  | Fixed in process; volumetric floods remain                                |
-| F8  | A remote registration was labelled "Local network"                            | Medium (misleading cue) | Fixed                                                                     |
-| —   | Public DNS names and routers' public ports were refused (`403`/`421`)         | Compatibility           | Fixed (`public-hosts`, `public-port`)                                     |
-| —   | No opt-in remote mode                                                         | Design gap              | Fixed (`remote-access`, off by default)                                   |
+| ID  | Finding                                                                       | Severity (at discovery) | Status                                                                   |
+| --- | ----------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------ |
+| R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)     | Fixed; an internet flood can still block _remote_ sign-in while it lasts |
+| R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)    | Contained (`approved-only` required, source check); residual below       |
+| R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                  | Fixed                                                                    |
+| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Reduced (authenticating relay); **open** until validated and sandboxed   |
+| R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
+| R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
+| R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
+| R8  | The media path is not fully validated on a real network                       | Assurance gap           | **Open**; real-router runs pass, relay included; capture and IPv6 needed |
+| F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only) |
+| F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                    |
+| F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                     |
+| F4  | A loopback proxy could expose diagnostics                                     | Medium                  | Fixed                                                                    |
+| F5  | An approved-device credential is copyable                                     | Medium                  | Accepted model with mitigations; not device binding                      |
+| F6  | Direct WebRTC had no remote network policy                                    | Medium                  | Implemented (media relay, candidate policy); capture and IPv6 open (R8)  |
+| F7  | Limits could be exhausted; some state had no lifetime                         | Medium                  | Fixed in process; volumetric floods remain                               |
+| F8  | A remote registration was labelled "Local network"                            | Medium (misleading cue) | Fixed                                                                    |
+| —   | Public DNS names and routers' public ports were refused (`403`/`421`)         | Compatibility           | Fixed (`public-hosts`, `public-port`)                                    |
+| —   | No opt-in remote mode                                                         | Design gap              | Fixed (`remote-access`, off by default)                                  |
 
 ## Open and residual findings
 
@@ -331,13 +331,11 @@ over HTTPS. The relay never replies to an unauthenticated sender. See
   still reach OpenSSL and libsrtp in the worker, which is not yet sandboxed;
 - the relay's own parser (`stun.mjs`), Node's `dgram` and V8 handle unauthenticated
   datagrams, at medium integrity for now;
-- not yet validated end to end on Windows with real browsers, Firefox, Safari or an iPhone
-  (including iCloud Private Relay, where the media and HTTPS addresses differ; the relay
-  treats the HTTPS address only as a hint for this reason).
+- the firewall rules (F1) are not in place yet, so Windows Firewall scoping still depends on
+  the owner's answer to Windows' prompt.
 
 **Remaining:**
 
-- validate the relay on Windows end to end (R8);
 - phase 2 of the design: run WebRTC in a sandboxed network process (gate P3 passed with a
   prototype) and the relay at low integrity; phase 1 still owes the firewall rules (F1);
 - keep GStreamer and libnice current, and scan them separately from `npm audit`.
@@ -418,8 +416,7 @@ the public host avoids the rest.
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
 2. **Host UI:** built and in use on the owner's machine. The navigation test hasn't been run
    against the latest dialog and indicator changes; see the verification record.
-3. **R4:** validate the media relay end to end on Windows, then the firewall rules and the
-   privilege split (phases 1 and 2 of the R4 design). Track native dependency versions in
+3. **R4:** the firewall rules, then the privilege split (phases 1 and 2 of the R4 design). Track native dependency versions in
    packaging.
 4. **F5:** a passkey (WebAuthn) challenge for approved devices, if a stronger
    remote-identity model is wanted.
@@ -446,8 +443,15 @@ the public host avoids the rest.
     host-pipe system tests (which start the server and so the relay). The first attempt
     failed 13 tests before running them: the staleness check saw the worker as older than
     `sandbox.hpp`, which the worker doesn't include; fixed in the build tooling.
-  - **Not run:** the built-in relay on Windows with real browsers, Firefox, Safari, an
-    iPhone, iCloud Private Relay, IPv6, a packet capture; the Windows host was not built.
+  - Windows, the owner's machine, reported by the owner: `npm run test:host` 30/30; the host
+    built and ran with the media relay. Through the built-in relay, a Windows browser on the
+    LAN (Sessions showed media from `192.168.50.47`) and an iPhone at a public address
+    through the owner's router (media from `95.197.247.194`) streamed; Firefox and Safari
+    connected; the iPhone connected with iCloud Private Relay on; `Get-NetUDPEndpoint`
+    showed the media worker's UDP sockets on `127.0.0.1` only. Request-based control
+    (nothing on connect, the viewer's button takes it, release hands it back, a host revoke
+    sticks) and the realigned stream card worked as intended.
+  - **Not run:** IPv6, a packet capture, a carrier-NAT client, 4K30 latency.
 - **2026-09-25, `claude/remote-access-on-main`:**
   - `npm test` 851/851 and `npm run format:check` clean, on Linux, after the R-series
     fixes.

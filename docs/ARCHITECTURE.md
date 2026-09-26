@@ -1157,8 +1157,8 @@ The current register, with severity and verification, is kept in the
 
 - **R4** Native ICE/STUN parsing was reachable before authentication on the media ports.
   Reduced: the media relay now checks the ICE password first, but forged DTLS or RTP from an
-  authenticated address still reaches the unsandboxed worker, and the relay is not yet
-  validated end to end on Windows. A sandboxed network process is phase 2.
+  authenticated address still reaches the unsandboxed worker. A sandboxed network process
+  is phase 2.
 - **R8** The remote media path has run through one real router; IPv6, carrier NAT and a
   packet capture are still to do.
 - **R2, R1, F7** depend on the operating conditions A3 and A5.

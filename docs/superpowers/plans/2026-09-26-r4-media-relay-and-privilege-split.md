@@ -115,9 +115,9 @@ security analysis's verification record) before phase 1 starts.
   datagram and Node's event loop handling it, which is the likely difference. Not yet
   measured: 4K30, a busy host, and a client on another machine.
 
-- [ ] Firefox and Safari (P1, by hand): not automated yet. Record whether they connect
-      through the relay; if one rejects the loopback mapped address, implement the relay's
-      XOR-MAPPED-ADDRESS rewrite (spec, "Mapped addresses") before phase 1.
+- [x] Firefox and Safari (P1, by hand): both connect through the built-in relay (owner's
+      report, 2026-09-26), so the loopback mapped address is accepted and no
+      XOR-MAPPED-ADDRESS rewrite is needed.
 
 ### Task 0.3: Gate P3 and P4 (native prototype)
 
@@ -189,14 +189,14 @@ the Win32k controls. (Creation-time lockdown was not tried.)
 - [ ] As a standard user, read the rules through `HNetCfg.FwPolicy2`.
 - [ ] Try an MSIX manifest block rule; record whether it is supported.
 - [ ] Record whether Windows prompts for `node.exe` when only port-scoped rules exist.
-- [ ] P6: an iPhone on mobile data with iCloud Private Relay on, through the relay (after
-      phase 1's server integration, or with a manual `relay-check`-style setup). Record the
-      HTTPS and media addresses and whether it connects.
+- [x] P6: an iPhone with iCloud Private Relay on connects through the built-in relay (owner's
+      report, 2026-09-26). Whether its HTTPS and media addresses differed was not recorded;
+      Sessions marks it when they do.
 
 ## Phase 1: relay for every session, media port, firewall rules
 
-Built on 2026-09-26 (Linux, portable tests only; see the security analysis's verification
-record). Not yet run on Windows end to end.
+Built on 2026-09-26 and validated on the owner's Windows machine the same day (see the
+security analysis's verification record). Only 1.5 (firewall) remains.
 
 - [x] **1.1 Relay process and manager:** `media-relay/main.mjs` and `protocol.mjs` (the
       spec's protocol table, plus `refused` for a well-formed registration the relay cannot
@@ -223,10 +223,10 @@ record). Not yet run on Windows end to end.
       diagrams, security architecture), internet-exposure (R4 reduced), remote-access,
       README, CHANGELOG (Unreleased, with the downgrade note). Packaging notes wait for F1.
 
-Windows, 2026-09-26: `npm run test:hardware` 18/18. Validation still owed before phase 1 is
-done: `npm run test:host` and the host build on Windows; a real browser on the LAN and from the internet through the built-in relay; Firefox
-and Safari (P1); an iPhone with iCloud Private Relay (P6); `netstat` showing the workers on
-`127.0.0.1` only.
+Windows, 2026-09-26: `npm run test:hardware` 18/18 and `npm run test:host` 30/30; the host
+built and ran. Through the built-in relay: a browser on the LAN, an iPhone from the internet
+through the owner's router, Firefox and Safari (P1), and the iPhone with iCloud Private Relay
+on (P6) all streamed; the media worker's UDP sockets were on `127.0.0.1` only.
 
 ## Phase 2: privilege split
 

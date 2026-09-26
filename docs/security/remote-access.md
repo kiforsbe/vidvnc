@@ -203,11 +203,11 @@ The [security analysis](internet-exposure.md) lists what is still open. In short
   checks against the RFC 5769 vectors, pinning, budgets, expiry, and the process protocol.
   Headless Chromium connected through a prototype of the relay on Windows at 1080p60 (gates
   P1 and P2 in the [implementation plan](../superpowers/plans/2026-09-26-r4-media-relay-and-privilege-split.md)).
-- An iPhone at a public address signed in and streamed through a real router with the
-  earlier port range, and the host showed its public address.
-- **Not yet:** the relay built into VidVNC, end to end on Windows with real browsers and an
-  iPhone, including iCloud Private Relay; a packet capture; an IPv6 run; a client behind
-  carrier NAT.
+- An iPhone at a public address signed in and streamed through a real router, first with
+  the earlier port range and then through the built-in media relay, also with iCloud Private
+  Relay on; the host showed its public address. Firefox and Safari also connect through the
+  relay, and the media worker's sockets are on `127.0.0.1` only.
+- **Not yet:** a packet capture, an IPv6 run, or a client behind carrier NAT.
 
 To check your own setup:
 
