@@ -597,12 +597,13 @@ tests, but no external penetration test.
 
 Related documents, and what each one owns:
 
-| Document                                           | Owns                                                                        |
-| -------------------------------------------------- | --------------------------------------------------------------------------- |
-| This section                                       | The security design: zones, flows, controls, threat model                   |
-| [Security analysis](security/internet-exposure.md) | Findings register (F1–F8, R1–R8), their status, and the verification record |
-| [Remote access guide](security/remote-access.md)   | The operator's steps and required checks for internet exposure              |
-| [SECURITY.md](../SECURITY.md)                      | Support position and private vulnerability reporting                        |
+| Document                                                 | Owns                                                                        |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| This section                                             | The security design: zones, flows, controls, threat model                   |
+| [Security analysis](security/internet-exposure.md)       | Findings register (F1–F8, R1–R8), their status, and the verification record |
+| [Remote access guide](security/remote-access.md)         | The operator's steps and required checks for internet exposure              |
+| [R4 hardening options](security/r4-hardening-options.md) | Design options under consideration for finding R4 (not yet decided)         |
+| [SECURITY.md](../SECURITY.md)                            | Support position and private vulnerability reporting                        |
 
 ### Security objectives
 

@@ -309,6 +309,10 @@ inject input. ICE-TCP is off whenever a range is set, so only the UDP parser is 
 - keep GStreamer and libnice current, and scan them separately from `npm audit`;
 - longer term, a lower-privilege worker with a narrow input broker.
 
+The design options for closing R4 without a third party (an authenticating relay, a
+privilege split, media over HTTPS, a memory-safe ICE stack, firewall and router
+configuration) are compared in [R4 hardening: design options](r4-hardening-options.md).
+
 ### R2: the boundary trusts the source address (contained, conditional)
 
 Every remote-mode rule is keyed to the TCP source address. A router or program that
