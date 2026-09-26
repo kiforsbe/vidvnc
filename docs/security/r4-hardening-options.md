@@ -1,7 +1,9 @@
 # R4 hardening: design options
 
-**Status: options and a proposed recommendation, 2026-09-26.** Nothing here is decided or
-implemented. This document collects the analysis needed to choose a design for finding
+**Status: options, recommendation and selection, 2026-09-26.** Options **A**, **F1** and **B**
+were selected on 2026-09-26; their design is
+[R4: authenticating media relay, firewall rules and privilege split](../superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md).
+Nothing here is implemented yet. This document collects the analysis needed to choose a design for finding
 [R4](internet-exposure.md#r4-native-parsing-is-reachable-before-authentication-on-the-media-ports-open-reduced)
 (native parsing reachable before authentication on the media ports). The next step is to
 confirm or change the [recommendation](#recommendation) against the
