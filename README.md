@@ -146,10 +146,10 @@ local HTTP trust URL as a viewer URL. Open an advertised viewer URL from the cli
 Clients require host approval by default. In the host, use
 Sessions → Grant control, then enable keyboard/mouse in the browser.
 Access → Keyboard and mouse can instead allow new connections when control is
-available, on the local network and from the internet alike. Such a session takes
-control whenever nobody else holds it, and takes it back by itself after its stream
-reconnects. This saved default does not change existing sessions, take control
-from another device, or undo a manual revoke. The browser still enables input
+available, on the local network and from the internet alike: pressing the keyboard and
+mouse button in the viewer then takes control without asking the host whenever no other
+device holds it, and releasing it hands it back. This saved default does not change
+existing sessions, take control from another device, or undo a manual revoke. The browser still enables input
 locally. Access defaults are stored separately in `access-settings.json` in the
 per-user VidVNC data directory and also apply to the CLI server. Esc releases
 local control/exits fullscreen; Ctrl+C stops the server and all its workers.

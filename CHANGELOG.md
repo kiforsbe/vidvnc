@@ -20,12 +20,17 @@ may include breaking changes.
 
 ### Changed
 
-- Access → Keyboard and mouse set to **Allow when available** (`access available`) now
-  applies to devices connecting from the internet too; before, they always asked. An approved
-  device set to **Require host approval** on the Clients page keeps asking. A device that loses control without
-  the host acting, for example when its stream reconnects, now takes it back by itself when
-  control is free, instead of waiting for the host to grant it again. A host grant or revoke
-  for that device still ends automatic control for the rest of its session.
+- With Access → Keyboard and mouse set to **Allow when available** (`access available`),
+  control is no longer given to a device just because it connected or chose a display. The
+  person using the viewer takes it with the keyboard and mouse button, and gets it at once,
+  without host approval, when no other device has it; releasing it hands it back so another
+  device can take it. This now applies to devices connecting from the internet too (before,
+  they always needed the host). An approved device set to **Require host approval** on the
+  Clients page still needs the host, and after you revoke a device's control it cannot take
+  it again until it reconnects.
+- Sessions in the VidVNC app shows each stream's details in a compact row, Profile first,
+  with Encoder and Media from beneath, so a long profile name no longer wraps into a narrow
+  column.
 - All media, on the local network and from the internet, now goes through VidVNC's media relay
   on one UDP port (4384 by default) instead of ports the media worker opened for each viewer.
   The relay answers only devices that prove they belong to a stream they were just given, and

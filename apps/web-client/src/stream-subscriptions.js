@@ -13,6 +13,9 @@ export class StreamSubscriptions {
     this.selected = null;
     this.closed = false;
     this.controlStreamId = null;
+    // Whether this device may take keyboard and mouse control itself right now (the host
+    // allows it when available, and nobody else holds it).
+    this.controlRequestable = false;
     this.lastProfile = DECODE_CHECK_PROFILE;
     this.timer = setInterval(() => this.sample(), 2000);
   }
@@ -73,13 +76,14 @@ export class StreamSubscriptions {
         if (this.selected !== row) return;
         try {
           const state = JSON.parse(e.data);
-          if (typeof state.control === 'boolean') this.onControl(state.control, this.allowed(row));
+          if (typeof state.control === 'boolean')
+            this.onControl(state.control, this.allowed(row), this.requestable(row));
         } catch {
           /* Unknown message. */
         }
       };
       row.channel.onopen = () => {
-        if (this.selected === row) this.onControl(false, this.allowed(row));
+        if (this.selected === row) this.onControl(false, this.allowed(row), this.requestable(row));
       };
       row.channel.onclose = () => {
         if (this.selected === row) this.onControl(false, false);
@@ -105,17 +109,54 @@ export class StreamSubscriptions {
     const selection = await this.api('stream-select', { streamId: row.id });
     if (this.closed || row.closed) throw new Error('Connection cancelled.');
     this.controlStreamId = selection.controlStreamId;
+    this.controlRequestable = selection.controlRequestable === true;
     this.selected = row;
     this.onSelect(row);
-    this.onControl(false, this.allowed(row));
+    this.onControl(false, this.allowed(row), this.requestable(row));
     this.onState(row.pc.connectionState);
     return row;
   }
   allowed(row) {
     return !!row?.id && row.id === this.controlStreamId && row.channel?.readyState === 'open';
   }
+  // The Control button may ask the host's server for control on this stream.
+  requestable(row) {
+    return (
+      !!row?.id &&
+      row === this.selected &&
+      this.controlRequestable &&
+      !this.allowed(row) &&
+      row.channel?.readyState === 'open'
+    );
+  }
+  // The user pressed Control while not holding it: ask for it. Resolves true once this
+  // stream holds control; rejects with the server's reason otherwise.
+  async requestControl() {
+    const row = this.selected;
+    if (!row?.id) throw new Error('Choose a display first.');
+    const state = await this.api('control-request', { streamId: row.id });
+    if (this.closed || this.selected !== row) return false;
+    this.controlStreamId = state.controlStreamId;
+    this.controlRequestable = state.controlRequestable === true;
+    return this.allowed(row);
+  }
+  // The user released control: hand back control this device took itself, so another device
+  // can ask. Control the host granted stays with this device.
+  releaseControl() {
+    if (this.closed) return;
+    this.api('control-release')
+      .then((state) => {
+        if (this.closed || !state) return;
+        this.controlStreamId = state.controlStreamId;
+        this.controlRequestable = state.controlRequestable === true;
+        if (this.selected)
+          this.onControl(false, this.allowed(this.selected), this.requestable(this.selected));
+      })
+      .catch(() => {});
+  }
   update(state, knownIds) {
     this.controlStreamId = state.controlStreamId;
+    this.controlRequestable = state.controlRequestable === true;
     for (const row of [...this.rows.values()]) {
       if (row.id && knownIds.has(row.id) && !state.streams.some((s) => s.streamId === row.id)) {
         const selected = this.selected === row;
@@ -126,8 +167,8 @@ export class StreamSubscriptions {
         }
       }
     }
-    if (!this.allowed(this.selected)) this.onControl(false, false);
-    else this.onControl(null, true);
+    if (!this.allowed(this.selected)) this.onControl(false, false, this.requestable(this.selected));
+    else this.onControl(null, true, false);
   }
   async startAudio() {
     const row = (this.audio = { pc: new RTCPeerConnection({ iceServers: [] }) });

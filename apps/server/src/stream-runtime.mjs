@@ -58,6 +58,9 @@ export class StreamRuntime {
     this.streamDiagnostics = new Map();
     this.recoveries = new Map();
     this.selected = new Map();
+    // Sessions that may take keyboard and mouse control on their own request, without the
+    // host (the Allow when available default or the device's own setting, captured when the
+    // session was admitted). A host revoke for the session removes it.
     this.automaticControl = new Set();
     // Per stream registered with the relay: the HTTPS address and the authenticated media
     // path, for Sessions and diagnostics.
@@ -170,24 +173,56 @@ export class StreamRuntime {
       if (this.currentControl(sessionId, streamId, { explicitOwner }))
         await this.control.grant(sessionId, streamId, { explicitOwner });
       else await this.control.revoke(sessionId);
-    } else if (this.automaticControl.has(sessionId) && this.currentControl(sessionId, streamId))
-      // Eligibility lasts for the session, so control that was lost without the host acting
-      // (the stream ended or reconnected, the worker restarted) comes back on the next
-      // selection. It never takes control from another session, and a host grant or revoke
-      // for this session ends it.
-      await this.control.grant(sessionId, streamId, { onlyIfAvailable: true });
+    }
     if (this.registry.get(sessionId, streamId)?.state !== 'live') throw new Error('Stream ended');
     this.selected.set(sessionId, streamId);
+    return this.controlState(sessionId);
+  }
+  // What the viewer needs to draw its Control button: the stream it holds control on, and
+  // whether it may take control itself right now (nobody else holds it).
+  controlState(sessionId) {
+    const owner = this.control.owner;
+    const selected = this.selected.get(sessionId);
     return {
-      controlStreamId:
-        this.control.owner?.sessionId === sessionId ? this.control.owner.streamId : null,
+      controlStreamId: owner?.sessionId === sessionId ? owner.streamId : null,
+      controlRequestable:
+        !owner &&
+        selected !== undefined &&
+        this.automaticControl.has(sessionId) &&
+        this.currentControl(sessionId, selected),
     };
+  }
+  // The viewer's user asked for keyboard and mouse. Granted without the host when the session
+  // may take control and nobody else holds it; never taken from another session.
+  async requestControl(sessionId, streamId) {
+    if (!this.sessions.get(sessionId) || this.selected.get(sessionId) !== streamId)
+      throw Object.assign(new Error('Unknown stream'), { status: 404 });
+    const owner = this.control.owner;
+    if (owner?.sessionId === sessionId && owner.streamId === streamId)
+      return this.controlState(sessionId);
+    if (!this.automaticControl.has(sessionId) || !this.currentControl(sessionId, streamId))
+      throw Object.assign(new Error('The host must give this device keyboard and mouse control.'), {
+        status: 403,
+      });
+    await this.control.grant(sessionId, streamId, { onlyIfAvailable: true });
+    if (this.control.owner?.sessionId !== sessionId)
+      throw Object.assign(new Error('Another device has keyboard and mouse control.'), {
+        status: 409,
+      });
+    return this.controlState(sessionId);
+  }
+  // The viewer's user released keyboard and mouse. Control the session took itself is handed
+  // back so another device can ask; control the host granted stays until the host revokes it.
+  async releaseControl(sessionId) {
+    if (this.control.owner?.sessionId === sessionId && !this.control.explicitOwner)
+      await this.control.revoke(sessionId);
+    return this.controlState(sessionId);
   }
   // Called only by the local owner command pipe, never by an HTTP admin route.
   async command({ action, sessionId, streamId }) {
     if (!this.sessions.list().some((session) => session.sessionId === sessionId))
       throw new Error('Device disconnected');
-    if (action === 'grant' || action === 'revoke') this.automaticControl.delete(sessionId);
+    if (action === 'revoke') this.automaticControl.delete(sessionId);
     if (
       action === 'grant' &&
       !this.currentControl(sessionId, this.selected.get(sessionId), { explicitOwner: true })

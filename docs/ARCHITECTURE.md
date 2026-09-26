@@ -186,12 +186,12 @@ serialized so overlapping requests cannot interleave
 All client traffic is HTTP under `/api`, plus the static client assets. Routes fall into
 four groups:
 
-| Group       | Routes                                                                                                          | Purpose                                                                                 |
-| ----------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Admission   | `/api/key-start`, `/api/approved-clients/*`                                                                     | Meter key attempts or authenticate an approved browser/client and issue a session token |
-| Negotiation | `/api/offer`, `/api/stream-offer`, `/api/audio-offer`, `/api/streams`, `/api/stream-select`, `/api/stream-stop` | Start, pick and tear down media                                                         |
-| Liveness    | `/api/heartbeat`, `/api/reconnect`, `/api/disconnect`                                                           | Keep, recover or end a session                                                          |
-| Reporting   | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info`                 | Client-side metrics and public-safe status on the normal listener                       |
+| Group       | Routes                                                                                                                                                          | Purpose                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Admission   | `/api/key-start`, `/api/approved-clients/*`                                                                                                                     | Meter key attempts or authenticate an approved browser/client and issue a session token |
+| Negotiation | `/api/offer`, `/api/stream-offer`, `/api/audio-offer`, `/api/streams`, `/api/stream-select`, `/api/stream-stop`, `/api/control-request`, `/api/control-release` | Start, pick and tear down media                                                         |
+| Liveness    | `/api/heartbeat`, `/api/reconnect`, `/api/disconnect`                                                                                                           | Keep, recover or end a session                                                          |
+| Reporting   | `/api/telemetry`, `/api/stream-telemetry`, `/api/audio-telemetry`, `/api/profiles`, `/api/info`                                                                 | Client-side metrics and public-safe status on the normal listener                       |
 
 A viewer's path from sign-in to video, with a second viewer on an identical plan
 joining the same source instead of starting a new worker
@@ -569,6 +569,22 @@ trusts nothing on the channel:
 
 Granting control to a second peer revokes it from the first; only one peer holds it.
 
+Who holds the server's lease is decided in one of two ways
+([stream-runtime.mjs](../apps/server/src/stream-runtime.mjs)):
+
+- **The host grants it** (Sessions → Grant control, or `grant` in the CLI). It stays until the
+  host revokes it; the viewer turning its own control off does not give it up.
+- **The viewer's user asks for it**, when Access → Keyboard and mouse is **Allow when
+  available** (or the approved device is set to that) and nobody else holds it: pressing
+  Control in the viewer sends `/api/control-request`, and the server grants the lease without
+  asking the host. Releasing control (the button, Esc, leaving the video) sends
+  `/api/control-release`, which hands such a lease back so another device can ask. Nothing
+  is taken just by connecting or choosing a display, a request never takes control from
+  another session, and after the host revokes a session's control it can no longer ask for
+  the rest of that session. The same rules apply on the LAN and from the internet.
+  `/api/heartbeat` and `/api/stream-select` report `controlRequestable`, which enables the
+  button.
+
 Permission is a short lease the server must keep renewing. The server sends
 `control-permission` with a 5-second `leaseMs` and renews it every 2 seconds while the
 owning session is still active; client pings cannot extend it
@@ -586,7 +602,11 @@ sequenceDiagram
     participant Browser
     participant OS as Windows SendInput
 
-    Owner->>Server: grant control to session
+    alt the host grants
+        Owner->>Server: grant control to session
+    else Allow when available, and nobody holds control
+        Browser->>Server: POST /api/control-request {streamId}
+    end
     Server->>Lease: grant(session, stream)
     Lease->>Worker: control-permission {peerId, allowed: true, leaseMs: 5000}
     Worker-->>Lease: acknowledged
@@ -945,9 +965,9 @@ control, and the worker enforces it on every message because the data channel by
 server. The worker accepts permission only from its owner pipe, as a 5-second lease the
 server renews every 2 seconds; a peer cannot extend or grant it
 ([Input and control](#input-and-control)). With the `available` default, or an approved
-device set to `available`, a session takes control automatically when nobody holds it, on
-the LAN and from the internet alike, and takes it back on its next stream selection after
-losing it without the host acting; a host grant or revoke for that session ends this.
+device set to `available`, the viewer's user can take control when nobody holds it, on the
+LAN and from the internet alike, without the host approving it; nothing is taken without
+that request, and a host revoke for the session ends it.
 
 ### Cryptography and key management (ASVS V6)
 

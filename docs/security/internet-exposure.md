@@ -218,9 +218,9 @@ unknown address fails closed as internet.
   renewal.
 - The `available` default applies to internet sessions too (since 2026-09-26, the owner's
   choice; before that it asked). Internet sessions are always approved devices, and each
-  device's own setting (`approval`, `view-only`) overrides the default. Automatic control
-  never takes control from another session and ends when the host grants or revokes it
-  for that session.
+  device's own setting (`approval`, `view-only`) overrides the default. Control is taken
+  only when the viewer's user asks for it (`/api/control-request`), never from another
+  session, and not again after the host revokes it for that session.
 - Input is whitelisted in the worker and rate-limited to 1000 events/s.
 
 **Resources**
@@ -361,8 +361,9 @@ it could do:
 - open the certificate page, which serves only public data;
 - obtain a registration ticket with a stolen setup code, and submit a setup request that
   the owner must approve. That request would wrongly show "Local network";
-- get automatic control if it holds an approved device's credentials and the default is
-  `available`.
+- take control on request if it holds an approved device's credentials and the default is
+  `available` (since that default now applies to internet sessions too, laundering adds
+  nothing here).
 
 The [guide](remote-access.md#check-the-source-address) makes a mobile-data check of the
 session address a required setup step. The app doesn't detect laundering itself.

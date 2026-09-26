@@ -18,6 +18,8 @@ export function createViewer({ onExit }) {
     playback,
     enabled = false,
     controlAllowed = false,
+    // The host allows this device to take control itself, and nobody holds it now.
+    controlRequestable = false,
     connecting = false,
     reconnecting = false,
     connectionAttempt = 0,
@@ -62,7 +64,8 @@ export function createViewer({ onExit }) {
       immersiveFollowsControl = enabled;
       if (needsImmersive() && immersive !== enabled) setImmersive(enabled);
     }
-    $('control').disabled = !controlAllowed || document.pictureInPictureElement === $('video');
+    $('control').disabled =
+      !(controlAllowed || controlRequestable) || document.pictureInPictureElement === $('video');
     $('control').setAttribute('aria-pressed', String(enabled));
     toolbarButton(
       'control',
@@ -171,6 +174,8 @@ export function createViewer({ onExit }) {
   }
   function release() {
     send({ type: 'release' });
+    // Control this device took itself goes back, so another device can ask for it.
+    if (enabled) subscriptions?.releaseControl();
     enabled = false;
     renderControl();
   }
@@ -597,9 +602,10 @@ export function createViewer({ onExit }) {
             .catch(() => status('Tap the desktop to start video playback.'));
         fitVideo();
       },
-      onControl: (value, allowed) => {
+      onControl: (value, allowed, requestable = false) => {
         if (subscriptions !== peers) return;
         controlAllowed = allowed;
+        controlRequestable = requestable;
         if (value !== null) {
           if (value && document.pictureInPictureElement === $('video')) release();
           else enabled = value && allowed;
@@ -686,12 +692,28 @@ export function createViewer({ onExit }) {
     renderAudio();
     if (!audio.muted) await audio.play().catch(() => {});
   };
-  $('control').onclick = () => {
+  $('control').onclick = async () => {
     if (document.pictureInPictureElement === $('video')) return;
     if (enabled) {
       release();
       status('Connected · View only');
       return;
+    }
+    // The host allows taking control when it is free: ask for it first. The host's server
+    // grants it without asking the host, or says why not.
+    if (!controlAllowed && controlRequestable && subscriptions) {
+      const peers = subscriptions;
+      $('control').disabled = true;
+      try {
+        controlAllowed = await peers.requestControl();
+      } catch (error) {
+        controlAllowed = false;
+        status(error.message || 'Keyboard and mouse control is not available.');
+      }
+      if (subscriptions !== peers) return;
+      controlRequestable = false;
+      renderControl();
+      if (!controlAllowed) return;
     }
     if (send({ type: 'control', enabled: true })) {
       enabled = true;

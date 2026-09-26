@@ -521,6 +521,8 @@ export function createHttpApp({
           '/api/stream-stop',
           '/api/stream-select',
           '/api/stream-telemetry',
+          '/api/control-request',
+          '/api/control-release',
         ].includes(route)
       )
         return send(response, 404, { error: 'Not found' });
@@ -696,6 +698,16 @@ export function createHttpApp({
         }
         if (route === '/api/stream-select')
           return sendIfLive(200, await runtime.selectStream(token, body.streamId));
+        if (route === '/api/control-request') {
+          try {
+            return sendIfLive(200, await runtime.requestControl(token, body.streamId));
+          } catch (error) {
+            if (!error.status) throw error;
+            return send(response, error.status, { error: error.message });
+          }
+        }
+        if (route === '/api/control-release')
+          return sendIfLive(200, await runtime.releaseControl(token));
         if (route === '/api/stream-offer' || route === '/api/audio-offer') {
           if (
             typeof body.sdp !== 'string' ||
@@ -744,12 +756,11 @@ export function createHttpApp({
         if (route === '/api/heartbeat')
           return send(response, 200, {
             controlAllowed: runtime.control.owner?.sessionId === token,
-            controlStreamId:
-              runtime.control.owner?.sessionId === token ? runtime.control.owner.streamId : null,
+            ...runtime.controlState(token),
             streams: runtime.list(token),
             inventoryRevision: inventory?.revision,
           });
-      } else if (route.startsWith('/api/stream'))
+      } else if (route.startsWith('/api/stream') || route.startsWith('/api/control-'))
         return send(response, 404, { error: 'Not found' });
       if (reconnecting.has(token) && !['/api/heartbeat', '/api/disconnect'].includes(route))
         return send(response, 409, { error: 'This session is reconnecting. Retry shortly.' });

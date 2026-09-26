@@ -45,8 +45,9 @@ For an internet client:
 - **Its sign-in budget is separate.** Sign-in attempts from the internet have their own
   budget, so a flood from the internet can't lock out devices on the LAN or a VPN.
 - **Keyboard and mouse follow the same setting as on the LAN.** With Access → Keyboard and
-  mouse set to **Allow when available** (`access available`), an internet device gets control without asking whenever nobody
-  else holds it, and gets it back by itself after its stream reconnects. Set a device to
+  mouse set to **Allow when available** (`access available`), the person using an internet
+  device can take control with the viewer's keyboard and mouse button whenever nobody else
+  holds it, without you approving it; releasing it hands it back. Set a device to
   **Require host approval** or **View only** on the Clients page to keep asking for it. Only approved devices
   can sign in from the internet at all, so this is a choice about devices you set up
   yourself; if a device might be lost or its password guessed, prefer approval.

@@ -120,18 +120,32 @@ public sealed partial class HostWindow
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(stop, "Stop stream"); ToolTipService.SetToolTip(stop, "Stop stream");
             stop.Click += async (_, _) => { stop.IsEnabled = false; try { await command("stop-stream", id); } finally { stop.IsEnabled = id is not null; } };
             Grid.SetColumn(stop, 1); header.Children.Add(stop); content.Children.Add(header); content.Children.Add(shared);
-            var values = new Grid { ColumnSpacing = 12 };
-            foreach (var (label, value) in new[] { ("Profile", profile), ("Resolution", resolution), ("Target FPS", fps), ("Codec", codec) }) {
+            // One compact row, Profile first: the other three values are short, so they size to
+            // their content and the profile name gets the rest instead of a quarter of the width.
+            // Encoder and the media address share a second row of their own, so a long (IPv6)
+            // address never widens the first.
+            static StackPanel Cell(string label, TextBlock value)
+            {
+                value.TextWrapping = TextWrapping.Wrap;
                 var cell = new StackPanel { Spacing = HostSpacing.Small };
                 cell.Children.Add(Label(label, 12)); cell.Children.Add(value);
-                Grid.SetColumn(cell, values.ColumnDefinitions.Count);
-                values.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); values.Children.Add(cell);
+                return cell;
             }
-            var encoderRow = new StackPanel { Spacing = HostSpacing.Small };
-            encoderRow.Children.Add(Label("Encoder", 12)); encoderRow.Children.Add(encoder);
-            var mediaRow = new StackPanel { Spacing = HostSpacing.Small };
-            mediaRow.Children.Add(Label("Media from", 12)); mediaRow.Children.Add(mediaPath);
-            content.Children.Add(values); content.Children.Add(encoderRow); content.Children.Add(mediaRow); Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
+            static Grid Row(params (StackPanel Cell, GridLength Width)[] cells)
+            {
+                var grid = new Grid { ColumnSpacing = 16 };
+                foreach (var (cell, width) in cells)
+                {
+                    Grid.SetColumn(cell, grid.ColumnDefinitions.Count);
+                    grid.ColumnDefinitions.Add(new() { Width = width }); grid.Children.Add(cell);
+                }
+                return grid;
+            }
+            var star = new GridLength(1, GridUnitType.Star);
+            content.Children.Add(Row((Cell("Profile", profile), star), (Cell("Resolution", resolution), GridLength.Auto),
+                (Cell("Target FPS", fps), GridLength.Auto), (Cell("Codec", codec), GridLength.Auto)));
+            content.Children.Add(Row((Cell("Encoder", encoder), star), (Cell("Media from", mediaPath), star)));
+            Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
             Root.SizeChanged += (_, _) => {
                 var narrow = Root.ActualWidth < 580;
                 Grid.SetColumn(graph, narrow ? 0 : 1); Grid.SetRow(graph, narrow ? 1 : 0);

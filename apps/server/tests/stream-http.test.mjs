@@ -106,6 +106,19 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
   const selection = await post('stream-select', { streamId: stream.streamId }, a.sessionId);
   assert.equal(selection.status, 200);
   assert.equal((await selection.json()).controlStreamId, null);
+  // Without Allow when available a viewer cannot take control itself, and never on another
+  // session's stream.
+  const requested = await post('control-request', { streamId: stream.streamId }, a.sessionId);
+  assert.equal(requested.status, 403);
+  assert.match((await requested.json()).error, /host must give/);
+  assert.equal(
+    (await post('control-request', { streamId: stream.streamId }, b.sessionId)).status,
+    404,
+  );
+  assert.equal((await post('control-request', { streamId: stream.streamId })).status, 401);
+  const released = await post('control-release', {}, a.sessionId);
+  assert.equal(released.status, 200);
+  assert.deepEqual(await released.json(), { controlStreamId: null, controlRequestable: false });
   assert.equal(
     (await post('session-command', { action: 'grant', sessionId: a.sessionId }, a.sessionId))
       .status,
