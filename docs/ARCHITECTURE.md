@@ -455,12 +455,19 @@ and `metrics` (every 2 seconds). An invalid command ends the relay, and so does 
 its input, so it never outlives the server. Limits: 64 registrations, 4 sharing one ufrag,
 4 paths each.
 
-**Supervision.** On Windows the relay runs at low integrity: the server starts it through
-the worker's sandbox launcher, `media-worker.exe --sandbox -- <node> <relay script>`, which
-gives it its own job (one process, no children) and desktop and the process mitigations,
-passes its pipes through and exits with its exit code. Its user SID stays enabled, because
-Node must read its own files; low integrity keeps it from writing to the user's files or
-sending input to the desktop. The server starts the relay before it reports `ready`. If the port cannot
+**Supervision.** On Windows the relay runs sandboxed: the server starts it through the
+worker's sandbox launcher, `media-worker.exe --sandbox -- <node> ...`, which gives it the same
+tier T1 token as media-net (the user SID deny-only, restricting SIDs, low integrity), its own
+job (one process, no children) and desktop and the process mitigations, passes its pipes
+through and exits with its exit code. It gets no initial impersonation token, because Node
+never drops one. Since that token cannot read the relay's own files under the user's
+profile, the relay runs from a bundle on the command line
+([bundle.mjs](../apps/server/src/media-relay/bundle.mjs): its four modules as one ES module
+of Node built-ins, under 28,000 characters), under Node's permission model with no file
+access, child processes, add-ons or workers. It can therefore neither read nor write
+anything that grants access to the user alone, nor send input to the desktop; it can read
+world-readable locations such as Program Files and System32, and reach the network. The
+server starts the relay before it reports `ready`. If the port cannot
 be bound, sign-in still works, offers are refused with the reason (for example "UDP 4384 is
 in use"), and the host shows it. If the relay exits, every stream stops and the relay is
 restarted, at most three times a minute. Changing `mediaPort` restarts it and stops live
@@ -914,7 +921,7 @@ flowchart LR
         subgraph Z3a["Z3a Network-facing, validates everything"]
             https["HTTPS listener :4383"]
             http["HTTP listener :4382<br/>loopback + Private LAN only"]
-            relay["media relay, low integrity<br/>UDP media port 4384"]
+            relay["media relay, restricted token<br/>UDP media port 4384"]
         end
         subgraph Z3b["Z3b Owner-only"]
             host["WinUI host / CLI"]
@@ -1188,8 +1195,8 @@ server; the receiving page strips it and refuses to replace a different stored s
   stream's ICE password ([Media relay](#media-relay)). A flaw in the WebRTC stack exploited
   by forged DTLS or RTP from an authenticated address therefore lands in the sandbox: it can
   act as the viewer that holds control while the owner has granted it, and nothing more
-  (R4). The relay runs at low integrity in its own job and desktop
-  ([Media relay](#media-relay)).
+  (R4). The relay runs under the same restricted token, in its own job and desktop, from a
+  bundle with no file access ([Media relay](#media-relay)).
 - Diagnostics run on a separate listener bound to `127.0.0.1`, not routed by the main
   handler at all.
 
@@ -1265,7 +1272,7 @@ The current register, with severity and verification, is kept in the
 [security analysis](security/internet-exposure.md#open-and-residual-findings). In summary:
 
 - **R4** (mitigated) Native ICE/STUN parsing was reachable before authentication on the
-  media ports. The media relay, at low integrity, now checks the ICE password first, and
+  media ports. The media relay, under a restricted token, now checks the ICE password first, and
   WebRTC runs in the sandboxed media-net. Forged DTLS or RTP from an authenticated address
   still reaches OpenSSL and libsrtp there; a compromised media-net can act as the viewer that
   holds control while it is granted. The firewall rules (F1) are still to do.
@@ -1526,6 +1533,7 @@ node apps/web-client/tests/toolbar-browser-check.mjs C:\path\to\playwright
 node tests/system/browser-media-check.mjs C:\path\to\playwright iphone-720p-test
 node native/media-worker/tests/relay-check.mjs C:\path\to\playwright
 node native/media-worker/tests/sandbox-check.mjs
+node native/media-worker/tests/relay-sandbox-check.mjs
 ```
 
 `relay-check.mjs` checks the media relay's core with a loopback-only worker

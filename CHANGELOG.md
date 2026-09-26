@@ -59,9 +59,10 @@ may include breaking changes.
   job and desktop, and Arbitrary Code Guard. It cannot capture the screen, send keyboard or
   mouse input, or read your files. Viewer input passes from it to the media worker, which
   still checks every message against the control you granted.
-- On Windows the media relay now runs at low integrity, in its own job and desktop, so the one
-  process that handles unauthenticated network traffic cannot change your files or send input
-  to your desktop. Together with the relay, this mitigates finding R4.
+- On Windows the media relay now runs in the same kind of restricted sandbox as the network
+  process, with no access to its own files either, so the one process that handles
+  unauthenticated network traffic cannot read or change your files or send input to your
+  desktop. Together with the relay, this mitigates finding R4.
 
 ### Known limitations
 

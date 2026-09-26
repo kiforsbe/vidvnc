@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { permissionFlags, relayBundle } from './media-relay/bundle.mjs';
 
 // Starts and supervises the media relay process (media-relay/main.mjs), which owns the one
 // public UDP media port and forwards only authenticated clients to the workers' loopback-only
@@ -13,17 +14,28 @@ const UNAUTHENTICATED = ['budget', 'malformed', 'unknown-ufrag', 'bad-integrity'
 
 export const RELAY_RESTARTS = Object.freeze({ limit: 3, windowMs: 60_000 });
 
-// On Windows the relay runs at low integrity, in its own job and desktop, through the media
-// worker's sandbox launcher (`media-worker.exe --sandbox -- <node> <relay script>`), which
-// passes the pipes through and exits with the relay's exit code. The user SID stays enabled:
-// Node must read its own files.
-export function sandboxedRelayLaunch({ executable, env, start = spawn }) {
+// On Windows the relay runs sandboxed: the media worker's launcher
+// (`media-worker.exe --sandbox -- <node> ...`) starts it with a restricted token (the user's SID
+// deny-only, so nothing that grants access to the user alone can be opened: the profile, the
+// TLS key, the settings), at low integrity, in its own job and desktop, and passes the pipes
+// through. It runs from a bundle on the command line (media-relay/bundle.mjs), because the
+// restricted token cannot read the relay's own files, under Node's permission model with no
+// file access at all.
+export function sandboxedRelayLaunch({ executable, env, start = spawn, bundle = relayBundle() }) {
   return () =>
-    start(executable, ['--sandbox', '--', process.execPath, RELAY_SCRIPT], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-      env,
-    });
+    start(
+      executable,
+      [
+        '--sandbox',
+        '--',
+        process.execPath,
+        ...permissionFlags(),
+        '--input-type=module',
+        '-e',
+        bundle,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env },
+    );
 }
 
 export class MediaRelay {

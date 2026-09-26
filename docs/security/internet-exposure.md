@@ -37,7 +37,7 @@ change can close.
    carrier-NAT client has been tried yet.
 2. **The native ICE stack no longer faces the network directly** (R4, mitigated). Media,
    LAN and internet alike, reaches the PC through VidVNC's media relay on one UDP port; the
-   relay, at low integrity, forwards only senders that prove a stream's ICE password. WebRTC
+   relay, under a restricted token, forwards only senders that prove a stream's ICE password. WebRTC
    runs in a sandboxed process per source that listens on `127.0.0.1` only and cannot
    capture the screen, inject input or read the user's files. Both work end to end on
    Windows with Chromium-based, Firefox and Safari clients, on the LAN and from the internet.
@@ -334,7 +334,7 @@ process per source started under the tier T1 sandbox (restricted token, low inte
 own desktop, Arbitrary Code Guard), which cannot capture, inject input or read the user's
 files. Its data-channel input goes through the worker's broker and the owner's lease, and
 the server attests each answer's loopback port before the relay forwards to it. The relay
-runs at low integrity in its own job and desktop
+runs under the same restricted token, from a bundle with no file access
 ([architecture](../ARCHITECTURE.md#network-process-media-net)).
 
 **Residual:**
@@ -344,8 +344,9 @@ runs at low integrity in its own job and desktop
   viewer that holds control, only while the owner has granted it and only through the
   allow-listed keys and buttons, and can send malformed SDP or RTP to its source's viewers;
 - the relay's own parser (`stun.mjs`), Node's `dgram` and V8 handle unauthenticated
-  datagrams at low integrity; the relay cannot write to the user's files, but it can read
-  them, because Node must read its own;
+  datagrams, under the restricted token: the relay can read world-readable locations
+  (Program Files, System32) and reach the network, but not open anything that grants access
+  to the user alone;
 - the firewall rules (F1) are not in place yet: Windows Firewall scoping depends on the
   owner's answer to Windows' prompt, and nothing but the sandbox's loopback-only design
   keeps media-net from the network.

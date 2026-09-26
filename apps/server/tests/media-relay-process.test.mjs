@@ -5,6 +5,8 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { runRelay } from '../src/media-relay/protocol.mjs';
 import { MediaRelay, sandboxedRelayLaunch } from '../src/media-relay.mjs';
+import { MAX_BUNDLE_CHARS, permissionFlags, relayBundle } from '../src/media-relay/bundle.mjs';
+import { spawn } from 'node:child_process';
 import { bindingRequest } from './fixtures/stun-messages.mjs';
 
 const REGISTRATION = {
@@ -238,18 +240,67 @@ test('allow times out and revokes when the relay does not confirm', async () => 
   );
 });
 
-test('on Windows the relay starts through the worker sandbox launcher', () => {
+test('on Windows the relay starts through the worker sandbox launcher, from its bundle', () => {
   const calls = [];
   const launch = sandboxedRelayLaunch({
     executable: 'C:\\VidVNC\\media-worker.exe',
     env: { PATH: 'x' },
     start: (...args) => calls.push(args),
+    bundle: 'runRelay();',
   });
   launch();
   const [[executable, args, options]] = calls;
   assert.equal(executable, 'C:\\VidVNC\\media-worker.exe');
   assert.deepEqual(args.slice(0, 3), ['--sandbox', '--', process.execPath]);
-  assert.match(args[3], /media-relay[\\/]main\.mjs$/);
+  assert.deepEqual(args.slice(-3), ['--input-type=module', '-e', 'runRelay();']);
+  assert.deepEqual(args.slice(3, -3), permissionFlags());
   assert.deepEqual(options.env, { PATH: 'x' });
   assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe']);
+});
+
+test('the relay bundle is one module of Node built-ins that fits a Windows command line', () => {
+  const bundle = relayBundle();
+  assert.ok(bundle.length <= MAX_BUNDLE_CHARS, `${bundle.length} characters`);
+  for (const [, from] of bundle.matchAll(/^import .* from '([^']+)';$/gm))
+    assert.match(from, /^node:/);
+  assert.doesNotMatch(bundle, /^export /m);
+  assert.match(bundle, /runRelay\(\);$/);
+  assert.throws(
+    () => relayBundle({ read: () => "import x from 'some-package';\n" }),
+    /cannot include some-package/,
+  );
+  assert.deepEqual(permissionFlags(new Set(['--permission', '--allow-net'])), [
+    '--permission',
+    '--allow-net',
+  ]);
+  assert.deepEqual(permissionFlags(new Set(['--experimental-permission'])), [
+    '--experimental-permission',
+  ]);
+  assert.deepEqual(permissionFlags(new Set()), []);
+});
+
+test('the bundled relay runs under the permission model with no file access and forwards', async () => {
+  const port = await freeUdpPort();
+  const worker = dgram.createSocket('udp4');
+  await new Promise((resolve) => worker.bind(0, '127.0.0.1', resolve));
+  const received = [];
+  worker.on('message', (message) => received.push(message));
+  const bundle = relayBundle();
+  const relay = new MediaRelay({
+    port: () => port,
+    launch: () =>
+      spawn(process.execPath, [...permissionFlags(), '--input-type=module', '-e', bundle], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+  });
+  await relay.start();
+  assert.equal(relay.state, 'listening', relay.reason);
+  await relay.allow({ ...REGISTRATION, workerPort: worker.address().port });
+  const client = dgram.createSocket('udp4');
+  await new Promise((resolve) => client.bind(0, '127.0.0.1', resolve));
+  client.send(bindingRequest('wKr1:Cli3', REGISTRATION.pwd), port, '127.0.0.1');
+  await until(() => received.length === 1);
+  await relay.stop();
+  client.close();
+  worker.close();
 });

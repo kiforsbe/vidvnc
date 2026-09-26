@@ -302,6 +302,15 @@ sandboxed media-net; jitter and loss are unchanged, so it is within the latency 
 `--sandbox` launcher, and Process Explorer showed the relay's `node.exe` and every media-net
 at Low integrity, the workers and the launcher at Medium.
 
+Tightened the same day, at the owner's request: the relay runs under the full tier T1 token
+(user SID deny-only) instead of low integrity alone, from a bundle on the command line
+(`media-relay/bundle.mjs`, about 19,700 characters) under Node's permission model with no file
+access, because that token cannot read the relay's files under the profile. No initial
+impersonation token: Node would never drop it. `relay-sandbox-check.mjs` probes the token
+(a profile file unreadable, UDP on every address) and runs the bundled relay through the
+launcher. Portable tests run the bundle under `--permission` and forward a check; not yet run
+on Windows.
+
 - [x] **2.6 Relay at low integrity** through `media-worker.exe --sandbox -- <node> <script>`
       (`run_sandboxed`: low integrity with the user SID kept, job, desktop, mitigations, the
       standard handles passed through; `sandboxedRelayLaunch` in the server on Windows). Not

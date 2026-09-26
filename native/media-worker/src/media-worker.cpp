@@ -1629,11 +1629,15 @@ static std::wstring quote_argument(const std::wstring &argument) {
     return quoted;
 }
 
-// `media-worker.exe --sandbox -- <program> [arguments]`: runs the program at low integrity in
-// its own job and desktop, with the mitigations and no child processes, but with the user SID
-// still enabled, because the media relay (Node) must read its own files and reach the network.
-// Its standard handles are this process's; the exit code is the program's. Design, Part B
-// ("media-relay ... phase 2").
+// `media-worker.exe --sandbox -- <program> [arguments]`: runs the program under the tier T1
+// token that media-net uses (the user SID and most groups deny-only, restricting SIDs, no
+// privileges, low integrity) in its own job and desktop, with the mitigations and no child
+// processes. So it cannot open anything that grants access to the user alone: the profile,
+// VidVNC's settings and TLS key. It gets no initial impersonation token: the program (the media
+// relay, Node running a bundle from its command line) never drops one, so it would keep the
+// user's rights on its main thread. Its image is mapped by this process; it must need no other
+// file it cannot read. Its standard handles are this process's; the exit code is the
+// program's.
 static int run_sandboxed() {
     int count = 0;
     const auto arguments = CommandLineToArgvW(GetCommandLineW(), &count);
@@ -1654,8 +1658,7 @@ static int run_sandboxed() {
             return 2;
         }
     sandbox::Options options;
-    options.restricted = false;    // low integrity only: the user SID stays enabled
-    options.initial_token = false; // nothing to preload
+    options.initial_token = false; // never impersonate: see above
     options.std_input = handles[0];
     options.std_output = handles[1];
     options.std_error = handles[2];
