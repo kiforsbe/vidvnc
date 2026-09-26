@@ -230,14 +230,27 @@ on (P6) all streamed; the media worker's UDP sockets were on `127.0.0.1` only.
 
 ## Phase 2: privilege split
 
-- [ ] **2.1 Sandbox launcher** (`--sandbox`) and `media-net` (`--network`) with the recorded
-      token tier, job, desktop and mitigations.
-- [ ] **2.2 Pipes:** overlapped named pipes, writer and reader threads, bounded queues, record
-      formats, overflow to keyframe.
-- [ ] **2.3 Pipeline split:** `appsink` in the worker, `appsrc` in `media-net`, per-peer
+Built 2026-09-26 in the Linux container: `media-net.cpp`, `net-pipes.hpp`, `net-records.hpp`
+(unit test `net-records`), `json-util.hpp`, and the worker changes. Both translation units
+pass a MinGW syntax check against the GStreamer 1.24 headers with a win64 GLib config; the
+record test runs under Linux g++. Not yet built with MSVC or run on Windows.
+
+Deviations from the spec, deliberate: anonymous pipes instead of named ones (no name at all,
+so nothing to squat, and four handles in the handle list: control each way, frames, input);
+blocking I/O on dedicated threads instead of overlapped I/O (the main loop still never
+waits on a pipe); `ready` is held until media-net reports `net-ready`, and viewers that
+arrive before then wait in the worker; capture starts at the first answer.
+
+- [x] **2.1 Sandbox launcher** for media-net (`--network`) with tier T1, job, desktop and
+      mitigations (`sandbox.hpp`, detached); Arbitrary Code Guard after `RevertToSelf`. The
+      relay's `--sandbox` launcher is 2.6.
+- [x] **2.2 Pipes:** writer and reader threads, bounded queues (frames 32 MiB, control
+      4 MiB), record formats, overflow to keyframe.
+- [x] **2.3 Pipeline split:** `appsink` in the worker, `appsrc` in media-net, per-peer
       branches moved, keyframe kinds, `channel-closed`, metrics merge.
-- [ ] **2.4 Broker:** input from the pipe through the existing checks; refuse to run without
-      `hostControl`.
+- [x] **2.4 Broker:** input from the pipe through the existing checks; refuse to run without
+      `hostControl`. The worker's ICE port range (`VIDVNC_ICE_PORTS`) and its check script are
+      removed; media-net always gathers on 127.0.0.1.
 - [ ] **2.5 Answer attestation:** `check-port` with `GetExtendedUdpTable`.
 - [ ] **2.6 Relay at low integrity** through `--sandbox`.
 - [ ] **2.7 Firewall:** outbound block for `media-worker.exe`.

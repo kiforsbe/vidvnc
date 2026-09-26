@@ -6,8 +6,8 @@
 //   <playwright>  path to a `playwright` package install matching the local
 //                 chromium_headless_shell revision.
 //   --video       stream the primary display (1920x1080 at 60 fps) instead of loopback audio.
-//   --direct      baseline for P2: no relay, the worker gathers on every interface as today;
-//                 only the round-trip times are reported.
+//   --direct      baseline for P2: no relay; the browser reaches the worker's network process
+//                 on 127.0.0.1 directly. Only the round-trip times are reported.
 //   --peers N     peer connections from one browser through the one relay port (default 2).
 //   --seconds N   how long to sample round-trip times after connecting (default 10).
 //   --port N      the relay's UDP port (default 4384).

@@ -47,7 +47,14 @@ function run(...args) {
           '\n' +
           JSON.stringify({ type: 'add-peer', peerId: 'invalid', sdp: 'invalid' }) +
           '\n';
-      child.stdin.end(stdin);
+      // Closing stdin ends the worker at once, so with `until` it stays open until that output
+      // arrives: the sandboxed network process answers asynchronously.
+      if (options.until) {
+        child.stdin.write(stdin);
+        child.stdout.on('data', () => {
+          if (options.until.test(stdout)) child.stdin.end();
+        });
+      } else child.stdin.end(stdin);
     }
     const timeout = setTimeout(() => {
       child.kill();
@@ -149,7 +156,9 @@ test('mobile encoder emits Level 3.1 and responds to force-key-unit', async () =
   assert.ok(value.keyframes >= 5, JSON.stringify(value));
 });
 test('native session fails a malformed peer without failing its source or starting capture', async () => {
-  const result = await run('--session');
+  // The peer is sent before `ready`, as the server does; the worker holds it until the
+  // sandboxed network process is up, which then refuses the SDP.
+  const result = await run('--session', { until: /peer-failed/ });
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(
     result.stdout
@@ -159,22 +168,17 @@ test('native session fails a malformed peer without failing its source or starti
     [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
   );
 });
-test('a media port range is accepted, and a malformed one stops the worker before it starts', async () => {
-  const valid = await run('--session', { env: { VIDVNC_ICE_PORTS: '41000-41049' } });
-  assert.equal(valid.code, 0, valid.stderr);
-  assert.deepEqual(
-    valid.stdout
-      .trim()
-      .split(/\r?\n/)
-      .map((line) => JSON.parse(line)),
-    [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
-  );
-  for (const value of ['41049-41000', '41000-41003', '80-100', 'any']) {
-    const invalid = await run('--session', { env: { VIDVNC_ICE_PORTS: value } });
-    assert.equal(invalid.code, 2, value);
-    assert.match(invalid.stderr, /Invalid VIDVNC_ICE_PORTS/);
-    assert.equal(invalid.stdout.trim(), '', 'nothing starts on a malformed range');
-  }
+test('an unknown ICE bind, or a session without the host lease, stops the worker', async () => {
+  const invalid = await run('--session', { env: { VIDVNC_ICE_BIND: 'any' } });
+  assert.equal(invalid.code, 2);
+  assert.match(invalid.stderr, /Invalid VIDVNC_ICE_BIND/);
+  assert.equal(invalid.stdout.trim(), '', 'nothing starts on an unknown bind');
+  const unleased = await run('--session', {
+    stdin: JSON.stringify({ type: 'start', video: false, audioFormat: 'mono-32k' }) + '\n',
+  });
+  assert.equal(unleased.code, 1);
+  assert.match(unleased.stderr, /hostControl is required/);
+  assert.equal(unleased.stdout.trim(), '');
 });
 test('video codec is validated against the codec table', async () => {
   const result = await run('--session', {

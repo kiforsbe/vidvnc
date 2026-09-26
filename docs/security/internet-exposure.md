@@ -325,10 +325,17 @@ MESSAGE-INTEGRITY with the stream's ICE password, which reaches only the signed-
 over HTTPS. The relay never replies to an unauthenticated sender. See
 [Controls in place](#controls-in-place) for the limits.
 
+**Phase 2, built 2026-09-26, not yet validated on Windows:** WebRTC runs in media-net, a
+second process per source started under the tier T1 sandbox (restricted token, low
+integrity, job, own desktop), which cannot capture, inject input or read the user's files.
+Its data-channel input goes through the worker's broker and the owner's lease
+([architecture](../ARCHITECTURE.md#network-process-media-net)).
+
 **Residual:**
 
 - forged DTLS or RTP/RTCP packets with the exact address and port of an authenticated client
-  still reach OpenSSL and libsrtp in the worker, which is not yet sandboxed;
+  still reach OpenSSL and libsrtp, now inside media-net (once phase 2 is validated); a
+  compromised media-net can act as the viewer that holds control while it is granted;
 - the relay's own parser (`stun.mjs`), Node's `dgram` and V8 handle unauthenticated
   datagrams, at medium integrity for now;
 - the firewall rules (F1) are not in place yet, so Windows Firewall scoping still depends on
@@ -336,8 +343,9 @@ over HTTPS. The relay never replies to an unauthenticated sender. See
 
 **Remaining:**
 
-- phase 2 of the design: run WebRTC in a sandboxed network process (gate P3 passed with a
-  prototype) and the relay at low integrity; phase 1 still owes the firewall rules (F1);
+- validate phase 2 on Windows; then the answer's port attestation, the relay at low
+  integrity and the worker's outbound firewall block; phase 1 still owes the firewall rules
+  (F1);
 - keep GStreamer and libnice current, and scan them separately from `npm audit`.
 
 The design options for closing R4 without a third party (an authenticating relay, a

@@ -16,7 +16,11 @@ ensureNativeWorker();
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const diagnostics = new Diagnostics();
 const store = new SessionStore();
-const media = new NativeMedia({ diagnostics, onExit: (id) => store.disconnect(id) });
+const media = new NativeMedia({
+  diagnostics,
+  hostControl: true,
+  onExit: (id) => store.disconnect(id),
+});
 const offer = media.offer.bind(media);
 let negotiatedRtx = false;
 media.offer = async (...args) => {

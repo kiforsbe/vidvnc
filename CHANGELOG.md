@@ -54,6 +54,11 @@ may include breaking changes.
   request's message integrity before anything is forwarded, never replies to anyone else, and
   limits unauthenticated traffic before parsing it. This reduces finding R4 (native parsing
   reachable before authentication).
+- Each shared display or audio source now runs its WebRTC connections in a separate network
+  process that Windows restricts: a reduced copy of your account with low integrity, its own
+  job and desktop, and Arbitrary Code Guard. It cannot capture the screen, send keyboard or
+  mouse input, or read your files. Viewer input passes from it to the media worker, which
+  still checks every message against the control you granted. Not yet validated on Windows.
 
 ### Known limitations
 

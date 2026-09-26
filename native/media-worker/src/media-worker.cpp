@@ -3,8 +3,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <gst/gst.h>
-#include <gst/webrtc/webrtc.h>
-#include <gst/sdp/sdp.h>
+#include <gst/app/gstappsink.h>
 #include <gst/video/video-event.h>
 #include <json-glib/json-glib.h>
 #include <iostream>
@@ -19,22 +18,26 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <utility>
 #include <vector>
 #include "input-policy.hpp"
 #include "peer-permission.hpp"
 #include "keyframe-limiter.hpp"
 #include "video-codec.hpp"
-#include "sdp-payload.hpp"
 #include "display-inventory.hpp"
 #include "stream-profile.hpp"
-#include "ice-ports.hpp"
+#include "json-util.hpp"
+#include "media-net.hpp"
+#include "net-pipes.hpp"
+#include "net-records.hpp"
+#include "sandbox.hpp"
 #include "rate-control.hpp"
 #include "encoder-backend.hpp"
 #include "encoder-properties.hpp"
 #include "encoder-selection.hpp"
 #include <dxgi.h>
 #include "telemetry.hpp"
-#include "transport-telemetry.hpp"
 static MediaTelemetry telemetry;
 static std::optional<CaptureDisplay> capture_display;
 static DesktopRect virtual_desktop() {
@@ -149,52 +152,25 @@ static KeyframeLimiter keyframe_limiter;
 static std::set<WORD> held_keys;
 static std::set<int> held_buttons;
 
-// One viewer: leaky queue, payloader and webrtcbin inside a bin fed by the source tees.
+// One viewer, as the input broker sees it. Its WebRTC connection - webrtcbin, payloaders,
+// the data channel - lives in the sandboxed media-net process (media-net.cpp); this side keeps
+// only what decides whether its input reaches SendInput.
 struct Peer {
     std::string id;
-    unsigned index = 0;
-    GstElement *bin = nullptr;                                 // owned reference
-    GstElement *webrtc = nullptr;                              // borrowed from bin
-    GstPad *video_tee_pad = nullptr, *audio_tee_pad = nullptr; // owned request pads
-    GstWebRTCDataChannel *input_channel = nullptr;             // owned reference
     bool answered = false, removing = false, notify_closed = false;
-    int pending_unlinks = 0;
     bool control = false;
     gint64 last_ping = 0, rate_window = 0;
     int rate_count = 0;
-    std::shared_ptr<std::atomic<int>> pending_input = std::make_shared<std::atomic<int>>(0);
-    TransportTelemetry transport;
-};
-// GStreamer threads never touch a Peer. Callbacks carry a copy of this reference and look the
-// peer up on the main loop; the index rejects callbacks for a removed peer whose id was reused.
-struct PeerRef {
-    std::string id;
-    unsigned index;
-    std::shared_ptr<std::atomic<int>> pending_input;
+    JsonObject *transport = nullptr; // latest transport row from media-net, owned
+    ~Peer() {
+        if (transport)
+            json_object_unref(transport);
+    }
 };
 static std::map<std::string, std::unique_ptr<Peer>> peers;
-static unsigned next_peer_index = 0;
-static Peer *find_peer(const PeerRef &ref) {
-    const auto found = peers.find(ref.id);
-    return found != peers.end() && found->second->index == ref.index ? found->second.get()
-                                                                     : nullptr;
-}
-static PeerRef *peer_ref(const Peer &peer) {
-    return new PeerRef{peer.id, peer.index, peer.pending_input};
-}
-static void delete_ref(gpointer data) { delete static_cast<PeerRef *>(data); }
-static void delete_closure_ref(gpointer data, GClosure *) { delete_ref(data); }
 static gint64 now_ms() { return g_get_monotonic_time() / 1000; }
-static void fail_peer(Peer &peer, const char *reason);
 static void remove_peer(const std::string &id, bool notify);
 static std::ofstream error_log;
-// Fixed ICE port range from VIDVNC_ICE_PORTS, so a router can forward it; unset, the system
-// picks any free port.
-static std::optional<IcePorts> ice_ports;
-// VIDVNC_ICE_BIND=loopback: gather on 127.0.0.1 only, for the authenticating media relay
-// (docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md). The
-// worker is then unreachable from the network; clients arrive only through the relay.
-static bool ice_loopback = false;
 static std::atomic<bool> shutdown_started{false};
 // Losing the server's pipe must also stop a worker whose GStreamer thread is
 // blocked. Attempt orderly cleanup first; the deadline kills only this process.
@@ -261,77 +237,6 @@ static void attach_recovery(GstElement *pipe) {
     gst_object_unref(pad);
     gst_object_unref(encoder);
 }
-// GStreamer payloaders only produce payload types 96-127 and silently replace a lower `pt`, but
-// browsers also number codecs 35-63 (Safari offers H.265 as 35). This probe on the payloader's
-// src pad relabels the payload type everywhere webrtcbin and the browser see it: the caps event
-// and caps query results (webrtcbin pairs the offer's m-line with a pad by intersecting caps,
-// so a mismatch answers the m-line inactive) and every RTP header. No-op when they already match.
-static GstCaps *with_payload_type(GstCaps *caps, guint8 pt) {
-    auto result = gst_caps_copy(caps);
-    for (guint i = 0; i < gst_caps_get_size(result); ++i)
-        gst_structure_set(gst_caps_get_structure(result, i), "payload", G_TYPE_INT,
-                          static_cast<gint>(pt), nullptr);
-    return result;
-}
-static bool payload_type_differs(GstBuffer *buffer, guint8 pt) {
-    guint8 second = 0;
-    return gst_buffer_extract(buffer, 1, &second, 1) == 1 && (second & 0x7f) != pt;
-}
-static void set_payload_type(GstBuffer *buffer, guint8 pt) {
-    guint8 second = 0;
-    if (gst_buffer_extract(buffer, 1, &second, 1) != 1)
-        return;
-    second = static_cast<guint8>((second & 0x80) | pt);
-    gst_buffer_fill(buffer, 1, &second, 1);
-}
-static GstPadProbeReturn payload_type_probe(GstPad *, GstPadProbeInfo *info, gpointer data) {
-    const auto pt = static_cast<guint8>(GPOINTER_TO_UINT(data));
-    if (info->type & GST_PAD_PROBE_TYPE_BUFFER) {
-        auto buffer = GST_PAD_PROBE_INFO_BUFFER(info);
-        if (payload_type_differs(buffer, pt)) {
-            buffer = gst_buffer_make_writable(buffer);
-            set_payload_type(buffer, pt);
-            GST_PAD_PROBE_INFO_DATA(info) = buffer;
-        }
-    } else if (info->type & GST_PAD_PROBE_TYPE_BUFFER_LIST) {
-        auto list = GST_PAD_PROBE_INFO_BUFFER_LIST(info);
-        bool differs = false;
-        for (guint i = 0; i < gst_buffer_list_length(list) && !differs; ++i)
-            differs = payload_type_differs(gst_buffer_list_get(list, i), pt);
-        if (differs) {
-            list = gst_buffer_list_make_writable(list);
-            for (guint i = 0; i < gst_buffer_list_length(list); ++i)
-                set_payload_type(gst_buffer_list_get_writable(list, i), pt);
-            GST_PAD_PROBE_INFO_DATA(info) = list;
-        }
-    } else if (info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
-        const auto event = GST_PAD_PROBE_INFO_EVENT(info);
-        if (GST_EVENT_TYPE(event) == GST_EVENT_CAPS) {
-            GstCaps *caps = nullptr;
-            gst_event_parse_caps(event, &caps);
-            const auto relabelled = with_payload_type(caps, pt);
-            GST_PAD_PROBE_INFO_DATA(info) = gst_event_new_caps(relabelled);
-            gst_caps_unref(relabelled);
-            gst_event_unref(event);
-        }
-    } else if ((info->type & GST_PAD_PROBE_TYPE_QUERY_UPSTREAM) &&
-               (info->type & GST_PAD_PROBE_TYPE_PULL)) {
-        // Answered caps queries from downstream (webrtcbin) only; the payloader's own queries
-        // go downstream and keep its 96-127 view.
-        const auto query = GST_PAD_PROBE_INFO_QUERY(info);
-        if (GST_QUERY_TYPE(query) == GST_QUERY_CAPS) {
-            GstCaps *result = nullptr;
-            gst_query_parse_caps_result(query, &result);
-            if (result && !gst_caps_is_any(result) && !gst_caps_is_empty(result)) {
-                const auto relabelled = with_payload_type(result, pt);
-                gst_query_set_caps_result(query, relabelled);
-                gst_caps_unref(relabelled);
-            }
-        }
-    }
-    return GST_PAD_PROBE_OK;
-}
-
 static bool inject(INPUT &input) { return SendInput(1, &input, sizeof(input)) == 1; }
 static void key_input(WORD vk, bool down) {
     INPUT input{};
@@ -369,13 +274,51 @@ static void release_held() {
     for (auto button : buttons)
         button_input(button, false);
 }
+static void fatal(const char *message);
+
+// The sandboxed network process for this source, and the pipes to it (net-pipes.hpp). The
+// worker trusts nothing it reads from them.
+struct NetProcess {
+    sandbox::Launched launched;
+    net_pipes::Pipe control_to, control_from, frames, input;
+    std::unique_ptr<net_pipes::QueuedWriter> control, frame_writer;
+    bool ready = false;
+};
+static std::unique_ptr<NetProcess> net;
+static JsonObject *pending_ready = nullptr; // the `ready` reply, sent once media-net is up
+// Posts to the main loop from a pipe thread, unless the worker is already shutting down.
+static void fail_from_thread(const char *message) {
+    if (shutdown_started)
+        return;
+    g_main_context_invoke(
+        nullptr,
+        [](gpointer text) -> gboolean {
+            if (!shutdown_started)
+                fatal(static_cast<const char *>(text));
+            return G_SOURCE_REMOVE;
+        },
+        const_cast<char *>(message));
+}
+// Commands to media-net. Small and rare, so a full queue means media-net stopped reading.
+static void send_net(JsonObject *object) {
+    if (!net || !net->control) {
+        json_object_unref(object);
+        return;
+    }
+    if (!net->control->push(object_text(object) + "\n"))
+        fatal("The network process stopped accepting commands.");
+}
+
 // Held keys and buttons are OS state; only a peer that had control can have pressed them.
 static void revoke_peer(Peer &peer, bool notify) {
     if (peer.control)
         release_held();
     peer.control = false;
-    if (notify && peer.input_channel)
-        gst_webrtc_data_channel_send_string(peer.input_channel, "{\"control\":false}");
+    if (notify) {
+        auto state = typed_object("control-state", {{"peerId", peer.id}});
+        json_object_set_boolean_member(state, "control", FALSE);
+        send_net(state);
+    }
 }
 // Lost ping (5 s) or a missing/expired host lease ends a peer's control.
 static void enforce_permission() {
@@ -389,19 +332,6 @@ static void enforce_permission() {
     }
 }
 
-static JsonObject *parse_object(const std::string &text, JsonParser **parser) {
-    *parser = json_parser_new();
-    if (!json_parser_load_from_data(*parser, text.c_str(), static_cast<gssize>(text.size()),
-                                    nullptr))
-        return nullptr;
-    auto root = json_parser_get_root(*parser);
-    return root && JSON_NODE_HOLDS_OBJECT(root) ? json_node_get_object(root) : nullptr;
-}
-static const char *string_member(JsonObject *object, const char *name) {
-    auto node = json_object_get_member(object, name);
-    return node && json_node_get_value_type(node) == G_TYPE_STRING ? json_node_get_string(node)
-                                                                   : "";
-}
 static void write_object(JsonObject *object) {
     auto node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, object);
@@ -426,30 +356,22 @@ static void fatal(const char *message) {
     if (loop)
         g_main_loop_quit(loop);
 }
-static double number_member(JsonObject *object, const char *name) {
-    auto node = json_object_get_member(object, name);
-    if (!node || !JSON_NODE_HOLDS_VALUE(node))
-        return NAN;
-    auto type = json_node_get_value_type(node);
-    return type == G_TYPE_DOUBLE || type == G_TYPE_INT64 ? json_node_get_double(node) : NAN;
-}
-static bool boolean_member(JsonObject *object, const char *name) {
-    auto node = json_object_get_member(object, name);
-    return node && JSON_NODE_HOLDS_VALUE(node) &&
-           json_node_get_value_type(node) == G_TYPE_BOOLEAN && json_node_get_boolean(node);
-}
 struct InputMessage {
-    PeerRef ref;
-    std::string text;
+    std::string peer, text;
 };
+// Data-channel input from media-net, exactly as a viewer sent it. This is the broker: the host
+// lease, the peer's own control flag, the allow-lists and the rate limit all apply here, in the
+// worker, whatever media-net claims.
+static std::atomic<int> pending_input{0};
 static gboolean input_message(gpointer data) {
-    auto &message = *static_cast<InputMessage *>(data);
-    --*message.ref.pending_input;
-    const auto peer = find_peer(message.ref);
-    if (!peer || peer->removing)
+    std::unique_ptr<InputMessage> message(static_cast<InputMessage *>(data));
+    --pending_input;
+    const auto found = peers.find(message->peer);
+    if (found == peers.end() || found->second->removing)
         return G_SOURCE_REMOVE;
+    const auto peer = found->second.get();
     JsonParser *parser = nullptr;
-    auto object = parse_object(message.text, &parser);
+    auto object = parse_object(message->text, &parser);
     if (object && !capture_display_current()) {
         release_held();
         fatal("Capture display changed. Reconnect.");
@@ -503,13 +425,15 @@ static gboolean input_message(gpointer data) {
             } else if (type == "key") {
                 WORD vk = key_code(string_member(object, "code"));
                 auto down = json_object_get_member(object, "down");
-                if (vk && down && json_node_get_value_type(down) == G_TYPE_BOOLEAN)
+                if (vk && down && JSON_NODE_HOLDS_VALUE(down) &&
+                    json_node_get_value_type(down) == G_TYPE_BOOLEAN)
                     key_input(vk, json_node_get_boolean(down));
             } else if (type == "button") {
                 double button = number_member(object, "button");
                 auto down = json_object_get_member(object, "down");
                 if (std::isfinite(button) && button == std::floor(button) && button >= 0 &&
-                    button <= 2 && down && json_node_get_value_type(down) == G_TYPE_BOOLEAN)
+                    button <= 2 && down && JSON_NODE_HOLDS_VALUE(down) &&
+                    json_node_get_value_type(down) == G_TYPE_BOOLEAN)
                     button_input(static_cast<int>(button), json_node_get_boolean(down));
             } else if (type == "wheel") {
                 double delta = number_member(object, "delta");
@@ -523,69 +447,40 @@ static gboolean input_message(gpointer data) {
             }
         }
     }
-    if (peer->input_channel)
-        gst_webrtc_data_channel_send_string(
-            peer->input_channel, peer->control ? "{\"control\":true}" : "{\"control\":false}");
-    g_object_unref(parser);
+    // The viewer learns its control state after every message, as before the split.
+    auto state = typed_object("control-state", {{"peerId", peer->id}});
+    json_object_set_boolean_member(state, "control", peer->control);
+    send_net(state);
+    if (parser)
+        g_object_unref(parser);
     return G_SOURCE_REMOVE;
 }
-static void channel_message(GstWebRTCDataChannel *, gchar *text, gpointer data) {
-    const auto &ref = *static_cast<PeerRef *>(data);
-    if (!text || strlen(text) > 1024)
-        return;
-    if (++*ref.pending_input > 256) {
-        --*ref.pending_input;
-        return;
+// Input records from media-net. A malformed record means media-net is broken or hostile: the
+// source ends.
+static void read_input(HANDLE handle) {
+    unsigned char header[4];
+    while (net_pipes::read_exact(handle, header, sizeof(header))) {
+        const auto sizes = net_records::decode_input_header(header);
+        if (!sizes)
+            return fail_from_thread("The network process sent a malformed input record.");
+        std::string peer(sizes->peer, '\0'), text(sizes->text, '\0');
+        if (!net_pipes::read_exact(handle, peer.data(), peer.size()) ||
+            !net_pipes::read_exact(handle, text.data(), text.size()))
+            break;
+        if (!net_records::valid_peer_id(peer))
+            return fail_from_thread("The network process sent a malformed input record.");
+        // The same bound the data channel had: at most 256 messages per viewer in flight,
+        // counted here across this source's viewers.
+        if (++pending_input > 256 * 8) {
+            --pending_input;
+            continue;
+        }
+        g_main_context_invoke_full(
+            nullptr, G_PRIORITY_DEFAULT, input_message,
+            new InputMessage{std::move(peer), std::move(text)},
+            [](gpointer message) { delete static_cast<InputMessage *>(message); });
     }
-    g_main_context_invoke_full(
-        nullptr, G_PRIORITY_DEFAULT, input_message, new InputMessage{ref, text},
-        [](gpointer message) { delete static_cast<InputMessage *>(message); });
-}
-static void channel_closed(GstWebRTCDataChannel *, gpointer data) {
-    g_main_context_invoke_full(
-        nullptr, G_PRIORITY_DEFAULT,
-        [](gpointer ref) -> gboolean {
-            if (const auto peer = find_peer(*static_cast<PeerRef *>(ref)))
-                revoke_peer(*peer, false);
-            return G_SOURCE_REMOVE;
-        },
-        new PeerRef(*static_cast<PeerRef *>(data)), delete_ref);
-}
-struct ChannelAttach {
-    PeerRef ref;
-    GstWebRTCDataChannel *channel;
-};
-static void channel_created(GstElement *, GstWebRTCDataChannel *channel, gpointer data) {
-    gchar *label = nullptr;
-    g_object_get(channel, "label", &label, nullptr);
-    const bool input = video_enabled && g_strcmp0(label, "input") == 0;
-    g_free(label);
-    if (!input) {
-        gst_webrtc_data_channel_close(channel);
-        return;
-    }
-    const auto &ref = *static_cast<PeerRef *>(data);
-    // Queue the attach before connecting message handlers so replies always find the channel.
-    g_main_context_invoke_full(
-        nullptr, G_PRIORITY_DEFAULT,
-        [](gpointer value) -> gboolean {
-            auto &attach = *static_cast<ChannelAttach *>(value);
-            const auto peer = find_peer(attach.ref);
-            if (peer && !peer->removing && !peer->input_channel)
-                std::swap(peer->input_channel, attach.channel);
-            return G_SOURCE_REMOVE;
-        },
-        new ChannelAttach{ref, GST_WEBRTC_DATA_CHANNEL(g_object_ref(channel))},
-        [](gpointer value) {
-            auto attach = static_cast<ChannelAttach *>(value);
-            if (attach->channel)
-                g_object_unref(attach->channel);
-            delete attach;
-        });
-    g_signal_connect_data(channel, "on-message-string", G_CALLBACK(channel_message),
-                          new PeerRef(ref), delete_closure_ref, GConnectFlags(0));
-    g_signal_connect_data(channel, "on-close", G_CALLBACK(channel_closed), new PeerRef(ref),
-                          delete_closure_ref, GConnectFlags(0));
+    fail_from_thread("The network process stopped.");
 }
 
 static std::string pipeline_description(int frames = -1) {
@@ -618,7 +513,7 @@ static std::string audio_source_description() {
            std::to_string(audio_channels) + " ! opusenc name=audio-encoder bitrate=" +
            std::string(audio_channels == 1 ? "32000" : "96000") +
            " bitrate-type=cbr frame-size=20 inband-fec=true ! "
-           "tee name=audio-fanout allow-not-linked=true";
+           "appsink name=audio-sink sync=false async=false";
 }
 
 struct AdapterInfo {
@@ -986,21 +881,8 @@ static int self_test() {
     return frames == 60 ? 0 : 1;
 }
 
-// Finds the viewer bin an element belongs to. `attached` is false for elements no longer inside
-// the pipeline (a queued message from a peer that was already destroyed).
-static Peer *peer_of(GstObject *object, bool &attached) {
-    attached = false;
-    for (auto current = object; current; current = GST_OBJECT_PARENT(current)) {
-        for (auto &entry : peers)
-            if (GST_OBJECT(entry.second->bin) == current) {
-                attached = true;
-                return entry.second.get();
-            }
-        if (current == GST_OBJECT(pipeline))
-            attached = true;
-    }
-    return nullptr;
-}
+// Every element in this pipeline is shared by the whole source, so any error ends it. Viewer
+// transport errors happen in media-net and fail only that viewer there.
 static gboolean bus_message(GstBus *, GstMessage *message, gpointer) {
     if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_QOS)
         telemetry.qos(message);
@@ -1018,152 +900,138 @@ static gboolean bus_message(GstBus *, GstMessage *message, gpointer) {
         std::cerr << detail << std::endl;
         if (error_log.is_open())
             error_log << detail << std::endl;
-        // A viewer's transport failing must not end the shared capture for everyone else.
-        bool attached = false;
-        if (const auto peer = peer_of(message->src, attached))
-            fail_peer(*peer, error ? error->message : "WebRTC peer error.");
-        else if (attached)
-            fatal(error ? error->message : "GStreamer error");
+        fatal(error ? error->message : "GStreamer error");
         if (error)
             g_error_free(error);
         g_free(debug);
     }
     return G_SOURCE_CONTINUE;
 }
-struct PeerTask {
-    PeerRef ref;
-    void (*run)(Peer &);
+
+// ---- Encoded frames to media-net.
+//
+// One queue for video and audio, bounded at 32 MiB. When media-net falls that far behind, the
+// queue is emptied, video skips to the next keyframe (and asks for one), and caps are sent
+// again, so a stall costs picture but never blocks capture or the owner pipe.
+constexpr std::size_t frame_queue_bytes = 32u << 20;
+struct FrameSink {
+    net_records::FrameKind buffer_kind, caps_kind;
+    std::string sent_caps;
+    bool skipping = false; // video only: dropping until the next keyframe
 };
-// Runs on the main loop; references to removed or removing peers are ignored.
-static void on_main(const PeerRef &ref, void (*run)(Peer &)) {
-    g_main_context_invoke_full(
-        nullptr, G_PRIORITY_DEFAULT,
-        [](gpointer data) -> gboolean {
-            auto &task = *static_cast<PeerTask *>(data);
-            if (const auto peer = find_peer(task.ref); peer && !peer->removing)
-                task.run(*peer);
-            return G_SOURCE_REMOVE;
-        },
-        new PeerTask{ref, run}, [](gpointer data) { delete static_cast<PeerTask *>(data); });
+static FrameSink video_sink_state{net_records::FrameKind::VideoBuffer,
+                                  net_records::FrameKind::VideoCaps};
+static FrameSink audio_sink_state{net_records::FrameKind::AudioBuffer,
+                                  net_records::FrameKind::AudioCaps};
+static std::mutex frame_mutex;
+static gboolean recovery_keyframe(gpointer) {
+    if (video_enabled && pipeline && keyframe_limiter.recovery(now_ms()))
+        request_keyframe(pipeline);
+    return G_SOURCE_REMOVE;
 }
-static void send_answer(Peer &peer) {
-    if (peer.answered || peer.removing)
-        return;
-    GstWebRTCICEGatheringState state;
-    g_object_get(peer.webrtc, "ice-gathering-state", &state, nullptr);
-    if (state != GST_WEBRTC_ICE_GATHERING_STATE_COMPLETE)
-        return;
-    GstWebRTCSessionDescription *description = nullptr;
-    g_object_get(peer.webrtc, "local-description", &description, nullptr);
-    if (!description)
-        return;
-    auto text = gst_sdp_message_as_text(description->sdp);
-    emit("answer", {{"peerId", peer.id}, {"sdp", text}});
-    g_free(text);
-    gst_webrtc_session_description_free(description);
-    peer.answered = true;
+static void frames_overflowed() {
+    net->frame_writer->clear();
+    video_sink_state.sent_caps.clear();
+    audio_sink_state.sent_caps.clear();
+    video_sink_state.skipping = video_enabled;
+    if (error_log.is_open())
+        error_log << "FRAMES the network process fell behind; skipping to a keyframe" << std::endl;
+    g_main_context_invoke(nullptr, recovery_keyframe, nullptr);
 }
-static void gathering_changed(GObject *, GParamSpec *, gpointer data) {
-    on_main(*static_cast<PeerRef *>(data), send_answer);
-}
-static void connection_changed(GObject *, GParamSpec *, gpointer data) {
-    on_main(*static_cast<PeerRef *>(data), [](Peer &peer) {
-        GstWebRTCPeerConnectionState state;
-        g_object_get(peer.webrtc, "connection-state", &state, nullptr);
-        if (state == GST_WEBRTC_PEER_CONNECTION_STATE_FAILED)
-            fail_peer(peer, "WebRTC connection failed.");
-        // RTP sent before DTLS connects is dropped, so the join keyframe waits for connected.
-        else if (state == GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTED && video_enabled &&
-                 keyframe_limiter.join(now_ms()))
-            request_keyframe(pipeline);
-    });
-}
-struct AnswerResult {
-    PeerRef ref;
-    GstWebRTCSessionDescription *answer;
-};
-static void answer_created(GstPromise *promise, gpointer data) {
-    auto result = new AnswerResult{*static_cast<PeerRef *>(data), nullptr};
-    if (const auto reply = gst_promise_get_reply(promise))
-        gst_structure_get(reply, "answer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &result->answer,
-                          nullptr);
-    gst_promise_unref(promise);
-    g_main_context_invoke_full(
-        nullptr, G_PRIORITY_DEFAULT,
-        [](gpointer value) -> gboolean {
-            auto &result = *static_cast<AnswerResult *>(value);
-            const auto peer = find_peer(result.ref);
-            if (!peer || peer->removing)
-                return G_SOURCE_REMOVE;
-            if (!result.answer) {
-                fail_peer(*peer, "Unable to create WebRTC answer.");
-                return G_SOURCE_REMOVE;
-            }
-            auto set = gst_promise_new();
-            g_signal_emit_by_name(peer->webrtc, "set-local-description", result.answer, set);
-            gst_promise_interrupt(set);
-            gst_promise_unref(set);
-            send_answer(*peer);
-            return G_SOURCE_REMOVE;
-        },
-        result,
-        [](gpointer value) {
-            auto result = static_cast<AnswerResult *>(value);
-            if (result->answer)
-                gst_webrtc_session_description_free(result->answer);
-            delete result;
-        });
-}
-static void remote_set(GstPromise *promise, gpointer data) {
-    const PeerRef ref = *static_cast<PeerRef *>(data); // copy: unref may free data
-    gst_promise_unref(promise);
-    on_main(ref, [](Peer &peer) {
-        auto answer = gst_promise_new_with_change_func(answer_created, peer_ref(peer), delete_ref);
-        g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr, answer);
-    });
-}
-static void destroy_peer(const std::string &id) {
-    auto node = peers.extract(id);
-    if (node.empty())
-        return;
-    auto &peer = *node.mapped();
-    for (const auto &[name, pad] : std::initializer_list<std::pair<const char *, GstPad *>>{
-             {"video-fanout", peer.video_tee_pad}, {"audio-fanout", peer.audio_tee_pad}}) {
-        if (!pad)
-            continue;
-        auto tee = gst_bin_get_by_name(GST_BIN(pipeline), name);
-        gst_element_release_request_pad(tee, pad);
-        gst_object_unref(tee);
-        gst_object_unref(pad);
+static GstFlowReturn new_sample(GstAppSink *sink, gpointer data) {
+    auto &state = *static_cast<FrameSink *>(data);
+    auto sample = gst_app_sink_pull_sample(sink);
+    if (!sample)
+        return GST_FLOW_EOS;
+    const auto buffer = gst_sample_get_buffer(sample);
+    const auto caps = gst_sample_get_caps(sample);
+    std::lock_guard<std::mutex> lock(frame_mutex);
+    if (!buffer || !caps || !net || !net->frame_writer) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
     }
-    if (peer.input_channel)
-        g_object_unref(peer.input_channel);
-    gst_element_set_state(peer.bin, GST_STATE_NULL);
-    gst_bin_remove(GST_BIN(pipeline), peer.bin);
-    gst_object_unref(peer.bin);
-    if (peer.notify_closed)
-        emit("peer-closed", {{"peerId", peer.id}});
-}
-static GstPadProbeReturn unlink_probe(GstPad *pad, GstPadProbeInfo *, gpointer data) {
-    if (const auto target = gst_pad_get_peer(pad)) {
-        gst_pad_unlink(pad, target);
-        gst_object_unref(target);
+    const bool delta = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+    if (state.skipping && delta) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
     }
-    // Never change element state from a streaming thread; g_idle_add also defers when the
-    // probe fired synchronously inside remove_peer.
-    g_idle_add_full(
-        G_PRIORITY_DEFAULT,
-        [](gpointer value) -> gboolean {
-            const auto &ref = *static_cast<PeerRef *>(value);
-            const auto peer = find_peer(ref);
-            if (peer && --peer->pending_unlinks == 0)
-                destroy_peer(ref.id);
-            return G_SOURCE_REMOVE;
-        },
-        new PeerRef(*static_cast<PeerRef *>(data)), delete_ref);
-    return GST_PAD_PROBE_REMOVE;
+    state.skipping = false;
+    bool queued = true;
+    gchar *caps_text = gst_caps_to_string(caps);
+    if (state.sent_caps != caps_text) {
+        net_records::FrameHeader header{state.caps_kind, 0,
+                                        static_cast<std::uint32_t>(strlen(caps_text)), 0};
+        queued = header.length <= net_records::max_caps_bytes &&
+                 net->frame_writer->push(net_records::encode_frame(header, caps_text));
+        if (queued)
+            state.sent_caps = caps_text;
+    }
+    g_free(caps_text);
+    GstMapInfo map{};
+    if (queued && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        if (map.size <= net_records::max_frame_bytes) {
+            net_records::FrameHeader header{
+                state.buffer_kind, static_cast<std::uint8_t>(delta ? net_records::flag_delta : 0),
+                static_cast<std::uint32_t>(map.size),
+                GST_BUFFER_DURATION_IS_VALID(buffer) ? GST_BUFFER_DURATION(buffer) : 0};
+            queued = net->frame_writer->push(net_records::encode_frame(header, map.data));
+        }
+        gst_buffer_unmap(buffer, &map);
+    }
+    if (!queued)
+        frames_overflowed();
+    gst_sample_unref(sample);
+    return GST_FLOW_OK;
+}
+static void attach_sink(const char *name, FrameSink &state) {
+    auto sink = gst_bin_get_by_name(GST_BIN(pipeline), name);
+    if (!sink)
+        return;
+    GstAppSinkCallbacks callbacks{};
+    callbacks.new_sample = new_sample;
+    gst_app_sink_set_callbacks(GST_APP_SINK(sink), &callbacks, &state, nullptr);
+    gst_object_unref(sink);
+}
+
+// ---- Viewers. The worker keeps the broker's view of each one and forwards the rest.
+//
+// The server sends a viewer's add-peer right after start, without waiting for `ready`, so
+// viewers that arrive while media-net is still starting wait here, in order.
+static std::vector<std::pair<std::string, std::string>> waiting_peers;
+static bool waiting(const std::string &id) {
+    return std::any_of(waiting_peers.begin(), waiting_peers.end(),
+                       [&](const auto &entry) { return entry.first == id; });
+}
+static void add_peer(const std::string &id, const std::string &sdp) {
+    const auto refuse = [&](const char *reason) {
+        emit("peer-failed", {{"peerId", id}, {"reason", reason}});
+    };
+    if (!pipeline || !net)
+        return refuse("Source not started.");
+    if (peers.count(id) || waiting(id))
+        return refuse("Duplicate peer.");
+    if (!net->ready) {
+        if (waiting_peers.size() >= 64)
+            return refuse("Too many viewers waiting.");
+        waiting_peers.emplace_back(id, sdp);
+        return;
+    }
+    if (!net_records::valid_peer_id(id))
+        return refuse("Invalid peer id.");
+    auto peer = std::make_unique<Peer>();
+    peer->id = id;
+    peers.emplace(id, std::move(peer));
+    send_net(typed_object("add-peer", {{"peerId", id}, {"sdp", sdp}}));
 }
 static void remove_peer(const std::string &id, bool notify) {
+    if (waiting(id)) {
+        waiting_peers.erase(std::remove_if(waiting_peers.begin(), waiting_peers.end(),
+                                           [&](const auto &entry) { return entry.first == id; }),
+                            waiting_peers.end());
+        if (notify)
+            emit("peer-closed", {{"peerId", id}});
+        return;
+    }
     const auto found = peers.find(id);
     if (found == peers.end()) {
         if (notify)
@@ -1177,199 +1045,205 @@ static void remove_peer(const std::string &id, bool notify) {
     peer_permission.revoke(peer.id);
     revoke_peer(peer, true);
     peer.removing = true;
-    const PeerRef ref{peer.id, peer.index, peer.pending_input};
-    std::vector<GstPad *> pads;
-    for (auto pad : {peer.video_tee_pad, peer.audio_tee_pad})
-        if (pad)
-            pads.push_back(pad);
-    peer.pending_unlinks = static_cast<int>(pads.size());
-    if (pads.empty()) {
-        destroy_peer(id);
-        return;
-    }
-    for (auto pad : pads)
-        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_IDLE, unlink_probe, new PeerRef(ref), delete_ref);
+    send_net(typed_object("remove-peer", {{"peerId", id}}));
 }
-static void fail_peer(Peer &peer, const char *reason) {
-    if (peer.removing)
-        return;
-    if (error_log.is_open())
-        error_log << "PEER FAILED id=" << peer.id << " reason=" << reason << std::endl;
-    emit("peer-failed", {{"peerId", peer.id}, {"reason", reason}});
-    remove_peer(peer.id, false);
-}
-static void add_peer(const std::string &id, const std::string &text) {
-    const auto refuse = [&](const std::string &reason) {
-        emit("peer-failed", {{"peerId", id}, {"reason", reason}});
+
+// A message from media-net, on the main loop. Everything is checked: known peer ids only, the
+// expected types and sizes; anything else ends the source.
+static gboolean net_message(gpointer data) {
+    std::unique_ptr<std::string> text(static_cast<std::string *>(data));
+    if (shutdown_started || !net)
+        return G_SOURCE_REMOVE;
+    JsonParser *parser = nullptr;
+    const auto object = parse_object(*text, &parser);
+    const std::string type = object ? string_member(object, "type") : "";
+    const std::string peer_id = object ? string_member(object, "peerId") : "";
+    const auto found = peers.find(peer_id);
+    Peer *const peer = found != peers.end() ? found->second.get() : nullptr;
+    const auto bounded = [&](const char *name, std::size_t limit) {
+        const std::string value = string_member(object, name);
+        return value.substr(0, limit);
     };
-    if (!pipeline)
-        return refuse("Source not started.");
-    if (peers.count(id))
-        return refuse("Duplicate peer.");
-    const auto sdp = parse_offer(text);
-    if (!sdp)
-        return refuse("Invalid SDP");
-    const auto payloads = select_payloads(sdp, *video_codec);
-    const char *unsupported =
-        video_enabled && payloads.video.empty()    ? video_codec->unsupported.c_str()
-        : audio_channels && payloads.audio.empty() ? "Browser must offer Opus audio."
-                                                   : nullptr;
-    if (unsupported) {
-        gst_sdp_message_free(sdp);
-        return refuse(unsupported);
-    }
-    auto owned = std::make_unique<Peer>();
-    auto &peer = *owned;
-    peer.id = id;
-    peer.index = next_peer_index++;
-    const auto video_ssrc = std::to_string(10000001u + 2u * peer.index);
-    const auto audio_ssrc = std::to_string(20000001u + 2u * peer.index);
-    // webrtcbin requires explicit SSRC on the payloader and in the outgoing RTP caps
-    // during SDP answer creation. Without this, webrtcbin emits FID 0 <rtx-ssrc> and
-    // attaches MSID only to the RTX repair stream, causing the browser to decode RTP
-    // packets but fail to route frames to the MediaStreamTrack (video readyState remains 0).
-    const bool h264 = video_codec->id == "h264";
-    const std::string video_branch =
-        "queue leaky=downstream max-size-buffers=8 max-size-time=200000000 max-size-bytes=0 ! " +
-        video_codec->payloader + " name=video-payloader mtu=" + std::to_string(profile.mtu) +
-        " pt=" + payloads.video + " ssrc=" + video_ssrc +
-        (video_codec->payloader_extra.empty() ? "" : " " + video_codec->payloader_extra) +
-        (h264 ? " aggregate-mode=" + std::string(profile.fps == 15 ? "none" : "zero-latency")
-              : "") +
-        " ! application/x-rtp,media=video,encoding-name=" + video_codec->encoding_name +
-        ",ssrc=(uint)" + video_ssrc + " ! identity name=video-output";
-    const std::string audio_branch =
-        "queue leaky=downstream max-size-time=100000000 max-size-buffers=5 ! rtpopuspay pt=" +
-        payloads.audio + " mtu=1200 ssrc=" + audio_ssrc +
-        " ! application/x-rtp,media=audio,encoding-name=OPUS,ssrc=(uint)" + audio_ssrc +
-        " ! identity name=audio-output";
-    if (error_log.is_open())
-        error_log << "PEER id=" << id
-                  << " video=" << (video_enabled ? video_branch : std::string("off"))
-                  << " audio=" << (audio_channels ? audio_branch : std::string("off")) << std::endl;
-    peer.bin = GST_ELEMENT(
-        gst_object_ref_sink(gst_bin_new(("peer-" + std::to_string(peer.index)).c_str())));
-    peer.transport.attach(peer.bin);
-    std::string failure;
-    peer.webrtc = gst_element_factory_make("webrtcbin", "webrtc");
-    if (!peer.webrtc)
-        failure = "Unable to create WebRTC peer.";
-    else {
-        g_object_set(peer.webrtc, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "latency",
-                     0, nullptr);
-        if (ice_ports || ice_loopback) {
-            GstWebRTCICE *ice = nullptr;
-            g_object_get(peer.webrtc, "ice-agent", &ice, nullptr);
-            if (ice) {
-                // GstWebRTCICE's min-rtp-port/max-rtp-port (GStreamer 1.20+) bound the host
-                // candidates this peer allocates.
-                if (ice_ports)
-                    g_object_set(ice, "min-rtp-port", ice_ports->min, "max-rtp-port",
-                                 ice_ports->max, nullptr);
-                // Adding a local address stops automatic interface discovery, so the peer
-                // gathers on loopback alone.
-                gboolean added = FALSE;
-                if (ice_loopback)
-                    g_signal_emit_by_name(ice, "add-local-ip-address", "127.0.0.1", &added);
-                // Offer UDP only, so a reachable port exposes one transport's parser instead
-                // of two. Older GStreamer without the property keeps its default.
-                if (g_object_class_find_property(G_OBJECT_GET_CLASS(ice), "ice-tcp"))
-                    g_object_set(ice, "ice-tcp", FALSE, nullptr);
-                gst_object_unref(ice);
-                if (ice_loopback && !added)
-                    failure = "Unable to bind WebRTC to loopback: the ICE agent refused 127.0.0.1.";
-            } else
-                failure = ice_loopback ? "Unable to bind WebRTC to loopback: no ICE agent."
-                                       : "Unable to apply the media port range.";
+    if (type == "net-ready") {
+        if (net->ready) {
+            fatal("The network process reported ready twice.");
+            if (parser)
+                g_object_unref(parser);
+            return G_SOURCE_REMOVE;
         }
-        g_signal_connect(
-            peer.webrtc, "on-new-transceiver",
-            G_CALLBACK(+[](GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
-                g_object_set(transceiver, "do-nack", TRUE, nullptr);
-            }),
-            nullptr);
-        gst_bin_add(GST_BIN(peer.bin), peer.webrtc);
-    }
-    const auto add_branch = [&](const std::string &description, const char *ghost) {
-        if (!failure.empty())
-            return;
-        GError *error = nullptr;
-        auto branch = gst_parse_bin_from_description(description.c_str(), TRUE, &error);
-        if (error || !branch) {
-            failure = error ? error->message : "Unable to create peer branch.";
-            if (error)
-                g_error_free(error);
-            if (branch)
-                gst_object_unref(branch);
-            return;
+        net->ready = true;
+        if (error_log.is_open())
+            error_log << "NET ready tier=" << bounded("tier", 8)
+                      << " codeGuard=" << bounded("codeGuard", 8) << std::endl;
+        if (pending_ready) {
+            write_object(pending_ready);
+            pending_ready = nullptr;
         }
-        gst_bin_add(GST_BIN(peer.bin), GST_ELEMENT(branch));
-        auto sink = gst_element_get_static_pad(GST_ELEMENT(branch), "sink");
-        if (!sink || !gst_element_link(GST_ELEMENT(branch), peer.webrtc) ||
-            !gst_element_add_pad(peer.bin, gst_ghost_pad_new(ghost, sink)))
-            failure = "Unable to link peer branch to WebRTC.";
-        if (sink)
-            gst_object_unref(sink);
-    };
-    // Link order matches the previous single-peer pipeline: video first, then audio.
-    if (video_enabled)
-        add_branch(video_branch, "video_sink");
-    if (video_enabled && failure.empty()) {
-        auto payloader = gst_bin_get_by_name(GST_BIN(peer.bin), "video-payloader");
-        auto pad = gst_element_get_static_pad(payloader, "src");
-        gst_pad_add_probe(pad,
-                          static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER |
-                                                       GST_PAD_PROBE_TYPE_BUFFER_LIST |
-                                                       GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM |
-                                                       GST_PAD_PROBE_TYPE_QUERY_UPSTREAM),
-                          payload_type_probe,
-                          GUINT_TO_POINTER(static_cast<guint>(std::stoi(payloads.video))), nullptr);
-        gst_object_unref(pad);
-        gst_object_unref(payloader);
-    }
-    if (audio_channels)
-        add_branch(audio_branch, "audio_sink");
-    if (!failure.empty()) {
-        gst_sdp_message_free(sdp);
-        gst_object_unref(peer.bin);
-        return refuse(failure);
-    }
-    g_signal_connect_data(peer.webrtc, "notify::ice-gathering-state", G_CALLBACK(gathering_changed),
-                          peer_ref(peer), delete_closure_ref, GConnectFlags(0));
-    g_signal_connect_data(peer.webrtc, "notify::connection-state", G_CALLBACK(connection_changed),
-                          peer_ref(peer), delete_closure_ref, GConnectFlags(0));
-    g_signal_connect_data(peer.webrtc, "on-data-channel", G_CALLBACK(channel_created),
-                          peer_ref(peer), delete_closure_ref, GConnectFlags(0));
-    peers.emplace(id, std::move(owned));
-    gst_bin_add(GST_BIN(pipeline), peer.bin);
-    // Bring the branch up before linking so the tee never pushes into a flushing pad.
-    if (playing)
-        gst_element_sync_state_with_parent(peer.bin);
-    const auto link = [&](const char *tee_name, const char *ghost, GstPad *&tee_pad) {
-        auto tee = gst_bin_get_by_name(GST_BIN(pipeline), tee_name);
-        tee_pad = gst_element_request_pad_simple(tee, "src_%u");
-        gst_object_unref(tee);
-        auto sink = gst_element_get_static_pad(peer.bin, ghost);
-        const bool linked = tee_pad && sink && gst_pad_link(tee_pad, sink) == GST_PAD_LINK_OK;
-        if (sink)
-            gst_object_unref(sink);
-        return linked;
-    };
-    if (!((!video_enabled || link("video-fanout", "video_sink", peer.video_tee_pad)) &&
-          (!audio_channels || link("audio-fanout", "audio_sink", peer.audio_tee_pad)))) {
-        gst_sdp_message_free(sdp);
-        return fail_peer(peer, "Unable to link peer to the shared source.");
-    }
-    if (!playing) {
-        // Nothing is captured or encoded until the first viewer is linked.
-        playing = true;
-        gst_element_set_state(pipeline, GST_STATE_PLAYING);
-    }
-    auto offer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER, sdp);
-    auto promise = gst_promise_new_with_change_func(remote_set, peer_ref(peer), delete_ref);
-    g_signal_emit_by_name(peer.webrtc, "set-remote-description", offer, promise);
-    gst_webrtc_session_description_free(offer);
+        for (auto &[id, sdp] : std::exchange(waiting_peers, {}))
+            add_peer(id, sdp);
+    } else if (type == "answer") {
+        const std::string sdp = string_member(object, "sdp");
+        if (peer && !peer->removing && !peer->answered && !sdp.empty() && sdp.size() <= 65536) {
+            peer->answered = true;
+            // Passed to the server unparsed; the server validates it (sdp-candidates.mjs).
+            emit("answer", {{"peerId", peer->id}, {"sdp", sdp}});
+            if (!playing) {
+                // Nothing is captured or encoded until the first viewer is accepted.
+                playing = true;
+                gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            }
+        }
+    } else if (type == "peer-failed") {
+        if (peer && !peer->removing) {
+            const auto reason = bounded("reason", 256);
+            if (error_log.is_open())
+                error_log << "PEER FAILED id=" << peer->id << " reason=" << reason << std::endl;
+            peer_permission.revoke(peer->id);
+            revoke_peer(*peer, false);
+            emit("peer-failed", {{"peerId", peer->id}, {"reason", reason}});
+            peers.erase(found);
+        }
+    } else if (type == "peer-closed") {
+        if (peer) {
+            if (peer->control)
+                release_held();
+            const bool notify = peer->notify_closed;
+            const auto id = peer->id;
+            peers.erase(found);
+            if (notify)
+                emit("peer-closed", {{"peerId", id}});
+        }
+    } else if (type == "channel-closed") {
+        if (peer)
+            revoke_peer(*peer, false);
+    } else if (type == "keyframe-request") {
+        const std::string kind = string_member(object, "kind");
+        if (video_enabled && pipeline &&
+            (kind == "join" ? keyframe_limiter.join(now_ms())
+                            : kind == "recovery" && keyframe_limiter.recovery(now_ms())))
+            request_keyframe(pipeline);
+    } else if (type == "peer-metrics") {
+        auto rows = json_object_get_member(object, "peers");
+        if (rows && JSON_NODE_HOLDS_OBJECT(rows)) {
+            auto members = json_object_get_members(json_node_get_object(rows));
+            for (auto item = members; item; item = item->next) {
+                const auto name = static_cast<const char *>(item->data);
+                auto row = json_object_get_member(json_node_get_object(rows), name);
+                const auto target = peers.find(name);
+                if (target == peers.end() || !row || !JSON_NODE_HOLDS_OBJECT(row))
+                    continue;
+                if (target->second->transport)
+                    json_object_unref(target->second->transport);
+                target->second->transport = json_object_ref(json_node_get_object(row));
+            }
+            g_list_free(members);
+        }
+    } else if (type == "log") {
+        if (error_log.is_open()) {
+            auto line = bounded("text", 2048);
+            std::replace(line.begin(), line.end(), '\n', ' ');
+            std::replace(line.begin(), line.end(), '\r', ' ');
+            error_log << "NET " << line << std::endl;
+        }
+    } else if (type == "fatal") {
+        const auto reason = "Network process failed: " + bounded("reason", 256);
+        if (error_log.is_open())
+            error_log << reason << std::endl;
+        fatal("The network process failed.");
+    } else
+        fatal("The network process sent an invalid message.");
+    if (parser)
+        g_object_unref(parser);
+    return G_SOURCE_REMOVE;
 }
+
+// Starts media-net under the tier T1 sandbox with its four pipe ends, and the threads that
+// serve them. Returns false after reporting why.
+static bool start_network() {
+    net = std::make_unique<NetProcess>();
+    if (!net_pipes::make_pipe(net->control_to, true) ||
+        !net_pipes::make_pipe(net->control_from, false) ||
+        !net_pipes::make_pipe(net->frames, true, 4u << 20) ||
+        !net_pipes::make_pipe(net->input, false)) {
+        fatal("Unable to create the pipes to the network process.");
+        return false;
+    }
+    wchar_t executable[MAX_PATH] = {};
+    if (!GetModuleFileNameW(nullptr, executable, MAX_PATH)) {
+        fatal("Unable to find the media worker executable.");
+        return false;
+    }
+    const auto handle_text = [](const sandbox::Handle &handle) {
+        return std::to_wstring(reinterpret_cast<ULONG_PTR>(handle.get()));
+    };
+    const std::wstring command_line =
+        L"\"" + std::wstring(executable) + L"\" --network " + handle_text(net->control_to.child) +
+        L" " + handle_text(net->control_from.child) + L" " + handle_text(net->frames.child) + L" " +
+        handle_text(net->input.child);
+    // media-net must never rebuild the plugin registry: that would start gst-plugin-scanner,
+    // which its job forbids.
+    SetEnvironmentVariableW(L"GST_REGISTRY_UPDATE", L"no");
+    SetEnvironmentVariableW(L"GST_REGISTRY_FORK", L"no");
+    const auto launched =
+        sandbox::launch(executable, command_line,
+                        {net->control_to.child.get(), net->control_from.child.get(),
+                         net->frames.child.get(), net->input.child.get()},
+                        net->launched);
+    // media-net has its ends now (or never will); the worker keeps only its own.
+    net->control_to.child.reset();
+    net->control_from.child.reset();
+    net->frames.child.reset();
+    net->input.child.reset();
+    if (!launched.ok) {
+        if (error_log.is_open())
+            error_log << "NET launch failed: " << launched.error << std::endl;
+        const auto message = "Unable to start the sandboxed network process: " + launched.error;
+        fatal(message.c_str());
+        return false;
+    }
+    net->control =
+        std::make_unique<net_pipes::QueuedWriter>(net->control_to.parent.get(), 4u << 20, [] {
+            fail_from_thread("The network process stopped.");
+        });
+    net->frame_writer =
+        std::make_unique<net_pipes::QueuedWriter>(net->frames.parent.get(), frame_queue_bytes, [] {
+            fail_from_thread("The network process stopped.");
+        });
+    const auto from = net->control_from.parent.get();
+    std::thread([from] {
+        const bool within_limits = net_pipes::read_lines(from, [](std::string line) {
+            g_main_context_invoke(nullptr, net_message, new std::string(std::move(line)));
+        });
+        fail_from_thread(within_limits ? "The network process stopped."
+                                       : "The network process sent an oversized message.");
+    }).detach();
+    std::thread(read_input, net->input.parent.get()).detach();
+    // media-net loads GStreamer before it reports; it gets 20 seconds.
+    g_timeout_add_seconds(
+        20,
+        [](gpointer) -> gboolean {
+            if (net && !net->ready && !shutdown_started)
+                fatal("The network process did not start.");
+            return G_SOURCE_REMOVE;
+        },
+        nullptr);
+    return true;
+}
+static void stop_network() {
+    if (!net)
+        return;
+    // End media-net first, so a writer blocked on a full pipe returns, then join the writers.
+    if (net->launched.process)
+        TerminateProcess(net->launched.process.get(), 0);
+    {
+        std::lock_guard<std::mutex> lock(frame_mutex);
+        if (net->frame_writer)
+            net->frame_writer->close();
+    }
+    if (net->control)
+        net->control->close();
+}
+
 static bool set_profile(JsonObject *object) {
     if (json_object_has_member(object, "streamPlan")) {
         auto node = json_object_get_member(object, "streamPlan");
@@ -1424,7 +1298,11 @@ static void start_source(JsonObject *object) {
         return fatal("Source already started");
     started = true;
     video_enabled = boolean_member(object, "video");
+    // Input comes from the sandboxed media-net, so the owner's lease is not optional: without
+    // it nothing would stop media-net from taking control on its own.
     host_control_required = boolean_member(object, "hostControl");
+    if (!host_control_required)
+        return fatal("hostControl is required");
     const std::string format = string_member(object, "audioFormat");
     audio_channels = format == "mono-32k" ? 1 : format == "stereo-96k" ? 2 : 0;
     if (!format.empty() && !audio_channels)
@@ -1458,7 +1336,7 @@ static void start_source(JsonObject *object) {
     }
     std::string description;
     if (video_enabled)
-        description = pipeline_description() + " ! tee name=video-fanout allow-not-linked=true";
+        description = pipeline_description() + " ! appsink name=video-sink sync=false async=false";
     if (audio_channels)
         description += (description.empty() ? "" : "  ") + audio_source_description();
     if (error_log.is_open())
@@ -1476,16 +1354,31 @@ static void start_source(JsonObject *object) {
         attach_recovery(pipeline);
     }
     audio_telemetry.attach(pipeline);
+    attach_sink("video-sink", video_sink_state);
+    attach_sink("audio-sink", audio_sink_state);
     auto bus = gst_element_get_bus(pipeline);
     gst_bus_add_watch(bus, bus_message, nullptr);
     gst_object_unref(bus);
-    if (video_enabled)
-        emit("ready", {{"encoderBackend", encoder_backend->id},
-                       {"encoderLabel", encoder_backend->label},
-                       {"encoder", encoder_element(*encoder_backend, video_codec->id)},
-                       {"encoderReason", selection_reason_name(selection_reason)}});
-    else
-        emit("ready");
+    // `ready` waits for media-net: until it is up, no viewer can be served.
+    pending_ready =
+        video_enabled
+            ? typed_object("ready",
+                           {{"encoderBackend", encoder_backend->id},
+                            {"encoderLabel", encoder_backend->label},
+                            {"encoder", encoder_element(*encoder_backend, video_codec->id)},
+                            {"encoderReason", selection_reason_name(selection_reason)}})
+            : typed_object("ready");
+    if (!start_network())
+        return;
+    auto configuration = typed_object("configure");
+    json_object_set_boolean_member(configuration, "video", video_enabled);
+    json_object_set_int_member(configuration, "audioChannels", audio_channels);
+    if (video_enabled) {
+        json_object_set_string_member(configuration, "codec", video_codec->id.c_str());
+        json_object_set_int_member(configuration, "fps", profile.fps);
+        json_object_set_int_member(configuration, "mtu", profile.mtu);
+    }
+    send_net(configuration);
 }
 static gboolean command(gpointer data) {
     auto text = static_cast<std::string *>(data);
@@ -1569,13 +1462,16 @@ static int session() {
                 json_object_set_string_member(sample, "bitrateMode",
                                               bitrate_mode_name(profile.bitrate_mode));
                 json_object_set_string_member(sample, "quality", quality_name(profile.quality));
+                // Transport rows come from media-net once a second; the contract to the server
+                // is unchanged.
                 auto rows = json_object_new();
                 for (auto &entry : peers) {
                     if (entry.second->removing)
                         continue;
-                    auto row = json_object_new();
-                    entry.second->transport.merge(entry.second->bin, row);
-                    json_object_set_object_member(rows, entry.first.c_str(), row);
+                    json_object_set_object_member(rows, entry.first.c_str(),
+                                                  entry.second->transport
+                                                      ? json_object_ref(entry.second->transport)
+                                                      : json_object_new());
                 }
                 json_object_set_object_member(sample, "peers", rows);
                 write_object(sample);
@@ -1596,17 +1492,11 @@ static int session() {
         begin_shutdown();
     }).detach();
     g_main_loop_run(loop);
+    shutdown_started = true;
     release_held();
+    stop_network();
     if (pipeline)
         gst_element_set_state(pipeline, GST_STATE_NULL);
-    for (auto &entry : peers) {
-        for (auto pad : {entry.second->video_tee_pad, entry.second->audio_tee_pad})
-            if (pad)
-                gst_object_unref(pad);
-        if (entry.second->input_channel)
-            g_object_unref(entry.second->input_channel);
-        gst_object_unref(entry.second->bin);
-    }
     peers.clear();
     if (pipeline)
         gst_object_unref(pipeline);
@@ -1627,32 +1517,28 @@ int main(int argc, char **argv) {
             error_log << text;
     });
     gst_init(&argc, &argv);
+    // The sandboxed network process (media-net.cpp). It writes no files, so it never opens the
+    // log, and it takes nothing from the environment but GStreamer's own settings.
+    if (argc == 6 && std::string(argv[1]) == "--network") {
+        HANDLE handles[4] = {};
+        for (int i = 0; i < 4; ++i) {
+            char *end = nullptr;
+            const auto value = std::strtoull(argv[2 + i], &end, 10);
+            if (!end || *end || !value)
+                return 2;
+            handles[i] = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(value));
+        }
+        return network_main(handles[0], handles[1], handles[2], handles[3]);
+    }
     if (const char *log_path = g_getenv("VIDVNC_NATIVE_LOG"))
         error_log.open(std::filesystem::u8path(log_path), std::ios::app);
     if (error_log.is_open())
         error_log << "START native worker" << std::endl;
-    if (const char *ports = g_getenv("VIDVNC_ICE_PORTS")) {
-        ice_ports = parse_ice_ports(ports);
-        if (!ice_ports) {
-            // Refuse rather than fall back to random ports the router does not forward.
-            std::cerr << "Invalid VIDVNC_ICE_PORTS" << std::endl;
-            return 2;
-        }
-    }
-    if (const char *bind = g_getenv("VIDVNC_ICE_BIND")) {
-        // Refuse anything unknown rather than fall back to every interface.
-        if (std::string(bind) != "loopback") {
-            std::cerr << "Invalid VIDVNC_ICE_BIND" << std::endl;
-            return 2;
-        }
-        // libnice turns "127.0.0.1" into an address with getaddrinfo, which fails on Windows
-        // until Winsock is started; nothing else has started it before the first peer.
-        WSADATA winsock;
-        if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0) {
-            std::cerr << "Unable to start Winsock" << std::endl;
-            return 2;
-        }
-        ice_loopback = true;
+    // media-net always gathers on 127.0.0.1 alone; the server still says so explicitly, and
+    // anything else is refused rather than guessed at.
+    if (const char *bind = g_getenv("VIDVNC_ICE_BIND"); bind && std::string(bind) != "loopback") {
+        std::cerr << "Invalid VIDVNC_ICE_BIND" << std::endl;
+        return 2;
     }
     try {
         if (argc == 2 && std::string(argv[1]) == "--list-displays") {

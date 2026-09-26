@@ -395,9 +395,9 @@ The [recommendation](#recommendation) above answers each of these; confirm or ch
 
 Code in this repository:
 
-- [media-worker.cpp](../../native/media-worker/src/media-worker.cpp) (ICE port range and ICE-TCP),
-  [ice-ports.hpp](../../native/media-worker/src/ice-ports.hpp),
-  [native-media.mjs](../../apps/server/src/native-media.mjs) (`VIDVNC_ICE_PORTS`)
+- [media-worker.cpp](../../native/media-worker/src/media-worker.cpp) (ICE port range and ICE-TCP,
+  as analysed; the range and `VIDVNC_ICE_PORTS` were removed in phase 2 of the design),
+  [native-media.mjs](../../apps/server/src/native-media.mjs)
 
 STUN, ICE and WebRTC:
 

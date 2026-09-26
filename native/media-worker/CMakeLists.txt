@@ -21,12 +21,14 @@ function(configure_worker_target target)
   target_compile_options(${target} PRIVATE /W4 /EHsc)
   set_target_properties(${target} PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endfunction()
-add_executable(media-worker src/media-worker.cpp)
+# One binary, two roles: the worker (capture, encode, input broker) and, started by it with
+# --network under the sandbox in src/sandbox.hpp, media-net (WebRTC).
+add_executable(media-worker src/media-worker.cpp src/media-net.cpp)
 configure_worker_target(media-worker)
 target_compile_definitions(media-worker PRIVATE GST_USE_UNSTABLE_API)
-target_link_libraries(media-worker PRIVATE gstreamer_sdk gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0 user32 dxgi ws2_32)
+target_link_libraries(media-worker PRIVATE gstreamer_sdk gstapp-1.0 gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0 user32 dxgi ws2_32 advapi32)
 if(BUILD_TESTING)
-  foreach(name ice-ports input-policy transport-telemetry display-coordinates stream-profile peer-permission keyframe-limiter sdp-payload video-codec rate-control encoder-backend encoder-properties encoder-selection)
+  foreach(name net-records input-policy transport-telemetry display-coordinates stream-profile peer-permission keyframe-limiter sdp-payload video-codec rate-control encoder-backend encoder-properties encoder-selection)
     add_executable(${name}-test tests/${name}.cpp)
     configure_worker_target(${name}-test)
     # Existing tests use assert(); retain assertions in Release.

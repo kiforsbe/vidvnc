@@ -14,7 +14,7 @@ inline std::string rtpmap_payload(const char *value) {
     const auto space = value ? std::strchr(value, ' ') : nullptr;
     if (!space || space == value || space - value > 3)
         return {};
-    std::string candidate(value, space);
+    std::string candidate(value, static_cast<std::size_t>(space - value));
     for (const char c : candidate)
         if (c < '0' || c > '9')
             return {};

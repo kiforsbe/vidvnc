@@ -25,24 +25,29 @@ flowchart LR
         host["WinUI 3 host<br/>apps/windows-host"]
         server["Node server<br/>apps/server"]
         relay["media relay (Node)<br/>apps/server/src/media-relay"]
-        worker["media-worker (C++)<br/>native/media-worker<br/>ICE on 127.0.0.1 only"]
+        worker["media-worker (C++)<br/>native/media-worker<br/>capture, encode, input broker"]
+        net["media-net (same binary, --network)<br/>sandboxed: WebRTC on 127.0.0.1 only"]
         gst["GStreamer 1.28"]
         win["DXGI · WASAPI · SendInput"]
     end
 
     browser <-->|"HTTPS by default: auth, SDP offer/answer,<br/>telemetry; deliberate LAN HTTP off mode"| server
     browser <-.->|"WebRTC to the media port (UDP 4384):<br/>RTP video + audio, data channel for input"| relay
-    relay <-.->|"loopback UDP,<br/>authenticated paths only"| worker
+    relay <-.->|"loopback UDP,<br/>authenticated paths only"| net
+    worker -->|"starts in a sandbox;<br/>encoded frames, control"| net
+    net -->|"viewer input,<br/>checked by the broker"| worker
     host -->|"spawns in a job object;<br/>JSON lines on stdin/stdout"| server
     server -->|"one child;<br/>JSON lines on stdin/stdout"| relay
     server -->|"one child per source;<br/>JSON lines on stdin/stdout"| worker
     worker --> gst --> win
 ```
 
-The browser talks to the Node server for everything except media, and to the worker for
-media only, through the media relay. The server never carries pixels; the worker never
-authenticates anyone; the relay forwards only senders that proved a stream's ICE password
-(see [Media relay](#media-relay)).
+The browser talks to the Node server for everything except media, and to the source's
+sandboxed network process for media only, through the media relay. The server never carries
+pixels; the worker never authenticates anyone and never talks to the network; the relay
+forwards only senders that proved a stream's ICE password (see [Media relay](#media-relay));
+and the network process can neither capture the screen nor inject input (see
+[Network process](#network-process-media-net)).
 
 Signaling is HTTP request/response over HTTPS by default, not WebSocket. The browser POSTs an offer and
 receives the answer in the same response, after ICE gathering completes. There is no
@@ -251,24 +256,32 @@ policy itself.
 
 One capture and one encode per source, then a per-viewer branch off a tee. Adding a
 second viewer to an identical plan costs a payloader and a `webrtcbin`, not another
-encoder.
+encoder. The pipeline is split between two processes at the encoded bitstream: the worker
+captures and encodes, and its network process, media-net, carries the frames to viewers.
 
 ```mermaid
 flowchart LR
-    cap["d3d11screencapturesrc<br/>monitor-handle, show-cursor"] --> conv["d3d11convert<br/>NV12, profile size and fps"]
-    conv --> enc["hardware encoder<br/>(selected per machine)"]
-    enc --> caps["codec caps"] --> parse["h264parse / h265parse / av1parse"]
-    parse --> vtee["tee video-fanout"]
-
-    wasapi["wasapisrc loopback"] --> ares["audioconvert · audioresample<br/>48 kHz S16LE"] --> opus["opusenc<br/>32k mono / 96k stereo, FEC"] --> atee["tee audio-fanout"]
-
-    vtee --> vq["queue leaky=downstream"] --> vpay["rtph264pay / rtph265pay / rtpav1pay"] --> wrtc["webrtcbin<br/>max-bundle"]
-    atee --> aq["queue leaky=downstream"] --> apay["rtpopuspay"] --> wrtc
-    wrtc --> peer(["browser peer"])
+    subgraph W["media-worker (desktop user, medium integrity)"]
+        cap["d3d11screencapturesrc<br/>monitor-handle, show-cursor"] --> conv["d3d11convert<br/>NV12, profile size and fps"]
+        conv --> enc["hardware encoder<br/>(selected per machine)"]
+        enc --> caps["codec caps"] --> parse["h264parse / h265parse / av1parse"]
+        parse --> vsink["appsink video-sink"]
+        wasapi["wasapisrc loopback"] --> ares["audioconvert · audioresample<br/>48 kHz S16LE"] --> opus["opusenc<br/>32k mono / 96k stereo, FEC"] --> asink["appsink audio-sink"]
+    end
+    subgraph N["media-net (sandboxed)"]
+        vsrc["appsrc video-source"] --> vtee["tee video-fanout"]
+        asrc["appsrc audio-source"] --> atee["tee audio-fanout"]
+        vtee --> vq["queue leaky=downstream"] --> vpay["rtph264pay / rtph265pay / rtpav1pay"] --> wrtc["webrtcbin<br/>max-bundle, 127.0.0.1"]
+        atee --> aq["queue leaky=downstream"] --> apay["rtpopuspay"] --> wrtc
+    end
+    vsink -->|"frames pipe"| vsrc
+    asink -->|"frames pipe"| asrc
+    wrtc --> peer(["browser peer, through the relay"])
 ```
 
 Frames stay in D3D11 memory from capture through encode; there is no download to system
-memory. Both per-peer queues are `leaky=downstream`, so a viewer whose network stalls
+memory, and raw frames never leave the worker: only the encoded bitstream crosses to
+media-net. Both per-peer queues are `leaky=downstream`, so a viewer whose network stalls
 drops its own frames instead of stalling the shared encoder — the failure stays local to
 that viewer. Audio follows the session profile rather than being chosen separately: the
 15 fps mobile profiles get the low-bandwidth mono mix.
@@ -276,6 +289,82 @@ that viewer. Audio follows the session profile rather than being chosen separate
 Rate control is expressed as intent — mode, target and peak bitrate, GOP length, and
 quality floors as _fractions_ of the element's QP range — and only turned into concrete
 property strings at pipeline build time. See the next section for why.
+
+### Network process (media-net)
+
+Each source's WebRTC runs in a second process: the same `media-worker.exe`, started by the
+worker with `--network` ([media-net.cpp](../native/media-worker/src/media-net.cpp)). It is
+Part B of the [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md),
+so that a flaw in the WebRTC stack (libnice, OpenSSL's DTLS, libsrtp, usrsctp) exploited by a
+viewer lands in a process that cannot capture the screen, inject input, read the user's
+files or reach the network beyond loopback.
+
+The worker starts it under the tier T1 sandbox ([sandbox.hpp](../native/media-worker/src/sandbox.hpp),
+proved by gate P3):
+
+- a restricted primary token (the user and most groups deny-only; restricting SIDs Everyone,
+  Users, RESTRICTED and the logon SID; no privileges but change-notify) at low integrity;
+- a job: one process, no children, killed with the worker, a 2 GiB commit cap and every UI
+  limit;
+- its own desktop, labelled low, so it sees and messages no window of the user's;
+- an explicit inherited-handle list (its four pipe ends and nothing else), no console, and
+  the mitigations strict handle checks, extension points off, no remote or low-label images,
+  and System32 first.
+
+It starts impersonating a same-access token, starts Winsock and loads every plugin and
+library it needs, then calls `RevertToSelf` before it opens a socket or reads anything from a
+viewer; it then turns on Arbitrary Code Guard (gate P4). Win32k lockdown is not used: it can
+only be set at creation, and GLib needs `user32`.
+
+```mermaid
+sequenceDiagram
+    participant S as Node server
+    participant W as media-worker
+    participant N as media-net (sandboxed)
+    participant B as Browser
+
+    S->>W: start {profile, codec, hostControl, ...}
+    W->>W: capture and encode pipeline ending in appsink
+    W->>N: CreateProcessAsUser (restricted token, job, desktop), four pipe handles
+    N->>N: load plugins, RevertToSelf, Arbitrary Code Guard
+    N-->>W: net-ready
+    W-->>S: ready {encoder ...}
+    S->>W: add-peer {peerId, sdp}
+    W->>N: add-peer {peerId, sdp}
+    N-->>W: answer
+    W-->>S: answer (passed through unparsed)
+    loop encoded access units
+        W->>N: frame record {video or audio, flags, bytes}
+    end
+    B->>N: data channel {type: move ...}
+    N->>W: input record {peerId, text}
+    W->>W: lease, allow-lists, rate limit, SendInput
+    W->>N: control-state {peerId, control}
+    N->>W: keyframe-request {kind: join or recovery}
+    W->>W: keyframe limiter, force-key-unit
+```
+
+**Pipes.** Four anonymous pipes ([net-pipes.hpp](../native/media-worker/src/net-pipes.hpp)):
+control in each direction (JSON lines: `configure`, `add-peer`, `remove-peer`,
+`control-state` one way; `net-ready`, `answer`, `peer-failed`, `peer-closed`,
+`channel-closed`, `keyframe-request`, `peer-metrics`, `log`, `fatal` the other), frames
+(worker to media-net: a 32-byte header and the payload, with a caps record whenever caps
+change) and input (media-net to worker: peer id and data-channel text, at most 64 and 1,024
+bytes). The record formats are in [net-records.hpp](../native/media-worker/src/net-records.hpp).
+Anonymous pipes have no name, so nothing else can open them. All pipe I/O runs on dedicated
+threads; the worker's main loop only queues, so a stalled media-net can delay video but never
+the owner pipe, input release or shutdown. The frame queue holds at most 32 MiB; on overflow
+it is emptied, video skips to the next keyframe and one is requested.
+
+**Trust.** The worker treats everything from media-net as untrusted: known peer ids only,
+bounded sizes, expected message types; anything malformed ends the source. Input goes
+through the same broker as before the split — the owner's lease, the peer's control flag,
+the allow-lists and the rate limit — so a compromised media-net can act as the viewer that
+currently holds control, but cannot grant control or inject input when nobody holds it. A
+source whose `start` does not carry `hostControl` is refused. Viewers that arrive before
+media-net is ready wait in the worker, in order. media-net writes no files: its log lines go
+to the worker, which writes them to `native-worker.log` with a `NET` prefix. Capture starts
+only when the first viewer is answered.
 
 ### Media relay
 
@@ -548,8 +637,9 @@ the probe by name, listing every element it tried.
 ## Input and control
 
 Keyboard and mouse do **not** travel over HTTP. The browser opens a WebRTC data channel
-to the worker and sends `move`, `key`, `button` and `wheel` messages on it, which the
-worker turns into `SendInput` calls. Input therefore takes the same path as the video and
+to the source's network process and sends `move`, `key`, `button` and `wheel` messages on
+it; media-net passes each message unchanged to the worker, whose broker turns the allowed
+ones into `SendInput` calls ([Network process](#network-process-media-net)). Input therefore takes the same path as the video and
 inherits its latency, rather than queueing behind the signaling server.
 
 Because that channel bypasses the server, the worker enforces permission itself and
@@ -821,9 +911,12 @@ flowchart LR
             diag["Diagnostics listener<br/>127.0.0.1 only"]
         end
         server["Node server"]
-        worker["media-worker<br/>ICE/DTLS on 127.0.0.1 only"]
+        worker["media-worker<br/>capture, encode, input broker"]
         store[("Settings, approved devices,<br/>TLS key (per-user)")]
         os["DXGI, WASAPI, SendInput"]
+    end
+    subgraph Z4["Z4 Sandbox: restricted token, low integrity, job, own desktop"]
+        net["media-net<br/>ICE/DTLS/SRTP/SCTP on 127.0.0.1 only"]
     end
 
     inet -->|"B1 HTTPS (remote access on only)"| https
@@ -833,7 +926,8 @@ flowchart LR
     browser -.->|"B2 SRTP media, SCTP input"| relay
     https --> server
     http --> server
-    relay -->|"B7 loopback UDP, authenticated paths only"| worker
+    relay -->|"B7 loopback UDP, authenticated paths only"| net
+    net <-->|"B9 anonymous pipes: frames, control, input"| worker
     host -->|"B4 stdin/stdout, owner commands"| server
     server -->|"B5 stdin/stdout, owner pipe"| worker
     server -->|"B8 stdin/stdout, relay pipe"| relay
@@ -843,16 +937,17 @@ flowchart LR
     worker --> os
 ```
 
-| Boundary | Crossing                                  | Authentication                                                                                                         | Protection in transit                          |
-| -------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| B1       | Client or internet peer to HTTPS listener | Code or approved device, then session bearer                                                                           | TLS; HSTS on public names                      |
-| B2       | Client to the media relay's port          | STUN MESSAGE-INTEGRITY with the stream's ICE password from B1, checked by the relay; then the DTLS fingerprint from B1 | DTLS-SRTP (media), DTLS-SCTP (input)           |
-| B3       | LAN peer to HTTP listener                 | As B1 in off mode; none for `/trust`                                                                                   | None; local peers only; redirect when TLS live |
-| B4       | Host to server                            | Process ownership (inherited pipe), exact start line                                                                   | In-process pipe                                |
-| B5       | Server to worker                          | Process ownership (inherited pipe)                                                                                     | In-process pipe                                |
-| B6       | Owner browser to diagnostics listener     | 256-bit bearer, 15-minute lifetime                                                                                     | Loopback only                                  |
-| B7       | Relay to worker                           | Only 5-tuples the relay pinned after B2's check; the worker accepts datagrams from the pin's socket                    | Loopback only; DTLS as B2                      |
-| B8       | Server to relay                           | Process ownership (inherited pipe); invalid commands end the relay                                                     | In-process pipe                                |
+| Boundary | Crossing                                  | Authentication                                                                                                                          | Protection in transit                          |
+| -------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| B1       | Client or internet peer to HTTPS listener | Code or approved device, then session bearer                                                                                            | TLS; HSTS on public names                      |
+| B2       | Client to the media relay's port          | STUN MESSAGE-INTEGRITY with the stream's ICE password from B1, checked by the relay; then the DTLS fingerprint from B1                  | DTLS-SRTP (media), DTLS-SCTP (input)           |
+| B3       | LAN peer to HTTP listener                 | As B1 in off mode; none for `/trust`                                                                                                    | None; local peers only; redirect when TLS live |
+| B4       | Host to server                            | Process ownership (inherited pipe), exact start line                                                                                    | In-process pipe                                |
+| B5       | Server to worker                          | Process ownership (inherited pipe)                                                                                                      | In-process pipe                                |
+| B6       | Owner browser to diagnostics listener     | 256-bit bearer, 15-minute lifetime                                                                                                      | Loopback only                                  |
+| B7       | Relay to media-net                        | Only 5-tuples the relay pinned after B2's check; media-net accepts datagrams from the pin's socket                                      | Loopback only; DTLS as B2                      |
+| B9       | media-net to worker                       | Process ownership (inherited handles only); everything from media-net is validated; input only through the broker and the owner's lease | Anonymous pipes, no name                       |
+| B8       | Server to relay                           | Process ownership (inherited pipe); invalid commands end the relay                                                                      | In-process pipe                                |
 
 ### Attack surface
 
@@ -1069,18 +1164,21 @@ server; the receiving page strips it and refuses to replace a different stored s
 ### Process isolation and least privilege
 
 - Every process runs as the interactive desktop user, without elevation. The
-  self-signed certificate is created in `Cert:\CurrentUser` for the same reason.
+  self-signed certificate is created in `Cert:\CurrentUser` for the same reason. Each
+  source's network process, media-net, runs with a restricted version of that user's token
+  at low integrity, in its own job and desktop
+  ([Network process](#network-process-media-net)).
 - The host places the server in a Win32 job object with `KILL_ON_JOB_CLOSE`; the server owns
   the media relay and one worker process per source. No process outlives its parent: the
   job covers the server's children, and the relay and workers also exit when their input
   pipe closes.
-- The worker never authenticates anyone and trusts only its owner pipe; the server never
-  handles pixels. The worker listens on `127.0.0.1` only, and the media relay forwards to it
-  only senders that proved a stream's ICE password ([Media relay](#media-relay)). The worker
-  is still **not sandboxed** and holds input injection, so forged DTLS or RTP from an
-  authenticated address remains a residual risk (R4); phase 2 of the
-  [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md)
-  moves WebRTC into a sandboxed process.
+- The worker never authenticates anyone, trusts only its owner pipe and holds no network
+  socket; the server never handles pixels. WebRTC runs in media-net, which listens on
+  `127.0.0.1` only and is reached only through the media relay, for senders that proved a
+  stream's ICE password ([Media relay](#media-relay)). A flaw in the WebRTC stack exploited
+  by forged DTLS or RTP from an authenticated address therefore lands in the sandbox: it can
+  act as the viewer that holds control while the owner has granted it, and nothing more
+  (R4). The relay itself still runs at medium integrity.
 - Diagnostics run on a separate listener bound to `127.0.0.1`, not routed by the main
   handler at all.
 
@@ -1127,28 +1225,28 @@ server; the receiving page strips it and refuses to replace a different stored s
 STRIDE applied to the elements and boundaries above. "Residual" refers to the findings
 register in the [security analysis](security/internet-exposure.md#findings-register).
 
-| ID  | Element or flow         | STRIDE | Threat                                                                       | Mitigation                                                                                                                                                                                          | Residual                   |
-| --- | ----------------------- | ------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| T1  | Admission (B1, B3)      | S      | Guess a code or the standing password                                        | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`                                                                                                   | F1                         |
-| T2  | Approved sign-in (B1)   | S      | Use a copied device secret and password                                      | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration                                                                                      | F5                         |
-| T3  | Peer classification     | S      | Appear local through source NAT or a proxy                                   | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)                                                                                        | R2                         |
-| T4  | Session bearer (B1)     | S      | Replay a stolen bearer                                                       | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                                                                                                                   | —                          |
-| T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                                       | Local peers only; fingerprint shown on the host screen for comparison (A4)                                                                                                                          | F3                         |
-| T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates             | The server removes every candidate from every offer; the worker sends checks to nobody                                                                                                              | R3 fixed                   |
-| T7  | Settings files          | T      | Change policy or approved devices on disk                                    | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope                                                                                              | —                          |
-| T8  | Owner pipe (B4, B5, B8) | T, E   | Start or command a server, relay or worker from another process              | Inherited pipes only; exact approval line; no owner route on any listener; job object; the relay exits on any invalid command                                                                       | —                          |
-| T9  | Browser page            | T, I   | Script injection or framing                                                  | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                                                                                                                   | —                          |
-| T10 | Owner actions           | R      | A viewer denies having connected or acted                                    | Sessions view shows each session's address live; lifecycle log                                                                                                                                      | No persistent audit trail  |
-| T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                                       | HTTPS by default and fail closed; `off` only by explicit choice                                                                                                                                     | F3 (off mode)              |
-| T12 | Media (B2)              | I      | Capture screen or audio on the network                                       | DTLS-SRTP with fingerprints from authenticated signaling                                                                                                                                            | —                          |
-| T13 | Public endpoints        | I      | Learn host details before sign-in                                            | `/api/info` returns the public name only; certificate omits the hostname in remote mode                                                                                                             | R7                         |
-| T14 | Diagnostics (B6)        | I      | Read diagnostics from the network or a proxy                                 | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                                                                                                        | F4 fixed                   |
-| T15 | Admission endpoints     | D      | Flood sign-in to lock devices out                                            | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                                                                                                         | R1, F7                     |
-| T16 | Listeners and media     | D      | Exhaust connections, memory, relay registrations or the encoder              | Connection caps, body and SDP caps, timeouts, bounded maps; relay budgets before parsing in two lanes, at most 64 registrations and 4 paths each; keyframe damping, leaky queues                    | F7 (volumetric)            |
-| T17 | Media port (B2, B7)     | E      | Exploit native STUN/DTLS parsing before authentication                       | The relay checks MESSAGE-INTEGRITY in JavaScript before anything reaches libnice; the worker is on loopback only; only DTLS and RTP from an authenticated 5-tuple pass unchecked; current GStreamer | R4                         |
-| T18 | Input path (B2)         | E      | Inject input without a grant, or keep it after revoke                        | Worker-side lease from the owner pipe only, 5 s expiry, allow-lists, rate limit, release of held keys                                                                                               | F2 (queued message window) |
-| T19 | Viewer assets           | E      | Load the viewer or its code without admission                                | Session- and peer-bound `HttpOnly` grant cookie                                                                                                                                                     | —                          |
-| T20 | Media relay (B2, B8)    | S, T   | Send media into another viewer's stream, or confirm a live port to strangers | Pins keyed by 5-tuple and stream; a valid check for another stream on a pinned path is dropped; the worker's replies go only to the pinned tuple; no reply before authentication                    | R4                         |
+| ID  | Element or flow         | STRIDE | Threat                                                                       | Mitigation                                                                                                                                                                                                                                                                     | Residual                   |
+| --- | ----------------------- | ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| T1  | Admission (B1, B3)      | S      | Guess a code or the standing password                                        | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`                                                                                                                                                                              | F1                         |
+| T2  | Approved sign-in (B1)   | S      | Use a copied device secret and password                                      | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration                                                                                                                                                                 | F5                         |
+| T3  | Peer classification     | S      | Appear local through source NAT or a proxy                                   | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)                                                                                                                                                                   | R2                         |
+| T4  | Session bearer (B1)     | S      | Replay a stolen bearer                                                       | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                                                                                                                                                                                              | —                          |
+| T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                                       | Local peers only; fingerprint shown on the host screen for comparison (A4)                                                                                                                                                                                                     | F3                         |
+| T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates             | The server removes every candidate from every offer; the worker sends checks to nobody                                                                                                                                                                                         | R3 fixed                   |
+| T7  | Settings files          | T      | Change policy or approved devices on disk                                    | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope                                                                                                                                                                         | —                          |
+| T8  | Owner pipe (B4, B5, B8) | T, E   | Start or command a server, relay or worker from another process              | Inherited pipes only; exact approval line; no owner route on any listener; job object; the relay exits on any invalid command                                                                                                                                                  | —                          |
+| T9  | Browser page            | T, I   | Script injection or framing                                                  | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                                                                                                                                                                                              | —                          |
+| T10 | Owner actions           | R      | A viewer denies having connected or acted                                    | Sessions view shows each session's address live; lifecycle log                                                                                                                                                                                                                 | No persistent audit trail  |
+| T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                                       | HTTPS by default and fail closed; `off` only by explicit choice                                                                                                                                                                                                                | F3 (off mode)              |
+| T12 | Media (B2)              | I      | Capture screen or audio on the network                                       | DTLS-SRTP with fingerprints from authenticated signaling                                                                                                                                                                                                                       | —                          |
+| T13 | Public endpoints        | I      | Learn host details before sign-in                                            | `/api/info` returns the public name only; certificate omits the hostname in remote mode                                                                                                                                                                                        | R7                         |
+| T14 | Diagnostics (B6)        | I      | Read diagnostics from the network or a proxy                                 | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                                                                                                                                                                                   | F4 fixed                   |
+| T15 | Admission endpoints     | D      | Flood sign-in to lock devices out                                            | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                                                                                                                                                                                    | R1, F7                     |
+| T16 | Listeners and media     | D      | Exhaust connections, memory, relay registrations or the encoder              | Connection caps, body and SDP caps, timeouts, bounded maps; relay budgets before parsing in two lanes, at most 64 registrations and 4 paths each; keyframe damping, leaky queues                                                                                               | F7 (volumetric)            |
+| T17 | Media port (B2, B7)     | E      | Exploit native STUN/DTLS parsing before authentication                       | The relay checks MESSAGE-INTEGRITY in JavaScript before anything reaches libnice; media-net is on loopback only; only DTLS and RTP from an authenticated 5-tuple pass unchecked, and they reach media-net, which is sandboxed and holds no input capability; current GStreamer | R4                         |
+| T18 | Input path (B2, B9)     | E      | Inject input without a grant, or keep it after revoke                        | Broker in the worker: lease from the owner pipe only, 5 s expiry, per-peer control flag, allow-lists, rate limit, release of held keys; media-net can only relay what a viewer sent; `hostControl` required                                                                    | F2 (queued message window) |
+| T19 | Viewer assets           | E      | Load the viewer or its code without admission                                | Session- and peer-bound `HttpOnly` grant cookie                                                                                                                                                                                                                                | —                          |
+| T20 | Media relay (B2, B8)    | S, T   | Send media into another viewer's stream, or confirm a live port to strangers | Pins keyed by 5-tuple and stream; a valid check for another stream on a pinned path is dropped; the worker's replies go only to the pinned tuple; no reply before authentication                                                                                               | R4                         |
 
 ### Residual risk and open items
 
@@ -1156,9 +1254,10 @@ The current register, with severity and verification, is kept in the
 [security analysis](security/internet-exposure.md#open-and-residual-findings). In summary:
 
 - **R4** Native ICE/STUN parsing was reachable before authentication on the media ports.
-  Reduced: the media relay now checks the ICE password first, but forged DTLS or RTP from an
-  authenticated address still reaches the unsandboxed worker. A sandboxed network process
-  is phase 2.
+  The media relay now checks the ICE password first, and WebRTC runs in the sandboxed
+  media-net (built; not yet validated on Windows). Forged DTLS or RTP from an authenticated
+  address still reaches OpenSSL and libsrtp there; a compromised media-net can act as the
+  viewer that holds control while it is granted. The relay still runs at medium integrity.
 - **R8** The remote media path has run through one real router; IPv6, carrier NAT and a
   packet capture are still to do.
 - **R2, R1, F7** depend on the operating conditions A3 and A5.
@@ -1325,7 +1424,7 @@ apps/
   windows-client/ Planned WinUI 3 viewer (ownership guide only)
   macos-client/   Planned native Apple viewer (ownership guide only)
 native/
-  media-worker/   C++ capture/encode/input; src/ + tests/ + CMakeLists.txt
+  media-worker/   C++ capture/encode/input broker and the sandboxed media-net; src/ + tests/ + CMakeLists.txt
 tests/system/     Cross-application lifecycle and real media smoke checks
 tools/            Root orchestration and formatting; tools/tests/ owns its tests
   debug/          Cross-process debug target definitions and implementation contract
