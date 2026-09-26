@@ -944,8 +944,10 @@ Input is authorized twice, independently: the server's `ControlLease` decides wh
 control, and the worker enforces it on every message because the data channel bypasses the
 server. The worker accepts permission only from its owner pipe, as a 5-second lease the
 server renews every 2 seconds; a peer cannot extend or grant it
-([Input and control](#input-and-control)). A blanket `available` default does not give
-internet sessions control automatically; only a per-device setting does.
+([Input and control](#input-and-control)). With the `available` default, or an approved
+device set to `available`, a session takes control automatically when nobody holds it, on
+the LAN and from the internet alike, and takes it back on its next stream selection after
+losing it without the host acting; a host grant or revoke for that session ends this.
 
 ### Cryptography and key management (ASVS V6)
 

@@ -216,8 +216,11 @@ unknown address fails closed as internet.
 
 - Current permission is checked at stream selection, grant, native acknowledgment and lease
   renewal.
-- A blanket `available` default doesn't grant control automatically to internet sessions;
-  only a per-device `available` does.
+- The `available` default applies to internet sessions too (since 2026-09-26, the owner's
+  choice; before that it asked). Internet sessions are always approved devices, and each
+  device's own setting (`approval`, `view-only`) overrides the default. Automatic control
+  never takes control from another session and ends when the host grants or revokes it
+  for that session.
 - Input is whitelisted in the worker and rate-limited to 1000 events/s.
 
 **Resources**

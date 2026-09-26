@@ -44,9 +44,12 @@ For an internet client:
   in from anywhere with its device secret and password.
 - **Its sign-in budget is separate.** Sign-in attempts from the internet have their own
   budget, so a flood from the internet can't lock out devices on the LAN or a VPN.
-- **Keyboard and mouse still need approval.** A blanket `available` default still asks
-  the host. Control starts without asking only if you set that approved device to
-  `available`.
+- **Keyboard and mouse follow the same setting as on the LAN.** With Access → Keyboard and
+  mouse set to **Allow when available** (`access available`), an internet device gets control without asking whenever nobody
+  else holds it, and gets it back by itself after its stream reconnects. Set a device to
+  **Require host approval** or **View only** on the Clients page to keep asking for it. Only approved devices
+  can sign in from the internet at all, so this is a choice about devices you set up
+  yourself; if a device might be lost or its password guessed, prefer approval.
 - **It learns less.** `/api/info` returns only the public name.
 - **HSTS is sent** on the public names.
 - **Media goes to the router's public address on the media port.** Every device's media,

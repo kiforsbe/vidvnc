@@ -31,16 +31,12 @@ export class StreamRuntime {
     clock = Date.now,
     videoCodecs = ['h264'],
     videoBackends = [],
-    // Whether a session's address is on the internet (peer-network.mjs). The default treats
-    // every client as local, which is what every caller without remote access means.
-    isInternet = () => false,
     // The media relay (media-relay.mjs) and the addresses a client is told to send media to
     // (relay-addresses.mjs). Without a relay, offers and answers pass through unchanged, which
     // only tests rely on: the server always runs one.
     relay = null,
     relayAddresses = null,
   }) {
-    this.isInternet = isInternet;
     this.relay = relay;
     this.relayAddresses = relayAddresses;
     Object.assign(this, {
@@ -74,8 +70,8 @@ export class StreamRuntime {
       const auth = approvedClientId ? approvedClients?.authorization(approvedClientId) : null;
       const current = !approvedClientId || (auth && auth.generation === session.approvedGeneration);
       const control = approvedClientId
-        ? effectivePermission(current ? auth : null, this.#defaultControl(session))
-        : this.#defaultControl(session);
+        ? effectivePermission(current ? auth : null, this.#defaultControl())
+        : this.#defaultControl();
       if (control === 'available') this.automaticControl.add(id);
     };
     // The lease addresses subscriptions; the worker it talks to is the subscription's source.
@@ -148,16 +144,14 @@ export class StreamRuntime {
     const current =
       !session.approvedClientId || (auth && auth.generation === session.approvedGeneration);
     const permission = session.approvedClientId
-      ? effectivePermission(current ? auth : null, this.#defaultControl(session))
-      : this.#defaultControl(session);
+      ? effectivePermission(current ? auth : null, this.#defaultControl())
+      : this.#defaultControl();
     return explicitOwner ? permission !== 'view-only' : permission === 'available';
   }
-  // The Access page default for this session. Keyboard and mouse without asking is for the
-  // local network: from the internet a blanket "available" default still means asking, and
-  // only a per-device "available" set on that approved client grants it automatically.
-  #defaultControl(session) {
-    const value = this.access?.snapshot().defaultControl ?? 'view-only';
-    return value === 'available' && this.isInternet(session?.clientKey) ? 'approval' : value;
+  // The Access page default for this session, the same from the LAN and the internet (where
+  // only approved devices can sign in at all). An approved device's own setting overrides it.
+  #defaultControl() {
+    return this.access?.snapshot().defaultControl ?? 'view-only';
   }
   async revokeApprovedClient(clientId) {
     const affected = this.sessions.list().filter((row) => row.approvedClientId === clientId);
@@ -176,7 +170,11 @@ export class StreamRuntime {
       if (this.currentControl(sessionId, streamId, { explicitOwner }))
         await this.control.grant(sessionId, streamId, { explicitOwner });
       else await this.control.revoke(sessionId);
-    } else if (this.automaticControl.delete(sessionId) && this.currentControl(sessionId, streamId))
+    } else if (this.automaticControl.has(sessionId) && this.currentControl(sessionId, streamId))
+      // Eligibility lasts for the session, so control that was lost without the host acting
+      // (the stream ended or reconnected, the worker restarted) comes back on the next
+      // selection. It never takes control from another session, and a host grant or revoke
+      // for this session ends it.
       await this.control.grant(sessionId, streamId, { onlyIfAvailable: true });
     if (this.registry.get(sessionId, streamId)?.state !== 'live') throw new Error('Stream ended');
     this.selected.set(sessionId, streamId);

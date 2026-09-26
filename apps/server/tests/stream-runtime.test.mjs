@@ -75,7 +75,6 @@ async function setup(
     registry,
     videoCodecs = ['av1', 'h265', 'h264'],
     videoBackends,
-    isInternet,
     relay,
     relayAddresses,
     ...mediaOptions
@@ -119,7 +118,6 @@ async function setup(
     ...(registry ? { registry } : {}),
     videoCodecs,
     videoBackends: videoBackends ?? nvencBackends(videoCodecs),
-    ...(isInternet ? { isInternet } : {}),
     ...(relay ? { relay, relayAddresses } : {}),
   });
   t.after(() => runtime.shutdown());
@@ -144,7 +142,7 @@ async function setup(
   return { sessions, media, runtime, a, b, displays, inventory, offer, access, starts };
 }
 
-test('automatic access grants once, never steals control or undoes a host revoke', async (t) => {
+test('automatic access never steals control or undoes a host revoke', async (t) => {
   const { runtime, a, b, offer } = await setup(t, 'available');
   const first = await offer(a);
   const second = await offer(b);
@@ -154,11 +152,29 @@ test('automatic access grants once, never steals control or undoes a host revoke
   assert.equal(runtime.control.owner?.sessionId, a);
   await runtime.command({ action: 'revoke', sessionId: a });
   await runtime.selectStream(a, first.streamId);
-  await runtime.selectStream(b, second.streamId);
   assert.equal(runtime.control.owner, null);
+  // b is still eligible and control is free now: it takes it without the host.
+  await runtime.selectStream(b, second.streamId);
+  assert.equal(runtime.control.owner?.sessionId, b);
+  await runtime.command({ action: 'revoke', sessionId: b });
   const replacement = await offer(a, 1);
   await runtime.selectStream(a, replacement.streamId);
   assert.equal(runtime.control.owner, null);
+});
+
+test('automatic control comes back after the stream ends without the host acting', async (t) => {
+  const { runtime, a, offer } = await setup(t, 'available');
+  const first = await offer(a);
+  await runtime.selectStream(a, first.streamId);
+  assert.equal(runtime.control.owner?.sessionId, a);
+  // The viewer's stream ends (a reconnect, a network change); its next stream gets control
+  // back on selection.
+  await runtime.stopStream(a, first.streamId);
+  await runtime.control.renew();
+  assert.equal(runtime.control.owner, null);
+  const next = await offer(a, 1);
+  await runtime.selectStream(a, next.streamId);
+  assert.equal(runtime.control.owner?.sessionId, a);
 });
 
 test('automatic eligibility is captured at admission but current permission is checked at selection', async (t) => {
@@ -201,15 +217,13 @@ test('approved-client overrides replace the Access default for that client', asy
   assert.equal(runtime.control.owner?.sessionId, allowed);
 });
 
-test('an internet client asks for control despite the available default, unless its device allows it', async (t) => {
-  const permissions = { plain: 'default', trusted: 'available' };
+test('the available default gives internet clients control too, unless their device says otherwise', async (t) => {
+  const permissions = { plain: 'default', watcher: 'approval' };
   const approvedClients = {
     authorization: (id) =>
       permissions[id] ? { id, generation: 0, permission: permissions[id] } : null,
   };
-  const { runtime, sessions, a, b, offer } = await setup(t, 'available', approvedClients, {
-    isInternet: (address) => address.startsWith('internet'),
-  });
+  const { runtime, sessions, a, b, offer } = await setup(t, 'available', approvedClients, {});
   for (const id of [a, b]) {
     sessions.disconnect(id);
     await runtime.stopSession(id);
@@ -217,16 +231,16 @@ test('an internet client asks for control despite the available default, unless 
   const plain = sessions.connectApproved({ id: 'plain', generation: 0 }, 'internet-1').sessionId;
   const stream = await offer(plain);
   await runtime.selectStream(plain, stream.streamId);
-  assert.equal(runtime.control.owner, null);
+  assert.equal(runtime.control.owner?.sessionId, plain);
   sessions.disconnect(plain);
   await runtime.stopSession(plain);
-  const trusted = sessions.connectApproved(
-    { id: 'trusted', generation: 0 },
+  const watcher = sessions.connectApproved(
+    { id: 'watcher', generation: 0 },
     'internet-2',
   ).sessionId;
-  const trustedStream = await offer(trusted);
-  await runtime.selectStream(trusted, trustedStream.streamId);
-  assert.equal(runtime.control.owner?.sessionId, trusted);
+  const watcherStream = await offer(watcher);
+  await runtime.selectStream(watcher, watcherStream.streamId);
+  assert.equal(runtime.control.owner, null);
 });
 
 test('downgrade before first selection cancels an approved client automatic grant', async (t) => {

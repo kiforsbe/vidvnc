@@ -374,7 +374,7 @@ public sealed partial class HostWindow
         content.Children.Add(new Expander { Header = "What remote access changes", HorizontalAlignment = HorizontalAlignment.Stretch,
             Content = Label(string.Join("\n", new[] {
                 "• Only approved clients can sign in, from anywhere. Codes, client setup and certificate enrolment stay on the local network, so set devices up here first.",
-                "• Internet devices must use HTTPS. Keyboard and mouse still need your approval unless you set that client to allow control.",
+                "• Internet devices must use HTTPS. Keyboard and mouse follow Access → Keyboard and mouse, as on the local network; set a client to Require host approval on the Clients page to keep asking for it.",
                 "• On the router, forward the HTTPS port (TCP) and the media port (UDP) to this PC. Never forward the plain HTTP port.",
                 "• Switching remote access off disconnects internet devices at once. Stopping sharing turns it off; start with remote access again when you need it.",
             })) });

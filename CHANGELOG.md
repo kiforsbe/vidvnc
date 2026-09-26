@@ -20,6 +20,12 @@ may include breaking changes.
 
 ### Changed
 
+- Access → Keyboard and mouse set to **Allow when available** (`access available`) now
+  applies to devices connecting from the internet too; before, they always asked. An approved
+  device set to **Require host approval** on the Clients page keeps asking. A device that loses control without
+  the host acting, for example when its stream reconnects, now takes it back by itself when
+  control is free, instead of waiting for the host to grant it again. A host grant or revoke
+  for that device still ends automatic control for the rest of its session.
 - All media, on the local network and from the internet, now goes through VidVNC's media relay
   on one UDP port (4384 by default) instead of ports the media worker opened for each viewer.
   The relay answers only devices that prove they belong to a stream they were just given, and

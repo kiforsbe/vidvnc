@@ -129,7 +129,6 @@ async function serve() {
       relayAddresses: createRelayAddresses({
         publicNames: () => access.snapshot().publicHostnames,
       }),
-      isInternet: (address) => peerNetwork.isInternet(address),
       sessions: store,
       media,
       inventory,
