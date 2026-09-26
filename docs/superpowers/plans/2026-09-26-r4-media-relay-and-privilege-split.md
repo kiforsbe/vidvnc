@@ -154,7 +154,24 @@ the probe.
 
 `sandbox-check.mjs` now also runs gate P4 when P3 passes: the probe again with Arbitrary Code
 Guard, Win32k lockdown, and both, turned on at run time after lowering, reporting which checks
-break. Not yet run.
+break.
+
+P4 run, 2026-09-26, same machine and build, both turned on at run time with
+`SetProcessMitigationPolicy` after `RevertToSelf`:
+
+| Mitigation                 | Result                                                                     |
+| -------------------------- | -------------------------------------------------------------------------- |
+| Arbitrary Code Guard (ACG) | Turns on; UDP and `webrtcbin` gathering with DTLS still pass.              |
+| Win32k lockdown            | Refused with error 5: it cannot be turned on once the process uses Win32k. |
+| Both                       | ACG turns on; Win32k lockdown is refused as above.                         |
+
+Decisions for phase 2: turn ACG on in `media-net` after preloading, and keep a check for it.
+Before relying on it, run the real `--network` pipeline under ACG: ORC, which some GStreamer
+elements use to generate code at run time, needs executable memory, and the probe does not
+exercise it. Win32k lockdown can only be set at process creation, and then `user32.dll` must
+not load at all; GLib's main loop uses `user32.dll`, so it does not fit GStreamer without
+changes we do not control. Leave it out; the job's UI limits and the alternate desktop remain
+the Win32k controls. (Creation-time lockdown was not tried.)
 
 - [ ] A minimal `media-worker.exe --network` that starts under the tier T1 token (spec,
       "Token for `media-net`"), preloads plugins under the impersonation token, calls
@@ -163,7 +180,7 @@ break. Not yet run.
       loopback after `RevertToSelf`; a profile file cannot be opened; another `media-net`
       cannot open this process; no plugin loads after lowering. Record the tier (T1, T2 or T3).
       CLI layout (development build): T1 passes with the probe, above. MSIX: not yet.
-- [ ] P4: enable Win32k lockdown and ACG one at a time and record what breaks.
+- [x] P4: enable Win32k lockdown and ACG one at a time and record what breaks (above).
 
 ### Task 0.4: Gate P5 (firewall) and P6 (iCloud Private Relay)
 
