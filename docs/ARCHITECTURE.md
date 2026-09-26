@@ -1264,12 +1264,11 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 The current register, with severity and verification, is kept in the
 [security analysis](security/internet-exposure.md#open-and-residual-findings). In summary:
 
-- **R4** Native ICE/STUN parsing was reachable before authentication on the media ports.
-  The media relay now checks the ICE password first, and WebRTC runs in the sandboxed
-  media-net (built; not yet validated on Windows). Forged DTLS or RTP from an authenticated
-  address still reaches OpenSSL and libsrtp there; a compromised media-net can act as the
-  viewer that holds control while it is granted. The relay, which parses unauthenticated
-  datagrams in JavaScript, runs at low integrity.
+- **R4** (mitigated) Native ICE/STUN parsing was reachable before authentication on the
+  media ports. The media relay, at low integrity, now checks the ICE password first, and
+  WebRTC runs in the sandboxed media-net. Forged DTLS or RTP from an authenticated address
+  still reaches OpenSSL and libsrtp there; a compromised media-net can act as the viewer that
+  holds control while it is granted. The firewall rules (F1) are still to do.
 - **R8** The remote media path has run through one real router; IPv6, carrier NAT and a
   packet capture are still to do.
 - **R2, R1, F7** depend on the operating conditions A3 and A5.

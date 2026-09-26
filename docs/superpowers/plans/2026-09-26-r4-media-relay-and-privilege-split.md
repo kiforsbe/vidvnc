@@ -298,10 +298,15 @@ time inside the relay p95 0.040 ms, and every ping answered for the whole minute
 60). The round trip is about 5 ms above phase 0 because the checks are now answered in the
 sandboxed media-net; jitter and loss are unchanged, so it is within the latency budget.
 
+2.6 on Windows: the app streamed video and audio with the relay started through the
+`--sandbox` launcher, and Process Explorer showed the relay's `node.exe` and every media-net
+at Low integrity, the workers and the launcher at Medium.
+
 - [x] **2.6 Relay at low integrity** through `media-worker.exe --sandbox -- <node> <script>`
       (`run_sandboxed`: low integrity with the user SID kept, job, desktop, mitigations, the
       standard handles passed through; `sandboxedRelayLaunch` in the server on Windows). Not
       yet run on Windows.
 - [ ] **2.7 Firewall:** outbound block for `media-worker.exe`. Part of the F1 apply step
       (task 1.5), which needs gate P5; not started.
-- [ ] **2.8 Documentation**; R4 status "mitigated".
+- [x] **2.8 Documentation**; R4 status "mitigated", with the firewall rules (F1, with 2.7)
+      still to do.

@@ -35,12 +35,14 @@ change can close.
    streamed through the owner's router, first with the old port range and then through the
    media relay, including with iCloud Private Relay on. No packet capture, IPv6 run or
    carrier-NAT client has been tried yet.
-2. **The native ICE stack no longer faces the internet directly** (R4, reduced). Media,
+2. **The native ICE stack no longer faces the network directly** (R4, mitigated). Media,
    LAN and internet alike, reaches the PC through VidVNC's media relay on one UDP port; the
-   relay forwards only senders that prove a stream's ICE password, and the worker listens on
-   `127.0.0.1` only. After that proof, DTLS and RTP from the authenticated address still
-   reach native code in an unsandboxed worker. The relay works end to end on Windows with
-   Chromium-based, Firefox and Safari clients, on the LAN and from the internet.
+   relay, at low integrity, forwards only senders that prove a stream's ICE password. WebRTC
+   runs in a sandboxed process per source that listens on `127.0.0.1` only and cannot
+   capture the screen, inject input or read the user's files. Both work end to end on
+   Windows with Chromium-based, Firefox and Safari clients, on the LAN and from the internet.
+   The firewall rules that would also stop the media worker reaching the network (F1) are
+   not in place yet.
 3. **Two conditions depend on your setup.** An internet flood can still exhaust the
    _internet_ sign-in budget; it no longer affects the LAN (R1). And the boundary relies on
    a genuine source address. This is now contained by the `approved-only` requirement and a
@@ -264,7 +266,7 @@ review of the remote access mode.
 | R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)     | Fixed; an internet flood can still block _remote_ sign-in while it lasts |
 | R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)    | Contained (`approved-only` required, source check); residual below       |
 | R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                  | Fixed                                                                    |
-| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Reduced (authenticating relay); **open** until validated and sandboxed   |
+| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Mitigated (relay, sandboxed media-net); residual below                   |
 | R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
 | R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
 | R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
@@ -312,7 +314,9 @@ address, so the router doesn't rewrite source addresses (the required setup chec
 - a run from mobile data confirmed as such, and one over IPv6;
 - a packet capture showing no ICE checks toward client-chosen internal addresses.
 
-### R4: native parsing is reachable before authentication on the media ports (open, reduced)
+<a id="r4-native-parsing-is-reachable-before-authentication-on-the-media-ports-open-reduced"></a>
+
+### R4: native parsing is reachable before authentication on the media ports (mitigated)
 
 **Before 2026-09-26:** while a stream was live, anyone who could reach the worker's ports
 (every LAN peer, and the internet when the range was forwarded) could make libnice parse
@@ -325,29 +329,30 @@ MESSAGE-INTEGRITY with the stream's ICE password, which reaches only the signed-
 over HTTPS. The relay never replies to an unauthenticated sender. See
 [Controls in place](#controls-in-place) for the limits.
 
-**Phase 2, built 2026-09-26, not yet validated on Windows:** WebRTC runs in media-net, a
-second process per source started under the tier T1 sandbox (restricted token, low
-integrity, job, own desktop), which cannot capture, inject input or read the user's files.
-Its data-channel input goes through the worker's broker and the owner's lease
+**And phase 2, validated on Windows 2026-09-26:** WebRTC runs in media-net, a second
+process per source started under the tier T1 sandbox (restricted token, low integrity, job,
+own desktop, Arbitrary Code Guard), which cannot capture, inject input or read the user's
+files. Its data-channel input goes through the worker's broker and the owner's lease, and
+the server attests each answer's loopback port before the relay forwards to it. The relay
+runs at low integrity in its own job and desktop
 ([architecture](../ARCHITECTURE.md#network-process-media-net)).
 
 **Residual:**
 
 - forged DTLS or RTP/RTCP packets with the exact address and port of an authenticated client
-  still reach OpenSSL and libsrtp, now inside media-net (once phase 2 is validated); a
-  compromised media-net can act as the viewer that holds control while it is granted;
+  still reach OpenSSL and libsrtp inside media-net; a compromised media-net can act as the
+  viewer that holds control, only while the owner has granted it and only through the
+  allow-listed keys and buttons, and can send malformed SDP or RTP to its source's viewers;
 - the relay's own parser (`stun.mjs`), Node's `dgram` and V8 handle unauthenticated
-  datagrams; on Windows the relay runs at low integrity in its own job and desktop (built,
-  not yet validated), so it cannot write to the user's files, but it can read them, because
-  Node must read its own;
-- the firewall rules (F1) are not in place yet, so Windows Firewall scoping still depends on
-  the owner's answer to Windows' prompt.
+  datagrams at low integrity; the relay cannot write to the user's files, but it can read
+  them, because Node must read its own;
+- the firewall rules (F1) are not in place yet: Windows Firewall scoping depends on the
+  owner's answer to Windows' prompt, and nothing but the sandbox's loopback-only design
+  keeps media-net from the network.
 
 **Remaining:**
 
-- validate phase 2 on Windows; then the answer's port attestation, the relay at low
-  integrity and the worker's outbound firewall block; phase 1 still owes the firewall rules
-  (F1);
+- the firewall rules (F1), including the outbound block for `media-worker.exe`;
 - keep GStreamer and libnice current, and scan them separately from `npm audit`.
 
 The design options for closing R4 without a third party (an authenticating relay, a
@@ -426,8 +431,7 @@ the public host avoids the rest.
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
 2. **Host UI:** built and in use on the owner's machine. The navigation test hasn't been run
    against the latest dialog and indicator changes; see the verification record.
-3. **R4:** the firewall rules, then the privilege split (phases 1 and 2 of the R4 design). Track native dependency versions in
-   packaging.
+3. **R4:** the firewall rules (F1). Track native dependency versions in packaging.
 4. **F5:** a passkey (WebAuthn) challenge for approved devices, if a stronger
    remote-identity model is wanted.
 5. **Support position:** only after step 1 passes should SECURITY.md stop recommending a
@@ -436,10 +440,23 @@ the public host avoids the rest.
 ## Verification record
 
 - **2026-09-26, `claude/epic-maxwell-jt98x1`, privilege split (R4 phase 2), owner's Windows
-  machine:** MSVC build clean; `npm run test:hardware` 18/18; `relay-check.mjs --video`
-  passed with WebRTC in the sandboxed media-net (2 peers at 1080p60, 0 packets lost, worker
-  UDP sockets on 127.0.0.1 only). **Not run yet:** the host app end to end, input through the
-  broker, the sandbox's token and code guard confirmed in a live session.
+  machine:**
+  - MSVC build clean; `npm run test:hardware` 18/18.
+  - `relay-check.mjs --video --seconds 60`: 2 peers at 1080p60 through the relay and the
+    sandboxed media-net, 4 `media-worker.exe` processes for 2 sources, every UDP socket on
+    127.0.0.1, input pings answered through media-net for the whole minute, 81,108 packets
+    and 0 lost, receive jitter p99 1 ms, mean ICE round trip 6.58 ms.
+  - The host app with the owner's browser: video (AV1 and H.265 on NVENC) and audio each
+    through their own media-net (`NET ready tier=T1 codeGuard=on` in `native-worker.log`),
+    input, and a profile change restarting the stream through the relay.
+  - Process Explorer: the relay's `node.exe` and each `media-net` at **Low** integrity; the
+    workers and the `--sandbox` launcher at Medium.
+  - Found and fixed on the way: a crash of media-net on its first write to stderr
+    (inherited, invalid standard handles under strict handle checks) and a double free of
+    input messages in the worker; `relay-check.mjs` now opens an input channel so the second
+    kind is caught.
+  - **Not run:** the firewall rules (F1), an iPhone through the sandboxed build, a packet
+    capture.
 - **2026-09-26, `claude/epic-maxwell-jt98x1`, media relay (R4 phase 1):**
   - `npm test` 915/915 and `npm run format:check` clean, on Linux.
   - New portable tests: STUN parsing and MESSAGE-INTEGRITY against the RFC 5769 vectors,
@@ -551,15 +568,16 @@ the public host avoids the rest.
 
 ## History
 
-| Date       | Work                                                                                                                                                                                                                                             |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-09-23 | Baseline review found F1–F7. Remediation proposals defined SecRACs and deployment profiles. The owner selected interim hardening for F1, F2, F4, F5 and F7.                                                                                      |
-| 2026-09-24 | Hardening on `main`: metered admission, purpose-neutral short-lived codes, revocation and one-session limit, diagnostics isolation, LAN-only HTTP and fail-closed TLS (F1–F5, F7). A re-review found F8 and the public-`Host` compatibility gap. |
-| 2026-09-25 | Public login name and viewer assets only after admission (`main`, `90a37e4`). Remote access mode, the F8 fix, public names and port, media port range and public-address answers (`claude/remote-access-on-main`). Re-review found R1–R8.        |
-| 2026-09-25 | R1, R3, R5 and R6 fixed. R2 contained by requiring `approved-only` and a required source-address check. R4 reduced (ICE-TCP off with a media range). R7 partly fixed (hostname omitted). R8 remains: hardware validation.                        |
-| 2026-09-25 | Windows host remote access controls: local-only start by default, remote start from the sharing indicator, remote access shown on the indicator, Settings card usable while sharing is off, footer Stop sharing removed.                         |
-| 2026-09-25 | First real-router run: an iPhone at a public address streamed through the owner's router, and the source-address check passed. R8 stays open for a packet capture and IPv6.                                                                      |
-| 2026-09-26 | R4 phase 1: every session's media through an authenticating relay on one UDP port (`mediaPort`, default 4384); workers on loopback only; offers stripped of candidates. R4 reduced; not yet validated end to end on Windows.                     |
+| Date       | Work                                                                                                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-23 | Baseline review found F1–F7. Remediation proposals defined SecRACs and deployment profiles. The owner selected interim hardening for F1, F2, F4, F5 and F7.                                                                                                   |
+| 2026-09-24 | Hardening on `main`: metered admission, purpose-neutral short-lived codes, revocation and one-session limit, diagnostics isolation, LAN-only HTTP and fail-closed TLS (F1–F5, F7). A re-review found F8 and the public-`Host` compatibility gap.              |
+| 2026-09-25 | Public login name and viewer assets only after admission (`main`, `90a37e4`). Remote access mode, the F8 fix, public names and port, media port range and public-address answers (`claude/remote-access-on-main`). Re-review found R1–R8.                     |
+| 2026-09-25 | R1, R3, R5 and R6 fixed. R2 contained by requiring `approved-only` and a required source-address check. R4 reduced (ICE-TCP off with a media range). R7 partly fixed (hostname omitted). R8 remains: hardware validation.                                     |
+| 2026-09-25 | Windows host remote access controls: local-only start by default, remote start from the sharing indicator, remote access shown on the indicator, Settings card usable while sharing is off, footer Stop sharing removed.                                      |
+| 2026-09-25 | First real-router run: an iPhone at a public address streamed through the owner's router, and the source-address check passed. R8 stays open for a packet capture and IPv6.                                                                                   |
+| 2026-09-26 | R4 phase 1: every session's media through an authenticating relay on one UDP port (`mediaPort`, default 4384); workers on loopback only; offers stripped of candidates. R4 reduced; not yet validated end to end on Windows.                                  |
+| 2026-09-26 | R4 phase 2: WebRTC in a sandboxed network process per source (restricted token, low integrity, job, desktop, code guard), input through the worker's broker, answer ports attested, the relay at low integrity. R4 mitigated; the firewall rules (F1) remain. |
 
 The superseded documents were consolidated here on 2026-09-25. Their last versions can be
 read with `git show 0215e44:docs/security/<file>`:

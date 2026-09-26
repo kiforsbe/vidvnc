@@ -61,7 +61,7 @@ may include breaking changes.
   still checks every message against the control you granted.
 - On Windows the media relay now runs at low integrity, in its own job and desktop, so the one
   process that handles unauthenticated network traffic cannot change your files or send input
-  to your desktop.
+  to your desktop. Together with the relay, this mitigates finding R4.
 
 ### Known limitations
 
