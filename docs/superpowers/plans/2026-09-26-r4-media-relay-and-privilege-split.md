@@ -250,6 +250,12 @@ run); ICE checks do not cross the new pipes, so this is likely noise, to be watc
 checked: the host app with a real browser and an iPhone, input through the broker, and the
 `NET ready` line in `native-worker.log`.
 
+Open issue, reported by the owner 2026-09-26: desktop audio sounds crackly since the split
+(video and input are fine). Not yet investigated. Suspects: audio buffers re-timestamped on
+arrival in media-net (`do-timestamp`) instead of keeping opusenc's timing, the appsink and
+frame-pipe path adding jitter at 50 packets per second, or media-net's main loop and pipe
+threads competing at low priority.
+
 - [x] **2.1 Sandbox launcher** for media-net (`--network`) with tier T1, job, desktop and
       mitigations (`sandbox.hpp`, detached); Arbitrary Code Guard after `RevertToSelf`. The
       relay's `--sandbox` launcher is 2.6.
