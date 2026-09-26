@@ -292,7 +292,11 @@ answered through media-net by both workers, every UDP socket on 127.0.0.1, 0 pac
 time inside the relay p95 0.039 ms. The mean ICE round trip was 20.67 ms over 15 checks, with
 receive jitter p99 15 ms (1.37 ms in phase 0, about 3 ms in the two runs before): with so
 few checks one slow check at startup can explain it, but it is to be measured over a longer
-run (`--seconds 60`).
+run (`--seconds 60`). Measured, `--seconds 60`: mean ICE round trip 6.58 ms over 53 checks,
+receive jitter p50 0, p95 0, p99 1 ms (472 samples), 81,108 packets received and 0 lost,
+time inside the relay p95 0.040 ms, and every ping answered for the whole minute (62 and
+60). The round trip is about 5 ms above phase 0 because the checks are now answered in the
+sandboxed media-net; jitter and loss are unchanged, so it is within the latency budget.
 
 - [x] **2.6 Relay at low integrity** through `media-worker.exe --sandbox -- <node> <script>`
       (`run_sandboxed`: low integrity with the user SID kept, job, desktop, mitigations, the
