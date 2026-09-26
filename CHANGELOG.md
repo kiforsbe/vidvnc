@@ -10,8 +10,8 @@ may include breaking changes.
 ### Fixed
 
 - Touch control in the browser viewer: dragging a finger now only moves the pointer instead of
-  clicking when the finger lifts. A quick tap clicks, and touching and holding still before
-  dragging presses the button so windows and selections can still be dragged.
+  clicking when the finger lifts. A quick tap clicks. To drag and drop, tap and then touch again
+  and drag, or touch and hold still briefly before dragging.
 
 ## [0.9.0] - 2026-09-25
 

@@ -781,11 +781,20 @@ export function createViewer({ onExit }) {
       send({ type: 'move', ...point });
     }
   };
-  // Touch: dragging only moves the cursor, a quick tap clicks, and holding
-  // still before dragging presses the button so windows can still be dragged.
+  // Touch: dragging only moves the cursor and a quick tap clicks. To drag and
+  // drop, either tap then touch again and drag (like a touchpad), or hold still
+  // briefly before dragging; both keep the button pressed until the finger lifts.
   const TAP_SLOP = 10;
   const HOLD_MS = 450;
+  const TAP_DRAG_MS = 350;
+  const TAP_DRAG_SLOP = 40;
   let touch = null;
+  let lastTap = null;
+  function pressTouch(state) {
+    state.pressed = true;
+    send({ type: 'button', button: 0, down: true });
+    navigator.vibrate?.(15);
+  }
   function endTouch() {
     if (touch) clearTimeout(touch.hold);
     touch = null;
@@ -805,12 +814,17 @@ export function createViewer({ onExit }) {
     if (event.pointerType === 'touch') {
       if (touch) return;
       const state = { id: event.pointerId, x: event.clientX, y: event.clientY, pressed: false };
-      state.hold = setTimeout(() => {
-        if (touch !== state || state.moved || !enabled) return;
-        state.pressed = true;
-        send({ type: 'button', button: 0, down: true });
-      }, HOLD_MS);
       touch = state;
+      const tapDrag =
+        lastTap &&
+        performance.now() - lastTap.time < TAP_DRAG_MS &&
+        Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < TAP_DRAG_SLOP;
+      lastTap = null;
+      if (tapDrag) pressTouch(state);
+      else
+        state.hold = setTimeout(() => {
+          if (touch === state && !state.moved && enabled) pressTouch(state);
+        }, HOLD_MS);
       return;
     }
     send({ type: 'button', button: event.button, down: true });
@@ -832,6 +846,7 @@ export function createViewer({ onExit }) {
       else if (!moved) {
         send({ type: 'button', button: 0, down: true });
         send({ type: 'button', button: 0, down: false });
+        lastTap = { time: performance.now(), x: event.clientX, y: event.clientY };
       }
       return;
     }

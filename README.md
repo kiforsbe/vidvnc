@@ -87,6 +87,9 @@ first, and check its fingerprint against the one the host shows.
 - **Keyboard and mouse:** turning them on fills the screen with the desktop while keeping
   touches on it; releasing them returns to the normal view. Turn the phone for landscape.
   Tap near the top edge to show the toolbar.
+- **Touch as a mouse:** drag a finger to move the pointer and tap to click. To drag and drop,
+  tap and then immediately touch again and drag, or touch and hold still for about half a
+  second before dragging; the item is released when the finger lifts.
 
 ### VidVNC Server (command line)
 
