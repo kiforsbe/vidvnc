@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 
 export function isStale(inputs, output, skip = []) {
@@ -53,6 +53,15 @@ export function hostProject(root) {
 
 export function buildWorker(root, configuration) {
   run(root, process.env.ComSpec || 'cmd.exe', ['/d', '/c', `.\\build-native.cmd ${configuration}`]);
+  // The staleness check compares the worker with every file under native/, but MSBuild relinks
+  // it only when one of its own inputs changed: a header only another target uses (the
+  // sandbox probe's sandbox.hpp, say) would leave it "stale" forever. A successful build means
+  // the worker is current, so record that.
+  const worker = workerPath(root, configuration);
+  if (existsSync(worker)) {
+    const now = new Date();
+    utimesSync(worker, now, now);
+  }
 }
 
 export function buildHost(root, configuration) {
