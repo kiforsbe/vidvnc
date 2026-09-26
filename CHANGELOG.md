@@ -5,6 +5,53 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- `media-port [auto|<port>]` in the command line: the one UDP port every viewer's video, audio
+  and input use (default 4384). Forward that single port on the router for remote access.
+- `media-relay` in the command line: the media relay's port, how many streams are registered
+  and how many media paths are authenticated, and how many datagrams it dropped, by reason.
+- Sessions, in the VidVNC app and in `sessions` on the command line, show where each stream's
+  media comes from once the device has authenticated, and mark it when that differs from the
+  address the device signed in from. A different address is allowed: iCloud Private Relay and
+  carrier-grade NAT both cause it.
+
+### Changed
+
+- All media, on the local network and from the internet, now goes through VidVNC's media relay
+  on one UDP port (4384 by default) instead of ports the media worker opened for each viewer.
+  The relay answers only devices that prove they belong to a stream they were just given, and
+  the media worker itself listens on `127.0.0.1` only. Changing the media port restarts the
+  relay and stops live streams; viewers reconnect.
+- Settings → Remote access in the VidVNC app has one **Media port (UDP)** field instead of a
+  port range. An existing range becomes its first port, so a router that forwards the range
+  keeps working; the rest of the forwarded range is no longer used and can be removed.
+- If the media port is taken by another program, devices can still sign in, but streams are
+  refused with the reason, and the VidVNC app shows it on Overview and Settings.
+
+### Deprecated
+
+- `media-ports` in the command line. It still works for now and sets the media port to the
+  first port of the range; use `media-port`.
+
+### Security
+
+- Nothing on the local network or the internet can reach the media worker's network code
+  without first proving the stream's ICE password to the relay: the relay checks each STUN
+  request's message integrity before anything is forwarded, never replies to anyone else, and
+  limits unauthenticated traffic before parsing it. This reduces finding R4 (native parsing
+  reachable before authentication).
+
+### Known limitations
+
+- The settings file format changed: `access-settings.json` now holds `mediaPort` instead of
+  `mediaPorts`. To go back to an earlier version, remove `mediaPort` from that file first.
+- Not yet validated end to end on Windows with real browsers, Firefox, Safari or an iPhone.
+- Firewall rules for the media port are not yet managed by VidVNC: Windows asks once for Node.js
+  when the relay first listens.
+
 ## [0.9.1] - 2026-09-26
 
 ### Fixed

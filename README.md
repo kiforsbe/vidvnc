@@ -113,8 +113,11 @@ To change settings while the server is stopped, run
 Both packages keep settings and logs in `%LOCALAPPDATA%\VidVNC`, so upgrading or
 uninstalling keeps them. To remove the command-line server, stop it and delete its folder.
 Use VidVNC on a trusted local network. Don't forward its ports unless you have set up
-[remote access](docs/security/remote-access.md), which forwards only HTTPS and a fixed media
-port range, for approved devices only; a self-hosted VPN is still the safer way in. The HTTP
+[remote access](docs/security/remote-access.md), which forwards only HTTPS and the one media
+port, for approved devices only; a self-hosted VPN is still the safer way in. All media, on
+the LAN too, reaches the PC through VidVNC's media relay on that UDP port (4384 by default),
+which forwards only devices that have authenticated to the media worker, itself bound to
+`127.0.0.1`. The HTTP
 listener binds only loopback and eligible Private-LAN addresses. With the default TLS
 mode, the viewer is unavailable until HTTPS starts; an invalid TLS configuration or
 listener failure does not fall back to HTTP login or streaming. Only a valid, explicit
@@ -170,9 +173,11 @@ server print above the prompt. Type `help` for the full list:
 - Public login label: `public-name [name]`
 - Remote access (off by default; see [remote access](docs/security/remote-access.md)):
   `public-hosts [clear|<name-or-ip>...]`, `public-port [same|<port>]`,
-  `media-ports [auto|<first>-<last>]`, `remote-access [on|off]`
+  `media-port [auto|<port>]` (UDP, default 4384; `media-ports` is a deprecated alias that
+  takes the first port of a range), `remote-access [on|off]`
 - Devices: `sessions`, `grant <session>`, `revoke [session]`, `stop <stream-id>`,
-  `disconnect <session>`
+  `disconnect <session>`, `media-relay` (the relay's port, authenticated media paths and
+  dropped datagrams)
 - `info` shows connection addresses, the password, and the data and log folders.
 - `exit` or `quit` stops sharing, asking first if devices are connected. Ctrl+C
   stops at once.

@@ -1,18 +1,21 @@
-// Explicit Windows acceptance check for the remote-access media port range (security
-// analysis finding R8). System loopback audio only; no desktop capture or input.
+// Explicit Windows acceptance check for the worker's own ICE port range (VIDVNC_ICE_PORTS),
+// which the server used before the media relay (security analysis finding R8) and no longer
+// sets. Kept until the worker's range support is removed. System loopback audio only; no
+// desktop capture or input.
 //
 // Usage: node media-ports-check.mjs <playwright>
 //   <playwright>  path to a `playwright` package install matching the local
 //                 chromium_headless_shell revision.
 //
-// Checks that with `media-ports` set, the worker:
+// Checks that with VIDVNC_ICE_PORTS set, the worker:
 //   - offers only UDP host candidates, all inside the range (ICE-TCP is off);
 //   - still connects a real browser peer;
 //   - holds no UDP socket outside the range and no listening TCP socket, per `netstat`.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { NativeMedia } from '../../../apps/server/src/native-media.mjs';
+import { executable, workerEnvironment } from '../runtime.mjs';
 import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
 
 // Test against current packages and a worker built from the current sources.
@@ -22,7 +25,15 @@ ensureNativeWorker();
 const RANGE = { min: 41000, max: 41049 };
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
 const browser = await chromium.launch({ headless: true });
-const media = new NativeMedia({ hostControl: true, mediaPorts: () => RANGE });
+const media = new NativeMedia({
+  hostControl: true,
+  launch: () =>
+    spawn(executable, ['--session'], {
+      env: { ...workerEnvironment(), VIDVNC_ICE_PORTS: `${RANGE.min}-${RANGE.max}` },
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }),
+});
 
 // Local ports the process owns, from `netstat -ano -p <protocol>`, e.g.
 // "  UDP    0.0.0.0:41000    *:*    1234" or "  TCP  [::]:41001  [::]:0  LISTENING  1234".

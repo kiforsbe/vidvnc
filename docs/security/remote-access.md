@@ -1,8 +1,8 @@
 # Remote access: setting up VidVNC for devices on the internet
 
 VidVNC can serve devices outside your local network without a third-party relay or VPN
-service. The router forwards two things to the PC: the HTTPS port and a fixed range of
-media ports. Remote access is **off by default**. While it is off, VidVNC refuses every
+service. The router forwards two things to the PC: the HTTPS port (TCP) and the one media
+port (UDP, 4384 by default). Remote access is **off by default**. While it is off, VidVNC refuses every
 client with an internet source address.
 
 This is new and only **partly validated**: it passes on hardware and has streamed to an
@@ -49,10 +49,13 @@ For an internet client:
   `available`.
 - **It learns less.** `/api/info` returns only the public name.
 - **HSTS is sent** on the public names.
-- **Media carries the router's public address.** The client's SDP answer names that
-  address on the forwarded ports, with private LAN addresses removed. The client's offer
-  keeps only candidates on public addresses, so it can't aim the PC's connection checks
-  at machines on your LAN.
+- **Media goes to the router's public address on the media port.** Every device's media,
+  LAN and internet alike, goes through VidVNC's media relay on that one port
+  ([media-relay.mjs](../../apps/server/src/media-relay.mjs)); the media worker itself listens
+  on `127.0.0.1` only. An internet client's SDP answer names the public IPv4 addresses of the
+  public names (and this PC's global IPv6 addresses) on the media port. The server removes
+  every candidate from the client's offer, so the PC sends no connection checks of its own to
+  anyone.
 - **Switching remote access off** disconnects every internet session at once, with its
   streams and control.
 
@@ -77,17 +80,18 @@ For an internet client:
      LAN and VPN devices use. A `provided` certificate avoids that.
    - An `auto` certificate that doesn't name the public hosts yet is **reissued**, so every
      device must install the new certificate on the LAN again (step 6).
-4. **Pick a media port range and forward it.** For example:
+4. **Forward the media port.** It is UDP `4384` unless you change it:
    ```
-   media-ports 40000-40049
+   media-port 4384
    ```
-   - Choose 8 to 1000 ports; 50 is plenty for eight devices.
-   - On the router, forward that range for **UDP** to this PC with the **same port
-     numbers** outside and inside. VidVNC announces the public address with the same port
-     numbers it uses locally, so a remapped port won't work.
-   - With a range set, the worker offers UDP only (no ICE-TCP), so don't forward the range
-     for TCP.
-   - New streams use the range; streams already running keep their ports.
+   - On the router, forward that port for **UDP** to this PC with the **same port number**
+     outside and inside. VidVNC announces the public address with the port it uses locally,
+     so a remapped port won't work. Don't forward it for TCP.
+   - If you forwarded a range for an earlier version, VidVNC now uses the range's first port
+     (`media-ports` still sets it, and says it is deprecated); remove the rest of the range
+     from the router.
+   - Changing the port restarts the media relay and stops streams that are running; devices
+     reconnect.
 5. **Forward the HTTPS port.** Forward the TLS port (default `4383`, TCP) to this PC. If
    the router uses a different public port, usually 443 → 4383, tell VidVNC:
    ```
@@ -119,7 +123,7 @@ For an internet client:
      LAN, rather than in Safari.
 7. **Turn it on.**
    - **In the Windows host app:**
-     - Steps 3–5 (public names, media ports and public port) are under
+     - Steps 3–5 (public names, media port and public port) are under
        **Settings → Remote access**. You can fill them in and save while sharing is off;
        saving never turns remote access on. Step 2 happens for you: turning remote access
        on also switches to approved-devices-only.
@@ -145,8 +149,9 @@ For an internet client:
 Don't put a reverse proxy, `netsh portproxy`, or WSL/Hyper-V port forwarding in front of
 VidVNC.
 
-**Windows Firewall** must allow the media worker to receive on the media range. If
-Windows asks when the first stream starts, allow it on the network profile your LAN uses.
+**Windows Firewall** must allow the media relay to receive on the media port. The relay runs
+in VidVNC's Node.js, so when sharing first starts Windows may ask about Node.js: allow it on
+the network profile your LAN uses. The media worker no longer needs a firewall exception.
 
 ## Check the source address
 
@@ -175,9 +180,11 @@ The [security analysis](internet-exposure.md) lists what is still open. In short
 - **Denial of service.** An internet flood can still use up the internet sign-in budget,
   which blocks remote devices for as long as it lasts, but it can't lock out the LAN. Large
   distributed floods need filtering upstream.
-- **The media ports face the internet while a stream is live.** Anyone can send packets
-  to them. They are only processed as ICE connectivity checks until the client proves it
-  holds the credentials from the signed-in session.
+- **The media port faces the internet while sharing.** Anyone can send packets to it. The
+  relay, written in JavaScript, checks each one and forwards nothing until the sender proves
+  it holds the ICE password of a stream just given to a signed-in device; it never replies to
+  anyone else. After that, DTLS and media packets from that exact address and port reach the
+  media worker's native code, which is not yet sandboxed.
 - **CGNAT.** If your ISP gives the router no public IPv4 address, port forwarding can't
   work. Use IPv6 if the ISP offers it. Otherwise, a small VPS you control (running
   WireGuard, or your own TURN server) is the cheapest option you still run yourself.
@@ -188,24 +195,28 @@ The [security analysis](internet-exposure.md) lists what is still open. In short
   refused routes, HSTS, public names and port, answer rewriting and offer filtering,
   budgets, the connection cap, the control default, and the session cleanup when remote
   access is switched off.
-- The native change passes on Windows hardware. It applies the port range and turns
-  ICE-TCP off for each WebRTC peer through GStreamer's ICE agent properties, and a
-  malformed range stops the worker.
-- An iPhone at a public address signed in and streamed through a real router, and the
-  host showed its public address.
-- **Not yet:** a packet capture, an IPv6 run, or a client behind carrier NAT.
+- The media relay is covered by the portable suite: STUN parsing and message-integrity
+  checks against the RFC 5769 vectors, pinning, budgets, expiry, and the process protocol.
+  Headless Chromium connected through a prototype of the relay on Windows at 1080p60 (gates
+  P1 and P2 in the [implementation plan](../superpowers/plans/2026-09-26-r4-media-relay-and-privilege-split.md)).
+- An iPhone at a public address signed in and streamed through a real router with the
+  earlier port range, and the host showed its public address.
+- **Not yet:** the relay built into VidVNC, end to end on Windows with real browsers and an
+  iPhone, including iCloud Private Relay; a packet capture; an IPv6 run; a client behind
+  carrier NAT.
 
 To check your own setup:
 
-1. Run `npm run test:hardware` on Windows (it rebuilds the worker first if it is out of date). It checks that the worker accepts a
-   valid range and refuses to start with a malformed one.
-2. Run the acceptance check, which connects headless Chromium through the worker with a
-   range set. It asserts that every candidate is UDP inside the range, and uses `netstat`
-   to confirm that every worker UDP socket is in the range and no TCP port is listening:
+1. Run `npm run test:hardware` on Windows (it rebuilds the worker first if it is out of
+   date).
+2. Run the relay acceptance check, which connects headless Chromium through the relay
+   core and a loopback-only worker, and uses `netstat` to confirm the worker has no socket
+   outside `127.0.0.1`:
    ```
-   node native/media-worker/tests/media-ports-check.mjs <path to playwright>
+   node native/media-worker/tests/relay-check.mjs <path to playwright>
    ```
-3. Connect from a phone on mobile data, which also covers the source-address check.
+3. Connect from a phone on mobile data, which also covers the source-address check. Type
+   `media-relay` in the CLI to see the authenticated media paths and dropped datagrams.
 
 ## The alternative: a VPN
 

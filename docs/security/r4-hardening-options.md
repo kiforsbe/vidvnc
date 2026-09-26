@@ -4,8 +4,9 @@
 were selected on 2026-09-26; their design is
 [R4: authenticating media relay, firewall rules and privilege split](../superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md).
 The design review then decided to route **every** session through the relay, LAN included,
-rather than remote access first as recommended below (decision point 3). Nothing here is
-implemented yet. This document collects the analysis that led to that choice for finding
+rather than remote access first as recommended below (decision point 3). Option **A** is
+implemented (phase 1 of that design, not yet validated end to end on Windows); **F1** and
+**B** are not yet. This document collects the analysis that led to that choice for finding
 [R4](internet-exposure.md#r4-native-parsing-is-reachable-before-authentication-on-the-media-ports-open-reduced)
 (native parsing reachable before authentication on the media ports).
 

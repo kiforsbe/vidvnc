@@ -11,7 +11,7 @@ are reusable inputs to those products, not one duplicated source tree per instal
 
 ## System overview
 
-Three processes, each in the language that suits its job. The split is deliberate:
+Four kinds of process, each in the language that suits its job. The split is deliberate:
 Windows capture and GStreamer need C++, session and authentication logic is far easier
 to write and test in JavaScript, and the desktop UI belongs in WinUI.
 
@@ -24,32 +24,39 @@ flowchart LR
     subgraph machine["Windows host machine"]
         host["WinUI 3 host<br/>apps/windows-host"]
         server["Node server<br/>apps/server"]
-        worker["media-worker (C++)<br/>native/media-worker"]
+        relay["media relay (Node)<br/>apps/server/src/media-relay"]
+        worker["media-worker (C++)<br/>native/media-worker<br/>ICE on 127.0.0.1 only"]
         gst["GStreamer 1.28"]
         win["DXGI · WASAPI · SendInput"]
     end
 
     browser <-->|"HTTPS by default: auth, SDP offer/answer,<br/>telemetry; deliberate LAN HTTP off mode"| server
-    browser <-.->|"WebRTC: RTP video + audio,<br/>data channel for input"| worker
+    browser <-.->|"WebRTC to the media port (UDP 4384):<br/>RTP video + audio, data channel for input"| relay
+    relay <-.->|"loopback UDP,<br/>authenticated paths only"| worker
     host -->|"spawns in a job object;<br/>JSON lines on stdin/stdout"| server
+    server -->|"one child;<br/>JSON lines on stdin/stdout"| relay
     server -->|"one child per source;<br/>JSON lines on stdin/stdout"| worker
     worker --> gst --> win
 ```
 
 The browser talks to the Node server for everything except media, and to the worker for
-media only. The server never carries pixels; the worker never authenticates anyone.
+media only, through the media relay. The server never carries pixels; the worker never
+authenticates anyone; the relay forwards only senders that proved a stream's ICE password
+(see [Media relay](#media-relay)).
 
 Signaling is HTTP request/response over HTTPS by default, not WebSocket. The browser POSTs an offer and
 receives the answer in the same response, after ICE gathering completes. There is no
-STUN or TURN server and no trickle ICE: on the LAN, host-local candidates are all there
-are. With remote access on, an internet client's answer instead names the router's public
-address on a fixed, forwarded media port range, and its offer keeps only public-address
-candidates ([sdp-candidates.mjs](../apps/server/src/sdp-candidates.mjs)). A relay or
-rendezvous hub is future work.
+STUN or TURN server and no trickle ICE. The server removes every candidate from the offer,
+and the answer names one address per family on the media port: the address the client
+reached over HTTPS, or for an internet client the router's public address
+([sdp-candidates.mjs](../apps/server/src/sdp-candidates.mjs),
+[relay-addresses.mjs](../apps/server/src/relay-addresses.mjs)). A third-party relay or
+rendezvous hub is not used.
 
 ## Process lifetime and ownership
 
-The WinUI host owns the server, and the server owns its workers. Both links fail closed.
+The WinUI host owns the server, and the server owns its workers and the media relay. Every
+link fails closed.
 
 - The host creates a Win32 job object with `KILL_ON_JOB_CLOSE` and assigns the Node
   process to it, so the server cannot outlive the host even if the host is killed. The
@@ -70,6 +77,7 @@ sequenceDiagram
     participant Host as WinUI host
     participant Job as Win32 job object
     participant Server as Node server
+    participant Relay as media relay (Node)
     participant Worker as media-worker (C++)
 
     Host->>Job: create (KILL_ON_JOB_CLOSE)
@@ -79,6 +87,8 @@ sequenceDiagram
     Note over Server: waitForOwner: exact line or abort
     Server->>Worker: probe (short-lived child)
     Worker-->>Server: codecs, backends
+    Server->>Relay: spawn, then {"type":"start","port":4384}
+    Relay-->>Server: ready (or failed, and media is unavailable)
     Server->>Server: bind loopback and Private-LAN HTTP listeners
     Server-->>Host: stdout ready {urls, tls, password, displays, policy, ...}
     Note over Server: TLS provisioning starts on the next turn
@@ -88,6 +98,7 @@ sequenceDiagram
     end
     Host--xJob: host exits or is killed
     Job--xServer: job closes, server is terminated
+    Note over Relay: stdin closes, the relay exits
 ```
 
 ## Sessions, streams and sources
@@ -265,6 +276,98 @@ that viewer. Audio follows the session profile rather than being chosen separate
 Rate control is expressed as intent — mode, target and peak bitrate, GOP length, and
 quality floors as _fractions_ of the element's QP range — and only turned into concrete
 property strings at pipeline build time. See the next section for why.
+
+### Media relay
+
+Every viewer's media, LAN and internet alike, reaches the workers through one process: the
+media relay ([media-relay/](../apps/server/src/media-relay/), supervised by
+[media-relay.mjs](../apps/server/src/media-relay.mjs)). It owns the one public media port
+(`mediaPort`, UDP, default 4384, bound on `::` dual-stack or `0.0.0.0`). Workers gather on
+`127.0.0.1` only (`VIDVNC_ICE_BIND=loopback`: the worker adds 127.0.0.1 to each peer's ICE
+agent with `add-local-ip-address` and turns ICE-TCP off). The relay is JavaScript, so the
+code that handles unauthenticated datagrams is memory-safe; it runs in its own process so
+media forwarding never shares an event loop with TLS and signaling. Its design, including
+the second phase (a sandboxed network process), is in the
+[R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md).
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as Node server
+    participant W as Worker (webrtcbin)
+    participant R as media relay
+
+    B->>S: POST /api/stream-offer or /api/audio-offer {sdp}
+    S->>S: read the client ufrag and pwd, strip every a=candidate
+    S->>W: add-peer {peerId, sdp}
+    W-->>S: answer with one candidate 127.0.0.1:p
+    S->>S: validate the answer (allow-list, one loopback UDP host candidate)
+    S->>R: allow {streamId, ufrag, pwd, clientUfrag, clientPwd, workerPort p, clientHint}
+    R-->>S: allowed
+    S-->>B: answer naming the relay address on the media port
+    B->>R: STUN Binding request, MESSAGE-INTEGRITY keyed with pwd
+    R->>R: verify HMAC, pin the 5-tuple, open loopback socket l
+    R->>W: forward from 127.0.0.1:l
+    W-->>R: Binding response and triggered check
+    R-->>B: forward to the pinned tuple
+    B->>R: DTLS, SRTP and SCTP on the pinned tuple
+    R->>W: forward (STUN re-verified, other bytes by RFC 7983 class)
+    S->>R: revoke {streamId} when the stream ends
+```
+
+- **Offer.** The server keeps the client's ICE credentials and removes every candidate, so
+  the worker sends connectivity checks to nobody and learns the client only as a
+  peer-reflexive candidate from checks the relay has authenticated
+  ([stream-runtime.mjs](../apps/server/src/stream-runtime.mjs)).
+- **Answer.** At most 64 KiB, only allow-listed SDP lines, and exactly one candidate: UDP,
+  component 1, `127.0.0.1`, `typ host`
+  ([sdp-candidates.mjs](../apps/server/src/sdp-candidates.mjs) `validateRelayAnswer`).
+  Anything else fails the peer. The server registers the stream and waits for `allowed`
+  before it answers, so the client's first check is never dropped. The candidate is then
+  replaced by the relay's addresses for this client
+  ([relay-addresses.mjs](../apps/server/src/relay-addresses.mjs)): the address it reached
+  over HTTPS (an IPv6 link-local one becomes its interface's other addresses, because SDP
+  cannot carry a zone), or for an internet client the public IPv4 addresses of the public
+  names and this PC's global IPv6 addresses.
+- **Unauthenticated datagrams** are budgeted before parsing, in two lanes: 200 per second
+  per stream for the address the client signed in from (IPv6 by /64), 50 per second per
+  other source and 5,000 per second in total. Then only a well-formed STUN Binding request
+  whose `USERNAME` names a registered stream and whose MESSAGE-INTEGRITY verifies with that
+  stream's password is accepted ([stun.mjs](../apps/server/src/media-relay/stun.mjs),
+  [relay.mjs](../apps/server/src/media-relay/relay.mjs)). The relay never replies to an
+  unauthenticated sender. The HTTPS address is a hint, never a gate: iCloud Private Relay
+  and carrier-grade NAT legitimately send media from another address, which is counted and
+  shown in Sessions.
+- **Authenticated paths.** A pinned 5-tuple gets its own loopback socket towards the
+  worker. STUN on it must verify in either direction (requests with the stream's password,
+  responses with the client's); DTLS (first byte 20–63) and RTP/RTCP (128–191) pass
+  unchanged; anything else is dropped, as is a valid request for another stream. A path ends
+  after 30 seconds without traffic.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Registered: allow (expires in 15 s)
+    Registered --> Pinned: first authenticated check
+    Registered --> [*]: expired (the stream fails) or revoked
+    Pinned --> Pinned: more paths, at most 4
+    Pinned --> Registered: every path idle for 30 s
+    Pinned --> [*]: revoked (stream ended, session ended, worker exit, relay exit)
+```
+
+**Protocol.** JSON lines over the relay's stdin and stdout. The server sends `start`,
+`allow`, `revoke` and `stop`; the relay answers `ready` or `failed`, `allowed` or `refused`
+(a limit or a duplicate), and reports `pinned`, `unpinned`, `expired`, `address-differs`
+and `metrics` (every 2 seconds). An invalid command ends the relay, and so does the end of
+its input, so it never outlives the server. Limits: 64 registrations, 4 sharing one ufrag,
+4 paths each.
+
+**Supervision.** The server starts the relay before it reports `ready`. If the port cannot
+be bound, sign-in still works, offers are refused with the reason (for example "UDP 4384 is
+in use"), and the host shows it. If the relay exits, every stream stops and the relay is
+restarted, at most three times a minute. Changing `mediaPort` restarts it and stops live
+streams. Sessions show each stream's authenticated media address; `media-relay` in the
+CLI shows the counters, and the server log records paths and a once-a-minute summary of
+unauthenticated drops, never packet contents or credentials.
 
 ## Hardware encoder selection
 
@@ -602,7 +705,7 @@ Related documents, and what each one owns:
 | This section                                             | The security design: zones, flows, controls, threat model                   |
 | [Security analysis](security/internet-exposure.md)       | Findings register (F1–F8, R1–R8), their status, and the verification record |
 | [Remote access guide](security/remote-access.md)         | The operator's steps and required checks for internet exposure              |
-| [R4 hardening options](security/r4-hardening-options.md) | Design options under consideration for finding R4 (not yet decided)         |
+| [R4 hardening options](security/r4-hardening-options.md) | Design options compared for finding R4; A, F1 and B were selected           |
 | [SECURITY.md](../SECURITY.md)                            | Support position and private vulnerability reporting                        |
 
 ### Security objectives
@@ -667,7 +770,7 @@ not met.
 - **A1** The host PC, its Windows account and the VidVNC binaries are not compromised.
 - **A2** The LAN is the owner's own network. Plain HTTP (`tls.mode: off`) is only used where
   everyone on path is trusted.
-- **A3** With remote access on, only the HTTPS port and the media UDP range are forwarded,
+- **A3** With remote access on, only the HTTPS port and the media UDP port are forwarded,
   and nothing between the router and the PC rewrites the client's source address.
 - **A4** Codes and trust-anchor fingerprints reach the viewer over a channel the owner
   trusts (reading the host screen counts), and the owner checks each pending approval.
@@ -691,56 +794,59 @@ flowchart LR
         subgraph Z3a["Z3a Network-facing, validates everything"]
             https["HTTPS listener :4383"]
             http["HTTP listener :4382<br/>loopback + Private LAN only"]
-            ice["Worker ICE/DTLS<br/>media ports"]
+            relay["media relay<br/>UDP media port 4384"]
         end
         subgraph Z3b["Z3b Owner-only"]
             host["WinUI host / CLI"]
             diag["Diagnostics listener<br/>127.0.0.1 only"]
         end
         server["Node server"]
-        worker["media-worker"]
+        worker["media-worker<br/>ICE/DTLS on 127.0.0.1 only"]
         store[("Settings, approved devices,<br/>TLS key (per-user)")]
         os["DXGI, WASAPI, SendInput"]
     end
 
     inet -->|"B1 HTTPS (remote access on only)"| https
-    inet -.->|"B2 UDP ICE, DTLS-SRTP"| ice
+    inet -.->|"B2 UDP ICE, DTLS-SRTP"| relay
     browser -->|"B1 HTTPS signaling"| https
     lanpeer -->|"B3 HTTP: /trust, redirect, or off mode"| http
-    browser -.->|"B2 SRTP media, SCTP input"| ice
+    browser -.->|"B2 SRTP media, SCTP input"| relay
     https --> server
     http --> server
-    ice --> worker
+    relay -->|"B7 loopback UDP, authenticated paths only"| worker
     host -->|"B4 stdin/stdout, owner commands"| server
     server -->|"B5 stdin/stdout, owner pipe"| worker
+    server -->|"B8 stdin/stdout, relay pipe"| relay
     host -->|"B6 bearer, local only"| diag
     diag --> server
     server --> store
     worker --> os
 ```
 
-| Boundary | Crossing                                  | Authentication                                       | Protection in transit                          |
-| -------- | ----------------------------------------- | ---------------------------------------------------- | ---------------------------------------------- |
-| B1       | Client or internet peer to HTTPS listener | Code or approved device, then session bearer         | TLS; HSTS on public names                      |
-| B2       | Client to worker media ports              | ICE credentials and DTLS fingerprint from B1         | DTLS-SRTP (media), DTLS-SCTP (input)           |
-| B3       | LAN peer to HTTP listener                 | As B1 in off mode; none for `/trust`                 | None; local peers only; redirect when TLS live |
-| B4       | Host to server                            | Process ownership (inherited pipe), exact start line | In-process pipe                                |
-| B5       | Server to worker                          | Process ownership (inherited pipe)                   | In-process pipe                                |
-| B6       | Owner browser to diagnostics listener     | 256-bit bearer, 15-minute lifetime                   | Loopback only                                  |
+| Boundary | Crossing                                  | Authentication                                                                                                         | Protection in transit                          |
+| -------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| B1       | Client or internet peer to HTTPS listener | Code or approved device, then session bearer                                                                           | TLS; HSTS on public names                      |
+| B2       | Client to the media relay's port          | STUN MESSAGE-INTEGRITY with the stream's ICE password from B1, checked by the relay; then the DTLS fingerprint from B1 | DTLS-SRTP (media), DTLS-SCTP (input)           |
+| B3       | LAN peer to HTTP listener                 | As B1 in off mode; none for `/trust`                                                                                   | None; local peers only; redirect when TLS live |
+| B4       | Host to server                            | Process ownership (inherited pipe), exact start line                                                                   | In-process pipe                                |
+| B5       | Server to worker                          | Process ownership (inherited pipe)                                                                                     | In-process pipe                                |
+| B6       | Owner browser to diagnostics listener     | 256-bit bearer, 15-minute lifetime                                                                                     | Loopback only                                  |
+| B7       | Relay to worker                           | Only 5-tuples the relay pinned after B2's check; the worker accepts datagrams from the pin's socket                    | Loopback only; DTLS as B2                      |
+| B8       | Server to relay                           | Process ownership (inherited pipe); invalid commands end the relay                                                     | In-process pipe                                |
 
 ### Attack surface
 
-| Entry point                | Protocol and port                     | Reachable by                                     | Pre-authentication exposure                                              |
-| -------------------------- | ------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| Login shell, `/api/info`   | HTTPS `4383` (HTTP in off mode)       | Local, private; internet if remote access on     | Static assets and the owner-chosen public name only                      |
-| `/api/key-start`           | HTTPS                                 | Local and private only                           | Metered code check; standing password from local peers only              |
-| `/api/approved-clients/*`  | HTTPS                                 | Local, private; internet if remote access on     | Ticketed registration, claim polling, sign-in; separate budgets per zone |
-| Session and signaling APIs | HTTPS                                 | Admitted sessions                                | None: bearer bound to the socket address                                 |
-| Viewer assets `/viewer/*`  | HTTPS                                 | Admitted sessions                                | None: session- and peer-bound grant cookie                               |
-| `/trust`, `/api/trust/*`   | HTTP `4382` and HTTPS                 | Local peers only                                 | Public certificate and fingerprint                                       |
-| Media ports                | UDP (TCP too without a media range)   | Anyone who can reach them while a stream is live | libnice STUN parsing before message integrity (finding R4)               |
-| Diagnostics                | HTTP on an ephemeral `127.0.0.1` port | Local processes                                  | None: owner-issued bearer                                                |
-| Owner pipe                 | stdin/stdout                          | The parent process only                          | Exact approval line before anything listens                              |
+| Entry point                | Protocol and port                     | Reachable by                                 | Pre-authentication exposure                                                                                              |
+| -------------------------- | ------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Login shell, `/api/info`   | HTTPS `4383` (HTTP in off mode)       | Local, private; internet if remote access on | Static assets and the owner-chosen public name only                                                                      |
+| `/api/key-start`           | HTTPS                                 | Local and private only                       | Metered code check; standing password from local peers only                                                              |
+| `/api/approved-clients/*`  | HTTPS                                 | Local, private; internet if remote access on | Ticketed registration, claim polling, sign-in; separate budgets per zone                                                 |
+| Session and signaling APIs | HTTPS                                 | Admitted sessions                            | None: bearer bound to the socket address                                                                                 |
+| Viewer assets `/viewer/*`  | HTTPS                                 | Admitted sessions                            | None: session- and peer-bound grant cookie                                                                               |
+| `/trust`, `/api/trust/*`   | HTTP `4382` and HTTPS                 | Local peers only                             | Public certificate and fingerprint                                                                                       |
+| Media port                 | UDP `4384` (`mediaPort`), the relay   | Anyone who can reach it while sharing        | The relay's bounded STUN parser in JavaScript, budgeted before parsing; no reply to unauthenticated senders (finding R4) |
+| Diagnostics                | HTTP on an ephemeral `127.0.0.1` port | Local processes                              | None: owner-issued bearer                                                                                                |
+| Owner pipe                 | stdin/stdout                          | The parent process only                      | Exact approval line before anything listens                                                                              |
 
 There is no owner-management route on any HTTP listener. Everything that changes policy,
 access, devices or control arrives over B4.
@@ -940,14 +1046,19 @@ server; the receiving page strips it and refuses to replace a different stored s
 
 ### Process isolation and least privilege
 
-- All three processes run as the interactive desktop user, without elevation. The
+- Every process runs as the interactive desktop user, without elevation. The
   self-signed certificate is created in `Cert:\CurrentUser` for the same reason.
 - The host places the server in a Win32 job object with `KILL_ON_JOB_CLOSE`; the server owns
-  one worker process per source. No process outlives its parent.
+  the media relay and one worker process per source. No process outlives its parent: the
+  job covers the server's children, and the relay and workers also exit when their input
+  pipe closes.
 - The worker never authenticates anyone and trusts only its owner pipe; the server never
-  handles pixels. A defect in media parsing is therefore contained to one source, but the
-  worker is **not sandboxed** and holds input injection, which is why its pre-authentication
-  exposure is tracked as a residual risk (R4).
+  handles pixels. The worker listens on `127.0.0.1` only, and the media relay forwards to it
+  only senders that proved a stream's ICE password ([Media relay](#media-relay)). The worker
+  is still **not sandboxed** and holds input injection, so forged DTLS or RTP from an
+  authenticated address remains a residual risk (R4); phase 2 of the
+  [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md)
+  moves WebRTC into a sandboxed process.
 - Diagnostics run on a separate listener bound to `127.0.0.1`, not routed by the main
   handler at all.
 
@@ -965,16 +1076,16 @@ server; the receiving page strips it and refuses to replace a different stored s
 
 ### Secure defaults
 
-| Setting          | Default                                | Effect                                                                  |
-| ---------------- | -------------------------------------- | ----------------------------------------------------------------------- |
-| Server listening | Only after the owner's approval line   | A server started by anything else never listens                         |
-| TLS              | `auto` (HTTPS, fail closed)            | No plaintext admission unless the owner picks `off`                     |
-| HTTP bind        | Loopback and eligible Private-LAN only | Never a wildcard or public address                                      |
-| Remote access    | Off; each host start is local-only     | Internet peers get `403` everywhere                                     |
-| Remote access on | Forces `approved-only`                 | Standing password and one-time codes stop working for everyone          |
-| Control          | Keyboard and mouse start off           | Nobody can inject input until the owner grants it                       |
-| Codes            | Issued on request, single use, 300 s   | No standing code sits waiting                                           |
-| Media ports      | Ephemeral, LAN only                    | A fixed UDP range, with ICE-TCP off, only when the owner configures one |
+| Setting          | Default                                | Effect                                                                                 |
+| ---------------- | -------------------------------------- | -------------------------------------------------------------------------------------- |
+| Server listening | Only after the owner's approval line   | A server started by anything else never listens                                        |
+| TLS              | `auto` (HTTPS, fail closed)            | No plaintext admission unless the owner picks `off`                                    |
+| HTTP bind        | Loopback and eligible Private-LAN only | Never a wildcard or public address                                                     |
+| Remote access    | Off; each host start is local-only     | Internet peers get `403` everywhere                                                    |
+| Remote access on | Forces `approved-only`                 | Standing password and one-time codes stop working for everyone                         |
+| Control          | Keyboard and mouse start off           | Nobody can inject input until the owner grants it                                      |
+| Codes            | Issued on request, single use, 300 s   | No standing code sits waiting                                                          |
+| Media            | One UDP port (4384), the media relay   | The worker is on loopback only; nothing is forwarded before the ICE password is proved |
 
 ### Supply chain and build
 
@@ -994,35 +1105,38 @@ server; the receiving page strips it and refuses to replace a different stored s
 STRIDE applied to the elements and boundaries above. "Residual" refers to the findings
 register in the [security analysis](security/internet-exposure.md#findings-register).
 
-| ID  | Element or flow         | STRIDE | Threat                                                           | Mitigation                                                                                                     | Residual                   |
-| --- | ----------------------- | ------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| T1  | Admission (B1, B3)      | S      | Guess a code or the standing password                            | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`              | F1                         |
-| T2  | Approved sign-in (B1)   | S      | Use a copied device secret and password                          | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration | F5                         |
-| T3  | Peer classification     | S      | Appear local through source NAT or a proxy                       | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)   | R2                         |
-| T4  | Session bearer (B1)     | S      | Replay a stolen bearer                                           | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                              | —                          |
-| T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                           | Local peers only; fingerprint shown on the host screen for comparison (A4)                                     | F3                         |
-| T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates | Offer candidates filtered to public IPs for internet clients; answers rewritten                                | R3 fixed                   |
-| T7  | Settings files          | T      | Change policy or approved devices on disk                        | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope         | —                          |
-| T8  | Owner pipe (B4, B5)     | T, E   | Start or command a server or worker from another process         | Inherited pipes only; exact approval line; no owner route on any listener; job object                          | —                          |
-| T9  | Browser page            | T, I   | Script injection or framing                                      | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                              | —                          |
-| T10 | Owner actions           | R      | A viewer denies having connected or acted                        | Sessions view shows each session's address live; lifecycle log                                                 | No persistent audit trail  |
-| T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                           | HTTPS by default and fail closed; `off` only by explicit choice                                                | F3 (off mode)              |
-| T12 | Media (B2)              | I      | Capture screen or audio on the network                           | DTLS-SRTP with fingerprints from authenticated signaling                                                       | —                          |
-| T13 | Public endpoints        | I      | Learn host details before sign-in                                | `/api/info` returns the public name only; certificate omits the hostname in remote mode                        | R7                         |
-| T14 | Diagnostics (B6)        | I      | Read diagnostics from the network or a proxy                     | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                   | F4 fixed                   |
-| T15 | Admission endpoints     | D      | Flood sign-in to lock devices out                                | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                    | R1, F7                     |
-| T16 | Listeners and media     | D      | Exhaust connections, memory or the encoder                       | Connection caps, body and SDP caps, timeouts, bounded maps, keyframe damping, leaky queues                     | F7 (volumetric)            |
-| T17 | Worker media ports (B2) | E      | Exploit native STUN/DTLS parsing before authentication           | UDP only with a media range; current GStreamer; parsing isolated per source                                    | R4                         |
-| T18 | Input path (B2)         | E      | Inject input without a grant, or keep it after revoke            | Worker-side lease from the owner pipe only, 5 s expiry, allow-lists, rate limit, release of held keys          | F2 (queued message window) |
-| T19 | Viewer assets           | E      | Load the viewer or its code without admission                    | Session- and peer-bound `HttpOnly` grant cookie                                                                | —                          |
+| ID  | Element or flow         | STRIDE | Threat                                                                       | Mitigation                                                                                                                                                                                          | Residual                   |
+| --- | ----------------------- | ------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| T1  | Admission (B1, B3)      | S      | Guess a code or the standing password                                        | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`                                                                                                   | F1                         |
+| T2  | Approved sign-in (B1)   | S      | Use a copied device secret and password                                      | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration                                                                                      | F5                         |
+| T3  | Peer classification     | S      | Appear local through source NAT or a proxy                                   | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)                                                                                        | R2                         |
+| T4  | Session bearer (B1)     | S      | Replay a stolen bearer                                                       | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                                                                                                                   | —                          |
+| T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                                       | Local peers only; fingerprint shown on the host screen for comparison (A4)                                                                                                                          | F3                         |
+| T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates             | The server removes every candidate from every offer; the worker sends checks to nobody                                                                                                              | R3 fixed                   |
+| T7  | Settings files          | T      | Change policy or approved devices on disk                                    | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope                                                                                              | —                          |
+| T8  | Owner pipe (B4, B5, B8) | T, E   | Start or command a server, relay or worker from another process              | Inherited pipes only; exact approval line; no owner route on any listener; job object; the relay exits on any invalid command                                                                       | —                          |
+| T9  | Browser page            | T, I   | Script injection or framing                                                  | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                                                                                                                   | —                          |
+| T10 | Owner actions           | R      | A viewer denies having connected or acted                                    | Sessions view shows each session's address live; lifecycle log                                                                                                                                      | No persistent audit trail  |
+| T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                                       | HTTPS by default and fail closed; `off` only by explicit choice                                                                                                                                     | F3 (off mode)              |
+| T12 | Media (B2)              | I      | Capture screen or audio on the network                                       | DTLS-SRTP with fingerprints from authenticated signaling                                                                                                                                            | —                          |
+| T13 | Public endpoints        | I      | Learn host details before sign-in                                            | `/api/info` returns the public name only; certificate omits the hostname in remote mode                                                                                                             | R7                         |
+| T14 | Diagnostics (B6)        | I      | Read diagnostics from the network or a proxy                                 | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                                                                                                        | F4 fixed                   |
+| T15 | Admission endpoints     | D      | Flood sign-in to lock devices out                                            | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                                                                                                         | R1, F7                     |
+| T16 | Listeners and media     | D      | Exhaust connections, memory, relay registrations or the encoder              | Connection caps, body and SDP caps, timeouts, bounded maps; relay budgets before parsing in two lanes, at most 64 registrations and 4 paths each; keyframe damping, leaky queues                    | F7 (volumetric)            |
+| T17 | Media port (B2, B7)     | E      | Exploit native STUN/DTLS parsing before authentication                       | The relay checks MESSAGE-INTEGRITY in JavaScript before anything reaches libnice; the worker is on loopback only; only DTLS and RTP from an authenticated 5-tuple pass unchecked; current GStreamer | R4                         |
+| T18 | Input path (B2)         | E      | Inject input without a grant, or keep it after revoke                        | Worker-side lease from the owner pipe only, 5 s expiry, allow-lists, rate limit, release of held keys                                                                                               | F2 (queued message window) |
+| T19 | Viewer assets           | E      | Load the viewer or its code without admission                                | Session- and peer-bound `HttpOnly` grant cookie                                                                                                                                                     | —                          |
+| T20 | Media relay (B2, B8)    | S, T   | Send media into another viewer's stream, or confirm a live port to strangers | Pins keyed by 5-tuple and stream; a valid check for another stream on a pinned path is dropped; the worker's replies go only to the pinned tuple; no reply before authentication                    | R4                         |
 
 ### Residual risk and open items
 
 The current register, with severity and verification, is kept in the
 [security analysis](security/internet-exposure.md#open-and-residual-findings). In summary:
 
-- **R4** Native ICE/STUN parsing is reachable before authentication on the media ports while
-  a stream is live. Reduced to UDP; a lower-privilege worker is the long-term fix.
+- **R4** Native ICE/STUN parsing was reachable before authentication on the media ports.
+  Reduced: the media relay now checks the ICE password first, but forged DTLS or RTP from an
+  authenticated address still reaches the unsandboxed worker, and the relay is not yet
+  validated end to end on Windows. A sandboxed network process is phase 2.
 - **R8** The remote media path has run through one real router; IPv6, carrier NAT and a
   packet capture are still to do.
 - **R2, R1, F7** depend on the operating conditions A3 and A5.
@@ -1282,16 +1396,15 @@ node native/media-worker/tests/relay-check.mjs C:\path\to\playwright
 node native/media-worker/tests/sandbox-check.mjs
 ```
 
-`relay-check.mjs` is the prototype check for the planned authenticating media relay (gates P1
-and P2 of the [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md)):
-it runs the relay core and a loopback-only worker (`VIDVNC_ICE_BIND=loopback`) against
-headless Chromium and reports each gate question. The relay is not yet part of the product.
+`relay-check.mjs` checks the media relay's core with a loopback-only worker
+(`VIDVNC_ICE_BIND=loopback`) against headless Chromium, and reports gates P1 and P2 of the
+[R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md).
 `sandbox-check.mjs` runs gate P3: `sandbox-probe.exe` starts itself under the planned sandbox for
 the network process and reports what it can and cannot do. If the full sandbox fails, it runs
 the probe again with one part turned off at a time (`sandbox-probe --relax <part>`) and shows
 which part the failure depends on. When it passes, it runs gate P4: the probe again with
-Arbitrary Code Guard and Win32k lockdown turned on (`--harden`), reporting what breaks. Neither
-is part of the product yet.
+Arbitrary Code Guard and Win32k lockdown turned on (`--harden`), reporting what breaks. The
+sandbox is not part of the product yet.
 
 The second captures the real desktop and requires Windows and a hardware encoder.
 Chromium with an

@@ -195,27 +195,38 @@ the Win32k controls. (Creation-time lockdown was not tried.)
 
 ## Phase 1: relay for every session, media port, firewall rules
 
-Expand each task into steps once phase 0 is recorded.
+Built on 2026-09-26 (Linux, portable tests only; see the security analysis's verification
+record). Not yet run on Windows end to end.
 
-- [ ] **1.1 Relay process and manager:** `media-relay/main.mjs` (protocol table in the spec),
-      `MediaRelay` in the server (start before `ready`, restart at most 3 times a minute,
-      stop all streams on exit), metrics and events to diagnostics and the server log.
-- [ ] **1.2 Worker binding:** `iceBind: () => 'loopback'` for every worker; remove
-      `VIDVNC_ICE_PORTS` from the launch.
-- [ ] **1.3 Signaling:** in `stream-runtime.mjs`, strip offer candidates, validate the answer,
-      register with the relay and wait for `allowed` before returning the answer; announce
-      the relay address per client (public IPv4 and global IPv6 for internet clients, the
-      HTTPS local address otherwise, with link-local mapped to its interface); revoke on
-      every exit path in the spec's list.
-- [ ] **1.4 Settings:** `mediaPort` (default 4384) with migration from `mediaPorts`, CLI
-      `media-port` and the deprecated `media-ports` alias, host field and remote access text,
-      relay restart on change.
-- [ ] **1.5 Firewall (F1):** rule set from settings, audit through `HNetCfg.FwPolicy2`,
-      `firewall`, `firewall apply`, `firewall remove` in the CLI, the host's Firewall card,
-      in-memory `-EncodedCommand` elevation, MSIX manifest rules for the default ports.
-- [ ] **1.6 Sessions and diagnostics:** HTTPS and media address per stream; relay counters.
-- [ ] **1.7 Documentation and release notes** per the spec's documentation list; R4 status
-      "reduced".
+- [x] **1.1 Relay process and manager:** `media-relay/main.mjs` and `protocol.mjs` (the
+      spec's protocol table, plus `refused` for a well-formed registration the relay cannot
+      hold, and `failed` for a port it cannot bind), `media-relay.mjs` (`MediaRelay`: start
+      before `ready`, restart at most 3 times a minute, `onExit` stops every stream, a
+      once-a-minute log summary of unauthenticated drops).
+- [x] **1.2 Worker binding:** `iceBind: () => 'loopback'` for every worker;
+      `VIDVNC_ICE_PORTS` is no longer set. The worker's own range support stays for the
+      `media-ports-check.mjs` harness; remove it in phase 2.
+- [x] **1.3 Signaling:** `StreamRuntime` strips offer candidates, validates the answer,
+      awaits `allow` before answering and announces `relay-addresses.mjs`'s addresses; every
+      exit path goes through `#forget`, which revokes; `expired` ends the stream; a relay
+      exit stops all streams. The legacy `/api/offer` path (no runtime) is unchanged and
+      unused by the server.
+- [x] **1.4 Settings:** `mediaPort` (default 4384) with migration from `mediaPorts` in the
+      file and in changes from older hosts; CLI `media-port` and the deprecated
+      `media-ports`; the host's field; relay restart on change.
+- [ ] **1.5 Firewall (F1):** not started. Waits for gate P5 on a test VM.
+- [x] **1.6 Sessions and diagnostics:** the media address per stream in the host's Sessions
+      and the CLI's `sessions`; `media-relay` in the CLI; relay state in the host status (an
+      error bar when media is unavailable). The diagnostics page does not show relay
+      counters yet.
+- [x] **1.7 Documentation and release notes:** ARCHITECTURE (media relay section and
+      diagrams, security architecture), internet-exposure (R4 reduced), remote-access,
+      README, CHANGELOG (Unreleased, with the downgrade note). Packaging notes wait for F1.
+
+Validation still owed before phase 1 is done: `npm run test:hardware` and the host build on
+Windows; a real browser on the LAN and from the internet through the built-in relay; Firefox
+and Safari (P1); an iPhone with iCloud Private Relay (P6); `netstat` showing the workers on
+`127.0.0.1` only.
 
 ## Phase 2: privilege split
 

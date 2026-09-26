@@ -35,8 +35,12 @@ change can close.
    the ICE-TCP switch pass on hardware, and an iPhone at a public address signed in and
    streamed through the owner's router. No packet capture, IPv6 run or carrier-NAT client
    has been tried yet.
-2. **The native ICE stack faces the internet on the media ports** while a stream is live
-   (R4, reduced to UDP only). That is inherent to direct WebRTC.
+2. **The native ICE stack no longer faces the internet directly** (R4, reduced). Media,
+   LAN and internet alike, reaches the PC through VidVNC's media relay on one UDP port; the
+   relay forwards only senders that prove a stream's ICE password, and the worker listens on
+   `127.0.0.1` only. After that proof, DTLS and RTP from the authenticated address still
+   reach native code in an unsandboxed worker. The relay is built and covered by the portable
+   suite, but not yet validated end to end on Windows with real browsers.
 3. **Two conditions depend on your setup.** An internet flood can still exhaust the
    _internet_ sign-in budget; it no longer affects the LAN (R1). And the boundary relies on
    a genuine source address. This is now contained by the `approved-only` requirement and a
@@ -59,8 +63,8 @@ Application Conditions (SecRACs)**: conditions VidVNC can guide, check or warn a
 cannot fully establish on its own. Where a condition is not met, the analysis says what
 changes.
 
-1. **Forward only what the guide lists:** the HTTPS port (TCP) and the media port range
-   (UDP), with the same port numbers outside and inside for the media range. Never forward
+1. **Forward only what the guide lists:** the HTTPS port (TCP) and the media port (UDP,
+   default 4384), with the same port number outside and inside for the media port. Never forward
    the plaintext HTTP port or the diagnostics port.
 2. **No same-host reverse proxy, port proxy or NAT that rewrites the client's source
    address.** The client's real source address must reach VidVNC. The guide's
@@ -96,10 +100,10 @@ internet clients rather than fall back to plaintext or to an unintended route.
 | HTTPS `4383`                     | Binds `0.0.0.0`; internet peers get `403` for every route                                             | Public login shell, `/api/info` (public name only), approved-device sign-in and claim status; HSTS on the public names |
 | `/api/key-start` (all codes)     | Local and private peers only                                                                          | `403`; no code budget is consumed. For local/private peers only setup codes work (`approved-only` is required)         |
 | Viewer assets (`/viewer/…`)      | After admission, with a session- and peer-bound `HttpOnly` cookie                                     | Same                                                                                                                   |
-| Session and signaling APIs       | Bearer bound to the socket address                                                                    | Same; offers keep only public-address candidates, answers carry the public address with private addresses removed      |
+| Session and signaling APIs       | Bearer bound to the socket address; offers lose every candidate, answers name the relay               | Same; answers name the public address and global IPv6 on the media port                                                |
 | Certificate enrolment (`/trust`) | Local peers only                                                                                      | `403`                                                                                                                  |
 | Diagnostics                      | `404` on the main ports; separate `127.0.0.1` listener with an owner-issued 256-bit, 15-minute bearer | Same                                                                                                                   |
-| Media ports                      | Random ephemeral ports, LAN only                                                                      | Fixed `media-ports` range, UDP only; reachable by anyone while a stream is live (R4)                                   |
+| Media port (UDP 4384)            | The media relay, bound to every address; forwards only senders that prove a stream's ICE password     | Same, forwarded by the router; the worker itself is on `127.0.0.1` only (R4)                                           |
 | Owner management                 | No HTTP route; host pipe and local CLI only                                                           | Same                                                                                                                   |
 
 Clients count as **local** when they are on an eligible Private physical LAN. That decides
@@ -228,13 +232,23 @@ unknown address fails closed as internet.
 
 - DTLS-SRTP protects media, and its fingerprints are exchanged over the authenticated
   signaling.
-- For internet clients:
-  - the offer keeps only candidates on public IP addresses, so a client can't aim the
-    host's ICE checks at LAN machines or at hostnames;
-  - the answer replaces private host candidates with the public IPv4 on the same ports
-    and removes private addresses.
-- The worker applies the `media-ports` range to every WebRTC peer, turns ICE-TCP off when
-  a range is set, and refuses to start with an invalid range.
+- Every session's media goes through the media relay
+  ([media-relay/](../../apps/server/src/media-relay/)) on one UDP port:
+  - the server removes every candidate from the client's offer, so the worker sends checks
+    to nobody and learns the client only from checks the relay authenticated;
+  - the worker gathers on `127.0.0.1` only (`VIDVNC_ICE_BIND=loopback`, ICE-TCP off);
+  - the server validates the worker's answer against an allow-list (exactly one loopback UDP
+    host candidate), registers the stream with the relay, and waits for the confirmation
+    before answering;
+  - the relay drops anything that is not a STUN Binding request whose MESSAGE-INTEGRITY
+    verifies with a registered stream's password, never replies to unauthenticated senders,
+    and limits them before parsing (200 per second per stream for the address the client
+    signed in from; 50 per second per other source and 5,000 in total);
+  - on an authenticated path, STUN must verify in either direction and only DTLS and
+    RTP/RTCP pass unchecked; a path ends after 30 seconds of silence, and a stream nobody
+    authenticated for within 15 seconds fails;
+  - the answer names the address the client reached over HTTPS, or for internet clients the
+    public addresses of the public names and this PC's global IPv6 addresses.
 
 ## Findings register
 
@@ -242,26 +256,26 @@ Severity reflects an internet-exposed server under the assumptions above. The **
 come from the 2026-09-23 and 2026-09-24 reviews; the **R** findings come from the 2026-09-25
 review of the remote access mode.
 
-| ID  | Finding                                                                       | Severity (at discovery) | Status                                                                   |
-| --- | ----------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------ |
-| R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)     | Fixed; an internet flood can still block _remote_ sign-in while it lasts |
-| R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)    | Contained (`approved-only` required, source check); residual below       |
-| R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                  | Fixed                                                                    |
-| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Reduced (UDP only); **open**, inherent to direct WebRTC                  |
-| R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
-| R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
-| R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
-| R8  | The media path is not fully validated on a real network                       | Assurance gap           | **Open**; live peer and one real-router run pass; capture still needed   |
-| F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only) |
-| F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                    |
-| F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                     |
-| F4  | A loopback proxy could expose diagnostics                                     | Medium                  | Fixed                                                                    |
-| F5  | An approved-device credential is copyable                                     | Medium                  | Accepted model with mitigations; not device binding                      |
-| F6  | Direct WebRTC had no remote network policy                                    | Medium                  | Implemented (port range, UDP only, candidate policy); untested (R4, R8)  |
-| F7  | Limits could be exhausted; some state had no lifetime                         | Medium                  | Fixed in process; volumetric floods remain                               |
-| F8  | A remote registration was labelled "Local network"                            | Medium (misleading cue) | Fixed                                                                    |
-| —   | Public DNS names and routers' public ports were refused (`403`/`421`)         | Compatibility           | Fixed (`public-hosts`, `public-port`)                                    |
-| —   | No opt-in remote mode                                                         | Design gap              | Fixed (`remote-access`, off by default)                                  |
+| ID  | Finding                                                                       | Severity (at discovery) | Status                                                                    |
+| --- | ----------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------- |
+| R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)     | Fixed; an internet flood can still block _remote_ sign-in while it lasts  |
+| R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)    | Contained (`approved-only` required, source check); residual below        |
+| R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                  | Fixed                                                                     |
+| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Reduced (authenticating relay); **open** until validated and sandboxed    |
+| R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                     |
+| R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                     |
+| R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                         |
+| R8  | The media path is not fully validated on a real network                       | Assurance gap           | **Open**; live peer and one real-router run pass; capture still needed    |
+| F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only)  |
+| F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                     |
+| F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                      |
+| F4  | A loopback proxy could expose diagnostics                                     | Medium                  | Fixed                                                                     |
+| F5  | An approved-device credential is copyable                                     | Medium                  | Accepted model with mitigations; not device binding                       |
+| F6  | Direct WebRTC had no remote network policy                                    | Medium                  | Implemented (media relay, candidate policy); relay not yet validated (R8) |
+| F7  | Limits could be exhausted; some state had no lifetime                         | Medium                  | Fixed in process; volumetric floods remain                                |
+| F8  | A remote registration was labelled "Local network"                            | Medium (misleading cue) | Fixed                                                                     |
+| —   | Public DNS names and routers' public ports were refused (`403`/`421`)         | Compatibility           | Fixed (`public-hosts`, `public-port`)                                     |
+| —   | No opt-in remote mode                                                         | Design gap              | Fixed (`remote-access`, off by default)                                   |
 
 ## Open and residual findings
 
@@ -297,17 +311,33 @@ address, so the router doesn't rewrite source addresses (the required setup chec
 
 ### R4: native parsing is reachable before authentication on the media ports (open, reduced)
 
-While a stream is live, anyone can send UDP to the forwarded range. libnice parses STUN
-before it checks message integrity. DTLS and the input data channel follow only after ICE
-succeeds with credentials from the authenticated signaling.
+**Before 2026-09-26:** while a stream was live, anyone who could reach the worker's ports
+(every LAN peer, and the internet when the range was forwarded) could make libnice parse
+STUN before it checked message integrity, in an unsandboxed process that can inject input.
 
-No defect is known. The exposure is native parsing in an unsandboxed process that can
-inject input. ICE-TCP is off whenever a range is set, so only the UDP parser is exposed.
+**Now (phase 1 of the [R4 design](../superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md)):**
+the worker listens on `127.0.0.1` only, and the media relay, in JavaScript, owns the one
+media port. libnice sees a STUN message only after the relay has verified its
+MESSAGE-INTEGRITY with the stream's ICE password, which reaches only the signed-in device
+over HTTPS. The relay never replies to an unauthenticated sender. See
+[Controls in place](#controls-in-place) for the limits.
+
+**Residual:**
+
+- forged DTLS or RTP/RTCP packets with the exact address and port of an authenticated client
+  still reach OpenSSL and libsrtp in the worker, which is not yet sandboxed;
+- the relay's own parser (`stun.mjs`), Node's `dgram` and V8 handle unauthenticated
+  datagrams, at medium integrity for now;
+- not yet validated end to end on Windows with real browsers, Firefox, Safari or an iPhone
+  (including iCloud Private Relay, where the media and HTTPS addresses differ; the relay
+  treats the HTTPS address only as a hint for this reason).
 
 **Remaining:**
 
-- keep GStreamer and libnice current, and scan them separately from `npm audit`;
-- longer term, a lower-privilege worker with a narrow input broker.
+- validate the relay on Windows end to end (R8);
+- phase 2 of the design: run WebRTC in a sandboxed network process (gate P3 passed with a
+  prototype) and the relay at low integrity; phase 1 still owes the firewall rules (F1);
+- keep GStreamer and libnice current, and scan them separately from `npm audit`.
 
 The design options for closing R4 without a third party (an authenticating relay, a
 privilege split, media over HTTPS, a memory-safe ICE stack, firewall and router
@@ -384,8 +414,9 @@ the public host avoids the rest.
    - a packet capture showing no ICE checks toward client-chosen internal addresses.
 2. **Host UI:** built and in use on the owner's machine. The navigation test hasn't been run
    against the latest dialog and indicator changes; see the verification record.
-3. **R4:** track native dependency versions in packaging. Longer term, a lower-privilege
-   media worker.
+3. **R4:** validate the media relay end to end on Windows, then the firewall rules and the
+   privilege split (phases 1 and 2 of the R4 design). Track native dependency versions in
+   packaging.
 4. **F5:** a passkey (WebAuthn) challenge for approved devices, if a stronger
    remote-identity model is wanted.
 5. **Support position:** only after step 1 passes should SECURITY.md stop recommending a
@@ -393,6 +424,21 @@ the public host avoids the rest.
 
 ## Verification record
 
+- **2026-09-26, `claude/epic-maxwell-jt98x1`, media relay (R4 phase 1):**
+  - `npm test` 915/915 and `npm run format:check` clean, on Linux.
+  - New portable tests: STUN parsing and MESSAGE-INTEGRITY against the RFC 5769 vectors,
+    every single-bit flip, truncation and 200,000 random buffers; the relay core with an
+    in-memory network and one real socket (pinning, both budget lanes, shared ufrags,
+    cross-registration drops, idle, revoke and expiry); the relay process protocol (fail
+    closed on bad or early commands, exit on end of input) and a real relay process
+    forwarding an authenticated check; the manager's restart limit and unavailable port;
+    offer stripping, answer validation and relay registration in the stream runtime,
+    including revocation when a stream ends, expires or the relay stops; relay address
+    selection; the `mediaPort` migration and the CLI.
+  - Before this, prototype gates P1 and P2 passed on Windows with headless Chromium through
+    a relay prototype (see the [plan](../superpowers/plans/2026-09-26-r4-media-relay-and-privilege-split.md)).
+  - **Not run:** the built-in relay on Windows with real browsers, Firefox, Safari, an
+    iPhone, iCloud Private Relay, IPv6, a packet capture; the Windows host was not built.
 - **2026-09-25, `claude/remote-access-on-main`:**
   - `npm test` 851/851 and `npm run format:check` clean, on Linux, after the R-series
     fixes.
@@ -485,6 +531,7 @@ the public host avoids the rest.
 | 2026-09-25 | R1, R3, R5 and R6 fixed. R2 contained by requiring `approved-only` and a required source-address check. R4 reduced (ICE-TCP off with a media range). R7 partly fixed (hostname omitted). R8 remains: hardware validation.                        |
 | 2026-09-25 | Windows host remote access controls: local-only start by default, remote start from the sharing indicator, remote access shown on the indicator, Settings card usable while sharing is off, footer Stop sharing removed.                         |
 | 2026-09-25 | First real-router run: an iPhone at a public address streamed through the owner's router, and the source-address check passed. R8 stays open for a packet capture and IPv6.                                                                      |
+| 2026-09-26 | R4 phase 1: every session's media through an authenticating relay on one UDP port (`mediaPort`, default 4384); workers on loopback only; offers stripped of candidates. R4 reduced; not yet validated end to end on Windows.                     |
 
 The superseded documents were consolidated here on 2026-09-25. Their last versions can be
 read with `git show 0215e44:docs/security/<file>`:
