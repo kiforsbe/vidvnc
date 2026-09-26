@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccessSettings } from '../src/access-settings.mjs';
@@ -50,7 +50,7 @@ test('the connected-device limit is saved alone and bounded to what the host can
     remoteAccess: false,
     publicHostnames: [],
     publicPort: null,
-    mediaPorts: null,
+    mediaPort: null,
   });
   assert.equal((await AccessSettings.open(file)).snapshot().maxSessions, 8);
   for (const maxSessions of [0, 9, 2.5, '3', null])
@@ -79,7 +79,7 @@ test('old access settings default to session-key admission and four devices', as
     remoteAccess: false,
     publicHostnames: [],
     publicPort: null,
-    mediaPorts: null,
+    mediaPort: null,
   });
 });
 
@@ -191,4 +191,30 @@ test('remote access needs a public name, and saved changes reach listeners', asy
   ]);
   saved.publicHostnames.push('changed.example.com');
   assert.deepEqual(store.snapshot().publicHostnames, ['vnc.example.com'], 'snapshots are copies');
+});
+
+test('a media port range from earlier versions becomes its first port', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vidvnc-access-media-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'access.json');
+  await writeFile(file, '{"revision":1,"mediaPorts":{"min":40000,"max":40049}}');
+  const store = await AccessSettings.open(file);
+  assert.equal(store.snapshot().mediaPort, 40000);
+  assert.equal(Object.hasOwn(store.snapshot(), 'mediaPorts'), false);
+  // A save writes the new field only; an older host that still sends the range is migrated.
+  await store.replace({ publicPort: 443 }, 1);
+  assert.deepEqual(
+    Object.keys(JSON.parse(await readFile(file, 'utf8'))).includes('mediaPorts'),
+    false,
+  );
+  assert.equal((await store.replace({ mediaPorts: null }, 2)).mediaPort, null);
+  assert.equal(
+    (await store.replace({ mediaPorts: { min: 41000, max: 41009 } }, 3)).mediaPort,
+    41000,
+  );
+  for (const mediaPort of [80, 65536, 4384.5, '4384'])
+    await assert.rejects(store.replace({ mediaPort }, 4), /invalid/i);
+  await assert.rejects(store.replace({ mediaPorts: { min: 1, max: 2 } }, 4), /invalid/i);
+  await writeFile(file, '{"revision":1,"mediaPorts":{"min":1,"max":2}}');
+  await assert.rejects(AccessSettings.open(file), /invalid/i);
 });

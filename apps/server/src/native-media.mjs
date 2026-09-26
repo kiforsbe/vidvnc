@@ -33,11 +33,6 @@ export async function listDisplays(signal) {
 }
 const busy = (message) => Object.assign(new Error(message), { code: 'MEDIA_BUSY' });
 
-// The worker reads its ICE port range from VIDVNC_ICE_PORTS ("min-max"), absent for any port.
-export function mediaPortsEnvironment(range) {
-  return range ? { VIDVNC_ICE_PORTS: `${range.min}-${range.max}` } : {};
-}
-
 // VIDVNC_ICE_BIND=loopback makes the worker gather on 127.0.0.1 only, for the authenticating
 // media relay; absent, it gathers on every interface.
 export function iceBindEnvironment(bind) {
@@ -58,16 +53,13 @@ export class NativeMedia {
     hostControl = false,
     negotiationTimeoutMs = 15000,
     removalTimeoutMs = 1500,
-    // The media port range (access-settings.mjs `mediaPorts`), read when each worker starts,
-    // so a change applies to new streams without a restart.
-    mediaPorts = () => null,
-    // 'loopback' while the media relay carries every viewer's traffic; null otherwise.
+    // 'loopback' while the media relay carries every viewer's traffic (the server always
+    // sets it); null, for tests and the harnesses, gathers on every interface.
     iceBind = () => null,
     launch = () =>
       spawn(executable, ['--session'], {
         env: {
           ...workerEnvironment(),
-          ...mediaPortsEnvironment(mediaPorts()),
           ...iceBindEnvironment(iceBind()),
         },
         windowsHide: true,

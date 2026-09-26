@@ -16,7 +16,7 @@ public sealed partial class HostWindow
     bool remoteAccess;
     string[] publicHostnames = [];
     int? publicPort;
-    (int Min, int Max)? mediaPorts;
+    int? mediaPort;
     const int MaxSessionsLimit = 8;
     long accessRevision;
     bool accessReady;
@@ -38,10 +38,9 @@ public sealed partial class HostWindow
         // TryGetInt32 throws on anything but a number, and the server sends null for "not set".
         publicPort = value.TryGetProperty("publicPort", out var port) && port.ValueKind == JsonValueKind.Number &&
             port.TryGetInt32(out var portNumber) ? portNumber : null;
-        mediaPorts = value.TryGetProperty("mediaPorts", out var ports) && ports.ValueKind == JsonValueKind.Object &&
-            ports.TryGetProperty("min", out var min) && min.ValueKind == JsonValueKind.Number &&
-            ports.TryGetProperty("max", out var max) && max.ValueKind == JsonValueKind.Number &&
-            min.TryGetInt32(out var minPort) && max.TryGetInt32(out var maxPort) ? (minPort, maxPort) : null;
+        // null: the default media port (DefaultMediaPort).
+        mediaPort = value.TryGetProperty("mediaPort", out var media) && media.ValueKind == JsonValueKind.Number &&
+            media.TryGetInt32(out var mediaNumber) ? mediaNumber : null;
         UpdateSharingIndicator();
         accessRevision = value.GetProperty("revision").GetInt64();
         accessReady = true;

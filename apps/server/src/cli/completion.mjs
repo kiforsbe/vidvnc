@@ -56,6 +56,7 @@ const ARGUMENTS = {
   access: [() => ['approval', 'available']],
   'remote-access': [() => ON_OFF],
   'public-hosts': [() => ['clear']],
+  'media-port': [() => ['auto', '4384']],
   'media-ports': [() => ['auto', '40000-40049']],
   'public-port': [() => ['same', '443']],
   'connection-mode': [() => ['session-key', 'one-time-keys', 'approved-only']],

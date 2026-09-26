@@ -704,11 +704,22 @@ export function createHttpApp({
           )
             return send(response, 400, { error: 'Invalid SDP' });
           try {
-            const offer = internet ? filterOfferCandidates(body.sdp) : body.sdp;
+            // With the media relay the runtime strips the offer's candidates and returns the
+            // answer with the relay's addresses; without it (tests), filter and announce here.
+            const relayed = Boolean(runtime.relay);
+            const offer = internet && !relayed ? filterOfferCandidates(body.sdp) : body.sdp;
+            const network = {
+              internet,
+              clientHint: request.socket.remoteAddress ?? null,
+              localAddress: request.socket.localAddress,
+            };
             const answer = await (route === '/api/audio-offer'
-              ? runtime.offerAudio(token, offer)
-              : runtime.offerVideo(token, { ...body, sdp: offer }));
-            return sendIfLive(200, { ...answer, sdp: await answerFor(internet, answer.sdp) });
+              ? runtime.offerAudio(token, offer, network)
+              : runtime.offerVideo(token, { ...body, sdp: offer }, network));
+            return sendIfLive(200, {
+              ...answer,
+              sdp: relayed ? answer.sdp : await answerFor(internet, answer.sdp),
+            });
           } catch (error) {
             if (!sessionStore.get(token))
               return send(response, 401, { error: 'Session expired. Reconnect.' });

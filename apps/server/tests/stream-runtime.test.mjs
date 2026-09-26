@@ -76,6 +76,8 @@ async function setup(
     videoCodecs = ['av1', 'h265', 'h264'],
     videoBackends,
     isInternet,
+    relay,
+    relayAddresses,
     ...mediaOptions
   } = {},
 ) {
@@ -118,6 +120,7 @@ async function setup(
     videoCodecs,
     videoBackends: videoBackends ?? nvencBackends(videoCodecs),
     ...(isInternet ? { isInternet } : {}),
+    ...(relay ? { relay, relayAddresses } : {}),
   });
   t.after(() => runtime.shutdown());
   const a = sessions.connect(sessions.password, 'a').sessionId;
@@ -741,4 +744,134 @@ test('a runtime restricted to H.264 ignores AV1 support in the offer', async (t)
   const first = await offer(a, 0, 'mobile', av1H264Sdp());
   assert.equal(first.codec, 'h264');
   assert.equal(starts.at(-1)[1].codec, 'h264');
+});
+
+// A stand-in for media-relay.mjs that records what the runtime registers and revokes.
+function fakeRelay({ listening = true, refuse = false } = {}) {
+  return {
+    listening,
+    reason: listening ? null : 'UDP 4384 is in use by another program.',
+    port: 4384,
+    allowed: [],
+    revoked: [],
+    allow(registration) {
+      if (refuse) return Promise.reject(new Error('Relay registration limit reached'));
+      this.allowed.push(registration);
+      return Promise.resolve();
+    },
+    revoke(streamId) {
+      this.revoked.push(streamId);
+    },
+  };
+}
+
+const clientOffer = (extra = []) =>
+  [
+    'v=0',
+    'o=- 0 0 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    'a=rtpmap:96 H264/90000',
+    'a=ice-ufrag:ClNt',
+    'a=ice-pwd:clientpasswordclientpass',
+    'a=candidate:1 1 udp 2113937151 192.168.1.20 50100 typ host',
+    'a=candidate:2 1 udp 2113937151 10.0.0.7 50101 typ host',
+    ...extra,
+  ].join('\r\n');
+
+test('with the relay, the worker gets no candidates and the client gets the relay port', async (t) => {
+  const relay = fakeRelay();
+  const asked = [];
+  const { runtime, a, displays } = await setup(t, 'approval', undefined, {
+    relay,
+    relayAddresses: async (network) => {
+      asked.push(network);
+      return ['192.168.1.10'];
+    },
+  });
+  const network = {
+    internet: false,
+    clientHint: '::ffff:192.168.1.20',
+    localAddress: '::ffff:192.168.1.10',
+  };
+  const answer = await runtime.offerVideo(
+    a,
+    { sdp: clientOffer(), displayId: displays[0].id, profile: 'mobile' },
+    network,
+  );
+  assert.deepEqual(asked, [{ internet: false, localAddress: network.localAddress }]);
+  assert.equal(relay.allowed.length, 1);
+  assert.deepEqual(relay.allowed[0], {
+    streamId: answer.streamId,
+    ufrag: 'WkrU',
+    pwd: 'workerpasswordworkerpass',
+    clientUfrag: 'ClNt',
+    clientPwd: 'clientpasswordclientpass',
+    workerPort: 50001,
+    clientHint: network.clientHint,
+    expiresMs: 15000,
+  });
+  assert.doesNotMatch(answer.sdp, /127\.0\.0\.1/);
+  assert.match(answer.sdp, /a=candidate:1r0 1 UDP \d+ 192\.168\.1\.10 4384 typ host/);
+  assert.match(answer.sdp, /a=ice-pwd:workerpasswordworkerpass/);
+
+  // Events fill in the media path; stopping the stream revokes the registration.
+  runtime.relayEvent({ type: 'pinned', streamId: answer.streamId, tuple: '192.168.1.20:50100' });
+  assert.deepEqual(runtime.relayPaths.get(answer.streamId), {
+    https: network.clientHint,
+    media: '192.168.1.20:50100',
+  });
+  await runtime.stopStream(a, answer.streamId);
+  assert.deepEqual(relay.revoked, [answer.streamId]);
+  assert.equal(runtime.relayPaths.size, 0);
+});
+
+test('with the relay, a bad answer, a refused registration or no relay fails the offer', async (t) => {
+  const relay = fakeRelay();
+  const { runtime, a, displays, media } = await setup(t, 'approval', undefined, {
+    relay,
+    relayAddresses: async () => ['192.168.1.10'],
+  });
+  const offer = (sdp) =>
+    runtime.offerVideo(a, { sdp, displayId: displays[0].id, profile: 'mobile' }, {});
+  await assert.rejects(offer(clientOffer(['a=tag:bad-answer'])), /loopback UDP host candidate/);
+  assert.deepEqual(relay.allowed, []);
+  await assert.rejects(
+    offer(clientOffer().replace('a=ice-pwd:clientpasswordclientpass', 'a=ice-pwd:short')),
+    (error) => error.status === 400,
+  );
+  relay.allow = () => Promise.reject(new Error('Relay registration limit reached'));
+  await assert.rejects(offer(clientOffer()), /limit reached/);
+  assert.equal(runtime.registry.list(a).length, 0);
+  await waitFor(() => media.workers.size === 0);
+  relay.listening = false;
+  relay.reason = 'UDP 4384 is in use by another program.';
+  await assert.rejects(
+    offer(clientOffer()),
+    (error) => error.status === 503 && /in use/.test(error.message),
+  );
+});
+
+test('an expired registration ends the stream and a stopped relay ends every stream', async (t) => {
+  const relay = fakeRelay();
+  const { runtime, a, b, displays } = await setup(t, 'approval', undefined, {
+    relay,
+    relayAddresses: async () => ['192.168.1.10'],
+  });
+  const offer = (session) =>
+    runtime.offerVideo(
+      session,
+      { sdp: clientOffer(), displayId: displays[0].id, profile: 'mobile' },
+      {},
+    );
+  const first = await offer(a);
+  runtime.relayEvent({ type: 'expired', streamId: first.streamId });
+  await waitFor(() => runtime.registry.list(a).length === 0);
+  assert.ok(relay.revoked.includes(first.streamId));
+  await offer(a);
+  await offer(b);
+  await runtime.relayStopped();
+  assert.equal(runtime.registry.list().length, 0);
+  assert.equal(relay.revoked.length, 3);
 });

@@ -40,6 +40,37 @@ input.on('line', (line) => {
       captureFps: started.streamPlan?.fps ?? 0,
       peers: { [peerId]: { videoRtpPackets: peers.size } },
     });
+    // An offer for the media relay gets a webrtcbin-shaped answer with one loopback
+    // candidate; the relay tests check the worker never sees the client's candidates.
+    if (message.sdp.includes('a=ice-ufrag:')) {
+      if (message.sdp.includes('a=candidate:'))
+        return send({ type: 'peer-failed', peerId, reason: 'Offer still had candidates' });
+      const port = 50000 + peers.size;
+      const bad = message.sdp.includes('bad-answer');
+      return send({
+        type: 'answer',
+        peerId,
+        sdp: [
+          'v=0',
+          'o=- 1 0 IN IP4 0.0.0.0',
+          's=-',
+          't=0 0',
+          'a=group:BUNDLE video0',
+          'm=video 9 UDP/TLS/RTP/SAVPF 96',
+          'c=IN IP4 0.0.0.0',
+          'a=ice-ufrag:WkrU',
+          'a=ice-pwd:workerpasswordworkerpass',
+          'a=fingerprint:sha-256 AA:BB',
+          'a=setup:active',
+          'a=mid:video0',
+          'a=sendonly',
+          'a=rtcp-mux',
+          'a=rtpmap:96 H264/90000',
+          `a=candidate:1 1 UDP 2015363327 ${bad ? '192.168.1.5' : '127.0.0.1'} ${port} typ host`,
+          '',
+        ].join('\r\n'),
+      });
+    }
     send({ type: 'answer', peerId, sdp: `answer:${message.sdp}` });
   }
   if (message.type === 'remove-peer') {

@@ -8,6 +8,15 @@ import { peerSample } from './media-sample.mjs';
 import { selectVideoCodec } from './video-codecs.mjs';
 import { selectEncoderBackend } from './encoder-backends.mjs';
 import { effectivePermission } from './approved-client-permission.mjs';
+import {
+  announceRelay,
+  iceCredentials,
+  stripOfferCandidates,
+  validateRelayAnswer,
+} from './sdp-candidates.mjs';
+
+// How long a client has, after its answer, to send an authenticated check through the relay.
+const RELAY_EXPIRES_MS = 15_000;
 
 export class StreamRuntime {
   constructor({
@@ -24,8 +33,15 @@ export class StreamRuntime {
     // Whether a session's address is on the internet (peer-network.mjs). The default treats
     // every client as local, which is what every caller without remote access means.
     isInternet = () => false,
+    // The media relay (media-relay.mjs) and the addresses a client is told to send media to
+    // (relay-addresses.mjs). Without a relay, offers and answers pass through unchanged, which
+    // only tests rely on: the server always runs one.
+    relay = null,
+    relayAddresses = null,
   }) {
     this.isInternet = isInternet;
+    this.relay = relay;
+    this.relayAddresses = relayAddresses;
     Object.assign(this, {
       sessions,
       media,
@@ -46,6 +62,9 @@ export class StreamRuntime {
     this.recoveries = new Map();
     this.selected = new Map();
     this.automaticControl = new Set();
+    // Per stream registered with the relay: the HTTPS address and the authenticated media
+    // path, for Sessions and diagnostics.
+    this.relayPaths = new Map();
     const onConnect = sessions.onConnect;
     sessions.onConnect = (id) => {
       onConnect?.(id);
@@ -268,7 +287,25 @@ export class StreamRuntime {
   }
   // Admits a subscription, starting its source when no matching one exists, and negotiates the
   // client's peer. A joiner's add-peer follows the creator's start in the worker pipe.
-  async #subscribe(sessionId, plan, sdp, { start, configure, valid }) {
+  async #subscribe(sessionId, plan, sdp, { start, configure, valid }, network = {}) {
+    // With the relay the worker never sees the client's candidates: it sends checks to
+    // nobody and learns the client only from checks the relay has authenticated.
+    let client = null;
+    if (this.relay) {
+      if (!this.relay.listening)
+        throw Object.assign(
+          new Error(
+            `Media is unavailable: ${this.relay.reason ?? 'the media relay is not running'}`,
+          ),
+          { status: 503 },
+        );
+      try {
+        client = iceCredentials(sdp);
+      } catch {
+        throw Object.assign(new Error('Invalid SDP'), { status: 400 });
+      }
+      sdp = stripOfferCandidates(sdp);
+    }
     let admitted;
     try {
       admitted = this.registry.subscribe(sessionId, plan);
@@ -290,6 +327,8 @@ export class StreamRuntime {
       ]);
       if (ready.status === 'rejected') throw ready.reason;
       if (peer.status === 'rejected') throw peer.reason;
+      let answer = peer.value;
+      if (this.relay) answer = await this.#throughRelay(stream.id, answer, client, network);
       // Known only once the worker is ready: which GPU won, and why.
       diagnostics.setEncoder(this.media.encoder?.(source.id) ?? null);
       if (
@@ -299,11 +338,52 @@ export class StreamRuntime {
         !this.registry.transition(sessionId, stream.id, 'live')
       )
         throw new Error('Stream ended during negotiation');
-      return { stream, answer: peer.value };
+      return { stream, answer };
     } catch (error) {
       await this.#endSubscription(stream.id);
+      // Ended while the relay was confirming: the subscription was already gone.
+      if (this.relayPaths.delete(stream.id)) this.relay.revoke(stream.id);
       throw error;
     }
+  }
+  // Registers the stream with the relay and returns the answer the client gets: the worker's
+  // loopback candidate replaced by the relay's port on addresses this client can reach. The
+  // registration is confirmed before the answer leaves, so the first check is never dropped.
+  async #throughRelay(
+    streamId,
+    answer,
+    client,
+    { internet = false, clientHint = null, localAddress } = {},
+  ) {
+    const worker = validateRelayAnswer(answer);
+    const addresses = await this.relayAddresses({ internet, localAddress });
+    await this.relay.allow({
+      streamId,
+      ufrag: worker.ufrag,
+      pwd: worker.pwd,
+      clientUfrag: client.ufrag,
+      clientPwd: client.pwd,
+      workerPort: worker.port,
+      clientHint,
+      expiresMs: RELAY_EXPIRES_MS,
+    });
+    this.relayPaths.set(streamId, { https: clientHint, media: null });
+    return announceRelay(answer, addresses, this.relay.port);
+  }
+  // Relay events for a stream: a media path authenticated or ended, or nobody authenticated
+  // in time (the stream then fails).
+  relayEvent(event) {
+    const path = this.relayPaths.get(event.streamId);
+    if (event.type === 'pinned' && path) path.media = event.tuple;
+    if (event.type === 'unpinned' && path?.media === event.tuple) path.media = null;
+    if (event.type === 'expired')
+      this.#endSubscription(event.streamId).catch((error) =>
+        console.error('Stream cleanup failed:', error.message),
+      );
+  }
+  // The relay stopped: no stream can carry media any more.
+  relayStopped() {
+    return this.stopAll().catch((error) => console.error('Stream cleanup failed:', error.message));
   }
   // Removes one client's peer; the source stops with its last subscription. Never touches
   // control, so the lease can use it as its fail-closed path.
@@ -320,13 +400,14 @@ export class StreamRuntime {
     else this.registry.releaseSource(source.id);
   }
   #forget(streamId) {
+    if (this.relayPaths.delete(streamId)) this.relay?.revoke(streamId);
     this.streamDiagnostics.delete(streamId);
     this.recoveries.delete(streamId);
     this.telemetryTimes.delete(streamId);
     for (const [sessionId, selected] of this.selected)
       if (selected === streamId) this.selected.delete(sessionId);
   }
-  async offerVideo(sessionId, request) {
+  async offerVideo(sessionId, request, network = {}) {
     const session = this.sessions.get(sessionId);
     if (!session || this.stopping || this.sessionStops.has(sessionId))
       throw new Error('Inactive session');
@@ -367,17 +448,24 @@ export class StreamRuntime {
       codec,
       encoderBackend,
     };
-    const { stream, answer } = await this.#subscribe(sessionId, plan, request.sdp, {
-      start: {
-        video: true,
-        profile: effective.profile,
-        display,
-        codec,
-        encoderBackend,
+    const { stream, answer } = await this.#subscribe(
+      sessionId,
+      plan,
+      request.sdp,
+      {
+        start: {
+          video: true,
+          profile: effective.profile,
+          display,
+          codec,
+          encoderBackend,
+        },
+        configure: (diagnostics) =>
+          diagnostics.startStream(plan.profile, plan.audio, display, codec),
+        valid: () => this.valid({ plan }),
       },
-      configure: (diagnostics) => diagnostics.startStream(plan.profile, plan.audio, display, codec),
-      valid: () => this.valid({ plan }),
-    });
+      network,
+    );
     return {
       streamId: stream.id,
       type: 'answer',
@@ -409,7 +497,7 @@ export class StreamRuntime {
     this.telemetryTimes.set(streamId, now);
     return diagnostics.record('client', sample);
   }
-  async offerAudio(sessionId, sdp) {
+  async offerAudio(sessionId, sdp, network = {}) {
     const session = this.sessions.get(sessionId);
     if (!session || this.stopping || this.sessionStops.has(sessionId))
       throw new Error('Inactive session');
@@ -420,11 +508,17 @@ export class StreamRuntime {
     if (typeof sdp !== 'string' || !sdp.startsWith('v=0') || sdp.length > 65536)
       throw new Error('Invalid SDP');
     const format = audioFormat(session.profile);
-    const { stream, answer } = await this.#subscribe(sessionId, { kind: 'audio', format }, sdp, {
-      start: { video: false, audioFormat: format },
-      configure: (diagnostics) => diagnostics.startStream(session.profile, { mode: 'on' }, null),
-      valid: () => this.policy.snapshot().allowAudio,
-    });
+    const { stream, answer } = await this.#subscribe(
+      sessionId,
+      { kind: 'audio', format },
+      sdp,
+      {
+        start: { video: false, audioFormat: format },
+        configure: (diagnostics) => diagnostics.startStream(session.profile, { mode: 'on' }, null),
+        valid: () => this.policy.snapshot().allowAudio,
+      },
+      network,
+    );
     return { streamId: stream.id, type: 'answer', sdp: answer };
   }
   async stopStream(sessionId, streamId) {

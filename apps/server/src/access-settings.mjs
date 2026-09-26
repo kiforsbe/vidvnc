@@ -28,14 +28,32 @@ const DEFAULTS = Object.freeze({
   // The HTTPS port internet devices use when the router forwards a different public port
   // (usually 443) to this PC's HTTPS port. null: the same port as the HTTPS listener.
   publicPort: null,
-  // The UDP (and ICE-TCP) ports media workers use, `{ min, max }`, so the router can forward
-  // exactly that range to this PC. null lets the system pick any port, which works on the
-  // local network but cannot be forwarded.
-  mediaPorts: null,
+  // The one UDP port the media relay (media-relay.mjs) listens on for every viewer's media,
+  // LAN and internet alike; the router forwards this port for remote access. null: the
+  // default, DEFAULT_MEDIA_PORT.
+  mediaPort: null,
 });
 
+export const DEFAULT_MEDIA_PORT = 4384;
 export const MEDIA_PORT_LIMITS = Object.freeze({ lowest: 1024, fewest: 8, most: 1000 });
 
+export function validMediaPort(value) {
+  return value === null || bounded(value, MEDIA_PORT_LIMITS.lowest, 65535);
+}
+
+export const mediaPortOf = (settings) => settings?.mediaPort ?? DEFAULT_MEDIA_PORT;
+
+// Earlier versions gave media a port range, `mediaPorts: { min, max }`. A file or a change that
+// still names it becomes `mediaPort`, its first port, so an existing router forward keeps
+// working. `mediaPorts: null` (automatic) becomes the default port.
+function migrate(value) {
+  if (!value || typeof value !== 'object' || !Object.hasOwn(value, 'mediaPorts')) return value;
+  const { mediaPorts, ...rest } = value;
+  if (!validMediaPorts(mediaPorts)) throw new Error('Invalid access settings');
+  return { ...rest, mediaPort: mediaPorts ? mediaPorts.min : null };
+}
+
+// The old range format, accepted only to migrate it.
 export function validMediaPorts(value) {
   if (value === null) return true;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -92,6 +110,7 @@ export function validNetworkCidr(value) {
 }
 
 function validate(value) {
+  value = migrate(value);
   const next = { ...DEFAULTS, ...value };
   // Remote access trusts the connection's source address to tell the internet from the LAN.
   // A router or program that rewrites that address would make internet clients look local,
@@ -133,7 +152,7 @@ function validate(value) {
     typeof next.remoteAccess !== 'boolean' ||
     !validPublicHostnames(next.publicHostnames) ||
     (next.remoteAccess && next.publicHostnames.length === 0) ||
-    !validMediaPorts(next.mediaPorts) ||
+    !validMediaPort(next.mediaPort) ||
     (next.publicPort !== null && !bounded(next.publicPort, 1, 65535)) ||
     Object.keys(value).some((key) => !Object.hasOwn(DEFAULTS, key))
   )

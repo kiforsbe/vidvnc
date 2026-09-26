@@ -11,7 +11,10 @@ import {
   formatMaxSessions,
 } from '../format.mjs';
 import {
+  DEFAULT_MEDIA_PORT,
   MEDIA_PORT_LIMITS,
+  mediaPortOf,
+  validMediaPort,
   validMediaPorts,
   MAX_PUBLIC_HOSTNAMES,
   MAX_SESSIONS_LIMIT,
@@ -59,6 +62,9 @@ const formatRemoteAccess = (access) =>
         'Check once from mobile data: sessions must list a public address, not your router’s.',
       ].join('\n')
     : 'Remote access: off. Devices with an internet address are refused.';
+
+const mediaPortText = (access) =>
+  `Media port: UDP ${mediaPortOf(access)}${access.mediaPort === null ? ' (default)' : ''}. Every viewer's media, local and internet, uses it; forward it on the router for remote access.`;
 
 const securitySettingsCommands = [
   {
@@ -114,32 +120,51 @@ const securitySettingsCommands = [
     },
   },
   {
-    name: 'media-ports',
-    usage: 'media-ports [auto|<first>-<last>]',
-    summary: 'Show or set the port range video, audio and input use, for forwarding on a router.',
+    name: 'media-port',
+    usage: 'media-port [auto|<port>]',
+    summary: 'Show or set the UDP port all video, audio and input use, for forwarding on a router.',
     where: 'both',
     json: true,
     run: async (context, { positionals }) => {
       expectArguments(positionals, 0, 1);
       let access = context.access();
       if (positionals.length) {
-        let mediaPorts = null;
+        const value = positionals[0] === 'auto' ? null : Number(positionals[0]);
+        if (value !== null && (!/^\d{1,5}$/.test(positionals[0]) || !validMediaPort(value)))
+          throw new UsageError(
+            `Use auto (UDP ${DEFAULT_MEDIA_PORT}), or a port from ${MEDIA_PORT_LIMITS.lowest} to 65535.`,
+          );
+        access = await context.saveAccess({ mediaPort: value });
+      }
+      return { text: mediaPortText(access), data: access };
+    },
+  },
+  {
+    // Deprecated: media used a port range before the media relay. Sets the range's first port.
+    name: 'media-ports',
+    usage: 'media-ports [auto|<first>-<last>]',
+    summary: 'Deprecated: use media-port. Sets the media port to the first port of the range.',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      let access = context.access();
+      let note = '';
+      if (positionals.length) {
+        let mediaPort = null;
         if (positionals[0] !== 'auto') {
           const match = /^(\d{1,5})-(\d{1,5})$/.exec(positionals[0]);
-          mediaPorts = match ? { min: Number(match[1]), max: Number(match[2]) } : undefined;
-          if (!validMediaPorts(mediaPorts ?? undefined))
+          const range = match ? { min: Number(match[1]), max: Number(match[2]) } : undefined;
+          if (!validMediaPorts(range ?? undefined))
             throw new UsageError(
               `Use auto, or a range like 40000-40049: ${MEDIA_PORT_LIMITS.fewest} to ${MEDIA_PORT_LIMITS.most} ports, from ${MEDIA_PORT_LIMITS.lowest} to 65535.`,
             );
+          mediaPort = range.min;
         }
-        access = await context.saveAccess({ mediaPorts });
+        access = await context.saveAccess({ mediaPort });
+        note = '\nmedia-ports is deprecated: media now uses one port. Use media-port.';
       }
-      return {
-        text: access.mediaPorts
-          ? `Media ports: ${access.mediaPorts.min}-${access.mediaPorts.max} (UDP). New streams use them.`
-          : 'Media ports: automatic (any free port; works on the local network only).',
-        data: access,
-      };
+      return { text: `${mediaPortText(access)}${note}`, data: access };
     },
   },
   {

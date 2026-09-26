@@ -38,6 +38,8 @@ public sealed partial class HostWindow
     // Pressing the options arrow must not also count as a click on the indicator around it.
     DateTime ignoreSharingToggleUntil;
     string? remoteHostsDraft, remotePortDraft, remoteMediaDraft;
+    // access-settings.mjs DEFAULT_MEDIA_PORT: the media relay's port when none is set.
+    const int DefaultMediaPort = 4384;
     string? remoteFormError;
     // While sharing is off the settings are read and saved with the server's offline `config`
     // command, so remote access can be configured without turning it on or starting to share.
@@ -227,20 +229,19 @@ public sealed partial class HostWindow
             { remoteFormError = "The public HTTPS port must be a number from 1 to 65535, or empty."; RenderPage(); return; }
             port = number;
         }
-        object? media = null;
+        int? media = null;
         if (!string.IsNullOrWhiteSpace(mediaText))
         {
-            var match = Regex.Match(mediaText.Trim(), @"^(\d{1,5})\s*-\s*(\d{1,5})$");
-            if (!match.Success)
-            { remoteFormError = "Media ports must be a range like 40000-40049, or empty for automatic."; RenderPage(); return; }
-            media = new { min = int.Parse(match.Groups[1].Value), max = int.Parse(match.Groups[2].Value) };
+            if (!int.TryParse(mediaText.Trim(), out var number) || number is < 1024 or > 65535)
+            { remoteFormError = $"The media port must be a number from 1024 to 65535, or empty for {DefaultMediaPort}."; RenderPage(); return; }
+            media = number;
         }
         if (remoteAccess && hosts.Length == 0)
         { remoteFormError = "Turn remote access off before removing every public name."; RenderPage(); return; }
         if (server is not null)
         {
             await SendAccessChanges(new Dictionary<string, object?> {
-                ["publicHostnames"] = hosts, ["publicPort"] = port, ["mediaPorts"] = media },
+                ["publicHostnames"] = hosts, ["publicPort"] = port, ["mediaPort"] = media },
                 onSaved: () => remoteHostsDraft = remotePortDraft = remoteMediaDraft = null);
             return;
         }
@@ -250,8 +251,7 @@ public sealed partial class HostWindow
         {
             await RunConfig(hosts.Length == 0 ? new[] { "public-hosts", "clear" } : hosts.Prepend("public-hosts").ToArray());
             await RunConfig(new[] { "public-port", port?.ToString() ?? "same" });
-            var mediaArgument = string.IsNullOrWhiteSpace(mediaText) ? "auto" : Regex.Replace(mediaText, @"\s", "");
-            var saved = await RunConfig(new[] { "media-ports", mediaArgument });
+            var saved = await RunConfig(new[] { "media-port", media?.ToString() ?? "auto" });
             UpdateAccess(saved);
             remoteHostsDraft = remotePortDraft = remoteMediaDraft = null;
         }
@@ -356,11 +356,11 @@ public sealed partial class HostWindow
         port.TextChanged += (_, _) => remotePortDraft = port.Text;
         content.Children.Add(port);
         content.Children.Add(Secondary("Only if the router forwards a different port, usually 443, to this PC's HTTPS port."));
-        var media = new TextBox { Header = "Media ports", Tag = "media-ports", PlaceholderText = "For example 40000-40049 (empty: automatic)",
-            Text = remoteMediaDraft ?? (mediaPorts is { } range ? $"{range.Min}-{range.Max}" : ""), IsEnabled = editable };
+        var media = new TextBox { Header = "Media port (UDP)", Tag = "media-port", PlaceholderText = $"{DefaultMediaPort} (empty: default)",
+            Text = remoteMediaDraft ?? mediaPort?.ToString() ?? "", IsEnabled = editable };
         media.TextChanged += (_, _) => remoteMediaDraft = media.Text;
         content.Children.Add(media);
-        content.Children.Add(Secondary("Video, audio and input use only these UDP ports. Forward the same port numbers on the router. New streams use a changed range."));
+        content.Children.Add(Secondary($"Video, audio and input for every device use this one UDP port. Forward UDP {mediaPort ?? DefaultMediaPort} on the router to this PC. Changing it restarts live streams."));
         var save = Command("Save remote access settings", async () => await SaveRemoteSettings(hosts.Text, port.Text, media.Text));
         save.Tag = "save-remote-access"; save.IsEnabled = editable;
         content.Children.Add(save);
@@ -373,7 +373,7 @@ public sealed partial class HostWindow
             Content = Label(string.Join("\n", new[] {
                 "• Only approved clients can sign in, from anywhere. Codes, client setup and certificate enrolment stay on the local network, so set devices up here first.",
                 "• Internet devices must use HTTPS. Keyboard and mouse still need your approval unless you set that client to allow control.",
-                "• On the router, forward the HTTPS port (TCP) and the media ports (UDP) to this PC. Never forward the plain HTTP port.",
+                "• On the router, forward the HTTPS port (TCP) and the media port (UDP) to this PC. Never forward the plain HTTP port.",
                 "• Switching remote access off disconnects internet devices at once. Stopping sharing turns it off; start with remote access again when you need it.",
             })) });
         page.Children.Add(Card(content));

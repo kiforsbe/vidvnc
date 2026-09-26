@@ -206,7 +206,7 @@ test('access shows and saves the default for new connections', async (t) => {
     remoteAccess: false,
     publicHostnames: [],
     publicPort: null,
-    mediaPorts: null,
+    mediaPort: null,
   });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
 });
@@ -804,16 +804,19 @@ test('remote-access needs a public name first, and public-hosts cannot clear it 
   assert.equal((await run('public-hosts clear')).text, 'Public names: none');
 });
 
-test('media-ports and public-port show and save bounded values', async (t) => {
+test('media-port, its deprecated media-ports alias and public-port save bounded values', async (t) => {
   const { run } = await offline(t);
-  assert.match((await run('media-ports')).text, /^Media ports: automatic/);
-  assert.deepEqual((await run('media-ports 40000-40049 --json')).data.mediaPorts, {
-    min: 40000,
-    max: 40049,
-  });
+  assert.match((await run('media-port')).text, /^Media port: UDP 4384 \(default\)/);
+  assert.equal((await run('media-port 40000 --json')).data.mediaPort, 40000);
+  for (const value of ['80', '65536', '4384x', '-1'])
+    await assert.rejects(run(`media-port ${value}`), usage(/^Use auto \(UDP 4384\)/));
+  assert.equal((await run('media-port auto --json')).data.mediaPort, null);
+  const alias = await run('media-ports 40000-40049');
+  assert.match(alias.text, /^Media port: UDP 40000\./);
+  assert.match(alias.text, /media-ports is deprecated/);
   for (const value of ['40000', '40049-40000', '40000-40003', '1000-1010', '40000-41000'])
     await assert.rejects(run(`media-ports ${value}`), usage(/^Use auto, or a range/));
-  assert.equal((await run('media-ports auto --json')).data.mediaPorts, null);
+  assert.equal((await run('media-ports auto --json')).data.mediaPort, null);
   assert.match((await run('public-port 443')).text, /^Public HTTPS port: 443/);
   await assert.rejects(run('public-port 0'), usage(/^Use same, or a port/));
   assert.equal((await run('public-port same --json')).data.publicPort, null);

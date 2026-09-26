@@ -1,16 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { iceBindEnvironment, mediaPortsEnvironment } from '../src/native-media.mjs';
+import { iceBindEnvironment } from '../src/native-media.mjs';
 import { validMediaPorts } from '../src/access-settings.mjs';
 
-test('the worker gets the port range as VIDVNC_ICE_PORTS, and nothing when it is automatic', () => {
-  assert.deepEqual(mediaPortsEnvironment({ min: 40000, max: 40049 }), {
-    VIDVNC_ICE_PORTS: '40000-40049',
-  });
-  assert.deepEqual(mediaPortsEnvironment(null), {});
-});
-
-test('a media port range is 8 to 1000 unprivileged ports', () => {
+test('the old media port range (migrated to mediaPort) is 8 to 1000 unprivileged ports', () => {
   assert.equal(validMediaPorts(null), true);
   assert.equal(validMediaPorts({ min: 40000, max: 40049 }), true);
   for (const value of [

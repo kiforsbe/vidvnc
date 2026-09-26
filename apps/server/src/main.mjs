@@ -11,7 +11,9 @@ import { logDirectory, runtimeManifest } from '@vidvnc/media-worker/runtime';
 import { waitForOwner } from './owner-start.mjs';
 import { applySharingMode } from './sharing-mode.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
-import { AccessSettings } from './access-settings.mjs';
+import { AccessSettings, mediaPortOf } from './access-settings.mjs';
+import { MediaRelay } from './media-relay.mjs';
+import { createRelayAddresses } from './relay-addresses.mjs';
 import { dataDirectory, settingsFiles } from './paths.mjs';
 import { registerInstance } from './instances.mjs';
 import { createLiveContext, startConsole } from './cli/console.mjs';
@@ -92,8 +94,10 @@ async function serve() {
     await localSession.refresh();
     // Eight video sources plus two audio formats, each of which may briefly have a closing
     // predecessor; registry budgets decide what starts.
+    // Workers gather on 127.0.0.1 only; every viewer's media reaches them through the
+    // authenticating media relay on the one media port.
     const media = new NativeMedia({
-      mediaPorts: () => access.snapshot().mediaPorts,
+      iceBind: () => 'loopback',
       maxWorkers: 12,
       hostControl: true,
       diagnostics,
@@ -114,7 +118,17 @@ async function serve() {
     });
     const codeIssuer = createCodeIssuer({ access, sessionStore: store, admission });
     const peerNetwork = createPeerNetwork();
+    const relay = new MediaRelay({
+      port: () => mediaPortOf(access.snapshot()),
+      log: serverLog,
+      onEvent: (event) => runtime?.relayEvent(event),
+      onExit: () => runtime?.relayStopped(),
+    });
     runtime = new StreamRuntime({
+      relay,
+      relayAddresses: createRelayAddresses({
+        publicNames: () => access.snapshot().publicHostnames,
+      }),
       isInternet: (address) => peerNetwork.isInternet(address),
       sessions: store,
       media,
@@ -246,6 +260,7 @@ async function serve() {
       diagnosticsServer.closeAllConnections();
       const tlsClosed = tlsListener.close();
       await runtime.shutdown();
+      await relay.stop();
       await httpClosed;
       await diagnosticsClosed;
       await tlsClosed;
@@ -279,11 +294,17 @@ async function serve() {
         serverLog(
           'Remote access is on but HTTPS is off, so internet devices cannot connect. Set tls-mode to auto or provided.',
         );
-      if (settings.remoteAccess && !settings.mediaPorts)
+      if (settings.remoteAccess)
         serverLog(
-          'Remote access is on but media ports are automatic, so internet devices can sign in but get no picture. Set media-ports and forward that range.',
+          `Remote access is on: forward UDP ${mediaPortOf(settings)} (the media port) on the router to this PC, or internet devices can sign in but get no picture.`,
         );
     };
+    // A new media port restarts the relay, which stops live streams; viewers reconnect.
+    access.onChange((next, previous) => {
+      if (stopping || mediaPortOf(next) === mediaPortOf(previous)) return;
+      serverLog(`Media port changed to UDP ${mediaPortOf(next)}; restarting the media relay.`);
+      relay.restart().catch((error) => serverLog(`Media relay restart failed: ${error.message}`));
+    });
     access.onChange((next, previous) => {
       if (!stopping && previous.remoteAccess && !next.remoteAccess)
         ownerSecurity
@@ -299,7 +320,7 @@ async function serve() {
       if (
         stopping ||
         (next.remoteAccess === previous.remoteAccess &&
-          JSON.stringify(next.mediaPorts) === JSON.stringify(previous.mediaPorts) &&
+          mediaPortOf(next) === mediaPortOf(previous) &&
           JSON.stringify(next.publicHostnames) === JSON.stringify(previous.publicHostnames))
       )
         return;
@@ -596,6 +617,8 @@ async function serve() {
                   'publicName',
                   'remoteAccess',
                   'publicHostnames',
+                  'mediaPort',
+                  // Sent by hosts from before the media relay; migrated to mediaPort.
                   'mediaPorts',
                   'publicPort',
                 ]
@@ -695,6 +718,9 @@ async function serve() {
       });
       owner.on('close', stop);
     }
+    // The relay binds before `ready`, so the first offer finds it listening. If it cannot
+    // bind, sign-in still works and offers are refused with the reason.
+    await relay.start();
     try {
       await httpStack.http.start();
     } catch (error) {
