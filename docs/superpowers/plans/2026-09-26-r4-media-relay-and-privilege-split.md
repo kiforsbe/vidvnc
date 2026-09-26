@@ -286,6 +286,14 @@ the main loop was deleted both by the source's destroy notify and by `input_mess
 so the first ping crashed the worker. Fixed; relay-check never opens an input channel, which
 is why it passed.
 
+After the fix the owner reports the app working. `relay-check.mjs --video`, which now opens an
+input channel and checks every `media-worker.exe`, passed: 4 processes for 2 sources, pings
+answered through media-net by both workers, every UDP socket on 127.0.0.1, 0 packets lost,
+time inside the relay p95 0.039 ms. The mean ICE round trip was 20.67 ms over 15 checks, with
+receive jitter p99 15 ms (1.37 ms in phase 0, about 3 ms in the two runs before): with so
+few checks one slow check at startup can explain it, but it is to be measured over a longer
+run (`--seconds 60`).
+
 - [ ] **2.6 Relay at low integrity** through `--sandbox`.
 - [ ] **2.7 Firewall:** outbound block for `media-worker.exe`.
 - [ ] **2.8 Documentation**; R4 status "mitigated".
