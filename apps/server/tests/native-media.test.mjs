@@ -19,8 +19,10 @@ test('the probe surfaces encoder backends beside the codec list', () => {
   for (const codec of info.codecs) assert.ok(supported.has(codec), codec);
 });
 
+// The worker refuses a source without the owner's lease (its viewers' input comes from the
+// sandboxed network process), so these run with hostControl as the server does.
 test('stop is idempotent, ignores other sessions and resolves after worker exit', async () => {
-  const media = new NativeMedia();
+  const media = new NativeMedia({ hostControl: true });
   const negotiation = media.offer('owner', 'invalid').catch(() => {});
   const child = media.active.child;
   await media.stop('someone-else');
@@ -33,7 +35,7 @@ test('stop is idempotent, ignores other sessions and resolves after worker exit'
   await negotiation;
 });
 test('worker failure rejects negotiation and allows a clean retry', async () => {
-  const media = new NativeMedia();
+  const media = new NativeMedia({ hostControl: true });
   await assert.rejects(media.offer('one', 'invalid'), /Invalid SDP/);
   await assert.rejects(media.offer('two', 'invalid'), /Invalid SDP/);
   media.stop('two');
