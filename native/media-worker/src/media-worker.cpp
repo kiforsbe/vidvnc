@@ -286,6 +286,10 @@ struct NetProcess {
     bool ready = false;
 };
 static std::unique_ptr<NetProcess> net;
+// Diagnostics for the watchdog below: when the main loop and media-net were last heard from,
+// and what the frame path has done.
+static std::atomic<gint64> main_loop_tick{0}, net_heard{0};
+static std::atomic<unsigned> frames_sent{0}, frame_overflows{0};
 static JsonObject *pending_ready = nullptr; // the `ready` reply, sent once media-net is up
 // Posts to the main loop from a pipe thread, unless the worker is already shutting down.
 static void fail_from_thread(const char *message) {
@@ -944,6 +948,7 @@ static gboolean recovery_keyframe(gpointer) {
     return G_SOURCE_REMOVE;
 }
 static void frames_overflowed() {
+    ++frame_overflows;
     net->frame_writer->clear();
     video_sink_state.sent_caps.clear();
     audio_sink_state.sent_caps.clear();
@@ -989,6 +994,8 @@ static GstFlowReturn new_sample(GstAppSink *sink, gpointer data) {
                 static_cast<std::uint32_t>(map.size),
                 GST_BUFFER_DURATION_IS_VALID(buffer) ? GST_BUFFER_DURATION(buffer) : 0};
             queued = net->frame_writer->push(net_records::encode_frame(header, map.data));
+            if (queued)
+                ++frames_sent;
         }
         gst_buffer_unmap(buffer, &map);
     }
@@ -1240,6 +1247,7 @@ static bool start_network() {
     const auto from = net->control_from.parent.get();
     std::thread([from] {
         const bool within_limits = net_pipes::read_lines(from, [](std::string line) {
+            net_heard = now_ms();
             g_main_context_invoke(nullptr, net_message, new std::string(std::move(line)));
         });
         fail_from_thread(within_limits ? "The network process stopped."
@@ -1509,6 +1517,7 @@ static int session() {
     g_timeout_add(
         1000,
         [](gpointer) -> gboolean {
+            main_loop_tick = now_ms();
             if (!capture_display_current()) {
                 release_held();
                 fatal("Capture display changed. Reconnect.");
@@ -1554,6 +1563,23 @@ static int session() {
             g_main_context_invoke(nullptr, command, new std::string(line));
         }
         begin_shutdown();
+    }).detach();
+    // Watchdog, on its own thread and writing to stderr (the server copies it into its log),
+    // so it reports even when the main loop is stuck.
+    std::thread([] {
+        for (;;) {
+            Sleep(10000);
+            if (shutdown_started)
+                return;
+            if (!net)
+                continue;
+            const auto now = now_ms();
+            std::cerr << "media-worker status: main loop " << (now - main_loop_tick) / 1000.0
+                      << " s ago; media-net heard " << (now - net_heard) / 1000.0
+                      << " s ago; frames sent " << frames_sent << ", overflows " << frame_overflows
+                      << ", queued " << (net->frame_writer ? net->frame_writer->queued() : 0)
+                      << " bytes" << std::endl;
+        }
     }).detach();
     g_main_loop_run(loop);
     shutdown_started = true;

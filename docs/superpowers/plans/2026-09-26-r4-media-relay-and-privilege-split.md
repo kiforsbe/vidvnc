@@ -271,6 +271,14 @@ crash. Fixed by giving it the `NUL` device and routing GLib and GStreamer messag
 worker's log; the worker now logs media-net's exit code, and media-net logs connection and
 data channel events, caps and a frame count every 5 seconds. To be confirmed on Windows.
 
+Second app run: no crash, but video still stopped after a second or two, and neither
+media-net (video or audio) logged its 5-second frame count, so a main loop stalled about a
+second in; which one is not yet known. Added: a worker watchdog on its own thread that writes
+a status line to stderr every 10 seconds (main loop and media-net last heard, frames sent,
+overflows, queued bytes), `TICK` lines for media-net's first 10 seconds, a media-net watchdog
+that names the step its main loop is stuck in, and an immediate exit when media-net's loop
+ends instead of a NULL transition that can hang.
+
 - [ ] **2.6 Relay at low integrity** through `--sandbox`.
 - [ ] **2.7 Firewall:** outbound block for `media-worker.exe`.
 - [ ] **2.8 Documentation**; R4 status "mitigated".

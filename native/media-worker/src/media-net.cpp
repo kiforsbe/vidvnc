@@ -41,6 +41,13 @@ HANDLE control_out = nullptr, input_out = nullptr;
 // Diagnostics: frames pushed per kind, and the last push result that was not OK.
 std::atomic<unsigned> pushed_video{0}, pushed_audio{0};
 std::atomic<int> last_push_failure{GST_FLOW_OK};
+// Diagnostics: what the main loop is doing, and since when (a watchdog reports a stall).
+std::atomic<int> main_phase{0};
+std::atomic<gint64> main_phase_since{0};
+void enter(int phase) {
+    main_phase = phase;
+    main_phase_since = g_get_monotonic_time() / 1000;
+}
 std::mutex control_mutex, input_mutex;
 std::atomic<bool> pipes_broken{false};
 GMainLoop *loop = nullptr;
@@ -671,6 +678,7 @@ bool configure(JsonObject *object) {
 // Worker commands, on the main loop. The worker is trusted; still, a line that does not parse
 // ends this process rather than being guessed at.
 gboolean command(gpointer data) {
+    enter(10);
     std::unique_ptr<std::string> text(static_cast<std::string *>(data));
     JsonParser *parser = nullptr;
     auto object = parse_object(*text, &parser);
@@ -687,6 +695,7 @@ gboolean command(gpointer data) {
         remove_peer(peer_id);
     else if (type == "control-state" && net_records::valid_peer_id(peer_id)) {
         const auto found = peers.find(peer_id);
+        enter(11);
         if (found != peers.end() && !found->second->removing && found->second->input_channel)
             gst_webrtc_data_channel_send_string(
                 found->second->input_channel,
@@ -699,6 +708,7 @@ gboolean command(gpointer data) {
     }
     if (parser)
         g_object_unref(parser);
+    enter(0);
     return G_SOURCE_REMOVE;
 }
 
@@ -846,14 +856,18 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
                 stop_loop();
                 return G_SOURCE_REMOVE;
             }
+            enter(1);
             static unsigned ticks = 0;
-            if (++ticks % 5 == 0)
+            if (++ticks <= 10)
+                log_line("TICK " + std::to_string(ticks));
+            if (ticks % 5 == 0)
                 log_line("FRAMES pushed video=" + std::to_string(pushed_video.load()) +
                          " audio=" + std::to_string(pushed_audio.load()) +
                          " last-failure=" + std::to_string(last_push_failure.load()) +
                          " peers=" + std::to_string(peers.size()));
             if (peers.empty())
                 return G_SOURCE_CONTINUE;
+            enter(2);
             auto rows = json_object_new();
             for (auto &entry : peers) {
                 if (entry.second->removing)
@@ -864,14 +878,38 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
             }
             auto message = typed_object("peer-metrics");
             json_object_set_object_member(message, "peers", rows);
+            enter(3);
             send_line(message);
+            enter(0);
             return G_SOURCE_CONTINUE;
         },
         nullptr);
+    // Watchdog: if the main loop has been in one step for more than 3 seconds, say which
+    // (1 timer, 2 transport stats, 3 sending metrics, 10 a command, 11 a data channel send).
+    // It cannot report while the stuck step itself holds the control pipe.
+    std::thread([] {
+        for (;;) {
+            Sleep(2000);
+            const int phase = main_phase;
+            const auto since = main_phase_since.load();
+            const auto now = g_get_monotonic_time() / 1000;
+            if (phase == 0 || now - since < 3000)
+                continue;
+            std::unique_lock<std::mutex> lock(control_mutex, std::try_to_lock);
+            if (!lock.owns_lock() || pipes_broken)
+                continue;
+            const auto line =
+                object_text(typed_object(
+                    "log", {{"text", "STALL main loop in step " + std::to_string(phase) + " for " +
+                                         std::to_string(now - since) + " ms"}})) +
+                "\n";
+            net_pipes::write_all(control_out, line.data(), line.size());
+        }
+    }).detach();
     emit("net-ready", {{"tier", "T1"}, {"codeGuard", code_guard ? "on" : "off"}});
     g_main_loop_run(loop);
-    if (pipeline)
-        gst_element_set_state(pipeline, GST_STATE_NULL);
-    // Process exit reclaims the rest; the worker's job ends this process in any case.
-    return 0;
+    // No orderly teardown: setting webrtcbin to NULL can hang, and the worker, which owns this
+    // process, has already given up on it. Exit at once; the job reclaims everything.
+    log_line("LOOP EXIT");
+    ExitProcess(pipes_broken ? 4 : 0);
 }

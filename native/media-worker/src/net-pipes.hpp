@@ -137,6 +137,10 @@ class QueuedWriter {
         ready_.notify_one();
         return true;
     }
+    std::size_t queued() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queued_;
+    }
     // Drops everything not yet written; used to skip to the next keyframe on overflow.
     void clear() {
         std::lock_guard<std::mutex> lock(mutex_);
