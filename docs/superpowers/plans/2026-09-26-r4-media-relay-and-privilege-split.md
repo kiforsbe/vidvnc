@@ -279,6 +279,13 @@ overflows, queued bytes), `TICK` lines for media-net's first 10 seconds, a media
 that names the step its main loop is stuck in, and an immediate exit when media-net's loop
 ends instead of a NULL transition that can hang.
 
+Third app run: the watchdogs showed media-net healthy and the **video worker** exiting about
+1.5 seconds in, silently, as the viewer's input channel opened (the audio worker, with no
+input channel, kept running). Cause: a double free in the worker. Each input message queued to
+the main loop was deleted both by the source's destroy notify and by `input_message` itself,
+so the first ping crashed the worker. Fixed; relay-check never opens an input channel, which
+is why it passed.
+
 - [ ] **2.6 Relay at low integrity** through `--sandbox`.
 - [ ] **2.7 Firewall:** outbound block for `media-worker.exe`.
 - [ ] **2.8 Documentation**; R4 status "mitigated".

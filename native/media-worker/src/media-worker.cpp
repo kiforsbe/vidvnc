@@ -382,7 +382,8 @@ struct InputMessage {
 // worker, whatever media-net claims.
 static std::atomic<int> pending_input{0};
 static gboolean input_message(gpointer data) {
-    std::unique_ptr<InputMessage> message(static_cast<InputMessage *>(data));
+    // Owned by the main-loop source: its destroy notify deletes it after this returns.
+    const auto message = static_cast<InputMessage *>(data);
     --pending_input;
     const auto found = peers.find(message->peer);
     if (found == peers.end() || found->second->removing)
