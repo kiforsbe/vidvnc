@@ -66,7 +66,8 @@ security analysis's verification record) before phase 1 starts.
 
 ### Task 0.2: Gate P1 and P2 on Windows (owner)
 
-- [ ] Pull the branch, then run the portable suite: `npm test`.
+- [x] Pull the branch, then run the portable suite: `npm test`. **2026-09-26, owner's Windows
+      machine:** 899/899 passed.
 - [ ] Run the check with audio (P1):
 
   ```powershell
