@@ -7,12 +7,17 @@ import { DisplayInventory } from './displays.mjs';
 import { SessionStore } from './session-store.mjs';
 import { createInterface } from 'node:readline';
 import { Diagnostics } from './diagnostics.mjs';
-import { logDirectory, runtimeManifest } from '@vidvnc/media-worker/runtime';
+import {
+  executable as workerExecutable,
+  logDirectory,
+  runtimeManifest,
+  workerEnvironment,
+} from '@vidvnc/media-worker/runtime';
 import { waitForOwner } from './owner-start.mjs';
 import { applySharingMode } from './sharing-mode.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
 import { AccessSettings, mediaPortOf } from './access-settings.mjs';
-import { MediaRelay } from './media-relay.mjs';
+import { MediaRelay, sandboxedRelayLaunch } from './media-relay.mjs';
 import { createRelayAddresses } from './relay-addresses.mjs';
 import { dataDirectory, settingsFiles } from './paths.mjs';
 import { registerInstance } from './instances.mjs';
@@ -120,6 +125,15 @@ async function serve() {
     const peerNetwork = createPeerNetwork();
     const relay = new MediaRelay({
       port: () => mediaPortOf(access.snapshot()),
+      // Windows: at low integrity through the worker's sandbox launcher (R4 design, phase 2).
+      ...(process.platform === 'win32'
+        ? {
+            launch: sandboxedRelayLaunch({
+              executable: workerExecutable,
+              env: workerEnvironment(),
+            }),
+          }
+        : {}),
       log: serverLog,
       onEvent: (event) => runtime?.relayEvent(event),
       onExit: () => runtime?.relayStopped(),

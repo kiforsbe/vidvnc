@@ -13,6 +13,19 @@ const UNAUTHENTICATED = ['budget', 'malformed', 'unknown-ufrag', 'bad-integrity'
 
 export const RELAY_RESTARTS = Object.freeze({ limit: 3, windowMs: 60_000 });
 
+// On Windows the relay runs at low integrity, in its own job and desktop, through the media
+// worker's sandbox launcher (`media-worker.exe --sandbox -- <node> <relay script>`), which
+// passes the pipes through and exits with the relay's exit code. The user SID stays enabled:
+// Node must read its own files.
+export function sandboxedRelayLaunch({ executable, env, start = spawn }) {
+  return () =>
+    start(executable, ['--sandbox', '--', process.execPath, RELAY_SCRIPT], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      env,
+    });
+}
+
 export class MediaRelay {
   #launch;
   #port;

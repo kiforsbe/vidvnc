@@ -337,7 +337,9 @@ Its data-channel input goes through the worker's broker and the owner's lease
   still reach OpenSSL and libsrtp, now inside media-net (once phase 2 is validated); a
   compromised media-net can act as the viewer that holds control while it is granted;
 - the relay's own parser (`stun.mjs`), Node's `dgram` and V8 handle unauthenticated
-  datagrams, at medium integrity for now;
+  datagrams; on Windows the relay runs at low integrity in its own job and desktop (built,
+  not yet validated), so it cannot write to the user's files, but it can read them, because
+  Node must read its own;
 - the firewall rules (F1) are not in place yet, so Windows Firewall scoping still depends on
   the owner's answer to Windows' prompt.
 

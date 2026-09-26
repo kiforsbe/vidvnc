@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <iphlpapi.h>
+#include <shellapi.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/video/video-event.h>
@@ -1603,7 +1604,80 @@ static int session() {
     return failed ? 1 : 0;
 }
 
+// Quotes one argument the way CommandLineToArgvW reads it back.
+static std::wstring quote_argument(const std::wstring &argument) {
+    if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos)
+        return argument;
+    std::wstring quoted = L"\"";
+    for (auto it = argument.begin();; ++it) {
+        std::size_t backslashes = 0;
+        while (it != argument.end() && *it == L'\\') {
+            ++it;
+            ++backslashes;
+        }
+        if (it == argument.end()) {
+            quoted.append(backslashes * 2, L'\\');
+            break;
+        }
+        if (*it == L'"')
+            quoted.append(backslashes * 2 + 1, L'\\');
+        else
+            quoted.append(backslashes, L'\\');
+        quoted.push_back(*it);
+    }
+    quoted.push_back(L'"');
+    return quoted;
+}
+
+// `media-worker.exe --sandbox -- <program> [arguments]`: runs the program at low integrity in
+// its own job and desktop, with the mitigations and no child processes, but with the user SID
+// still enabled, because the media relay (Node) must read its own files and reach the network.
+// Its standard handles are this process's; the exit code is the program's. Design, Part B
+// ("media-relay ... phase 2").
+static int run_sandboxed() {
+    int count = 0;
+    const auto arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (!arguments || count < 4 || std::wstring(arguments[2]) != L"--")
+        return 2;
+    const std::wstring program = arguments[3];
+    std::wstring command_line;
+    for (int i = 3; i < count; ++i)
+        command_line += (i > 3 ? L" " : L"") + quote_argument(arguments[i]);
+    LocalFree(arguments);
+    // Inheritable copies of the standard handles, for the explicit handle list.
+    HANDLE handles[3] = {};
+    const DWORD kinds[3] = {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
+    for (int i = 0; i < 3; ++i)
+        if (!DuplicateHandle(GetCurrentProcess(), GetStdHandle(kinds[i]), GetCurrentProcess(),
+                             &handles[i], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+            std::cerr << "Unable to pass the standard handles to the sandbox" << std::endl;
+            return 2;
+        }
+    sandbox::Options options;
+    options.restricted = false;    // low integrity only: the user SID stays enabled
+    options.initial_token = false; // nothing to preload
+    options.std_input = handles[0];
+    options.std_output = handles[1];
+    options.std_error = handles[2];
+    sandbox::Launched launched;
+    const auto result = sandbox::launch(program, command_line, {handles[0], handles[1], handles[2]},
+                                        launched, options);
+    for (auto handle : handles)
+        CloseHandle(handle);
+    if (!result.ok) {
+        std::cerr << "Unable to start the sandboxed program: " << result.error << std::endl;
+        return 2;
+    }
+    WaitForSingleObject(launched.process.get(), INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(launched.process.get(), &code);
+    return static_cast<int>(code);
+}
+
 int main(int argc, char **argv) {
+    // The sandbox launcher needs neither GStreamer nor the log.
+    if (argc >= 4 && std::string(argv[1]) == "--sandbox")
+        return run_sandboxed();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     g_set_print_handler([](const gchar *text) {
         std::cerr << text;

@@ -58,7 +58,10 @@ may include breaking changes.
   process that Windows restricts: a reduced copy of your account with low integrity, its own
   job and desktop, and Arbitrary Code Guard. It cannot capture the screen, send keyboard or
   mouse input, or read your files. Viewer input passes from it to the media worker, which
-  still checks every message against the control you granted. Not yet validated on Windows.
+  still checks every message against the control you granted.
+- On Windows the media relay now runs at low integrity, in its own job and desktop, so the one
+  process that handles unauthenticated network traffic cannot change your files or send input
+  to your desktop.
 
 ### Known limitations
 

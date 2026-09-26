@@ -294,6 +294,10 @@ receive jitter p99 15 ms (1.37 ms in phase 0, about 3 ms in the two runs before)
 few checks one slow check at startup can explain it, but it is to be measured over a longer
 run (`--seconds 60`).
 
-- [ ] **2.6 Relay at low integrity** through `--sandbox`.
-- [ ] **2.7 Firewall:** outbound block for `media-worker.exe`.
+- [x] **2.6 Relay at low integrity** through `media-worker.exe --sandbox -- <node> <script>`
+      (`run_sandboxed`: low integrity with the user SID kept, job, desktop, mitigations, the
+      standard handles passed through; `sandboxedRelayLaunch` in the server on Windows). Not
+      yet run on Windows.
+- [ ] **2.7 Firewall:** outbound block for `media-worker.exe`. Part of the F1 apply step
+      (task 1.5), which needs gate P5; not started.
 - [ ] **2.8 Documentation**; R4 status "mitigated".

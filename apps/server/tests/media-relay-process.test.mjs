@@ -4,7 +4,7 @@ import dgram from 'node:dgram';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { runRelay } from '../src/media-relay/protocol.mjs';
-import { MediaRelay } from '../src/media-relay.mjs';
+import { MediaRelay, sandboxedRelayLaunch } from '../src/media-relay.mjs';
 import { bindingRequest } from './fixtures/stun-messages.mjs';
 
 const REGISTRATION = {
@@ -236,4 +236,20 @@ test('allow times out and revokes when the relay does not confirm', async () => 
     commands.map((command) => command.type),
     ['allow', 'revoke'],
   );
+});
+
+test('on Windows the relay starts through the worker sandbox launcher', () => {
+  const calls = [];
+  const launch = sandboxedRelayLaunch({
+    executable: 'C:\\VidVNC\\media-worker.exe',
+    env: { PATH: 'x' },
+    start: (...args) => calls.push(args),
+  });
+  launch();
+  const [[executable, args, options]] = calls;
+  assert.equal(executable, 'C:\\VidVNC\\media-worker.exe');
+  assert.deepEqual(args.slice(0, 3), ['--sandbox', '--', process.execPath]);
+  assert.match(args[3], /media-relay[\\/]main\.mjs$/);
+  assert.deepEqual(options.env, { PATH: 'x' });
+  assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe']);
 });
