@@ -5,7 +5,7 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
-## [Unreleased]
+## [0.10.0] - 2026-09-26
 
 ### Added
 
@@ -74,6 +74,8 @@ may include breaking changes.
   `mediaPorts`. To go back to an earlier version, remove `mediaPort` from that file first.
 - Firewall rules for the media port are not yet managed by VidVNC: Windows asks once for Node.js
   when the relay first listens.
+- Desktop audio can sound crackly since the media worker's network code moved into its own
+  sandboxed process. Video and input are not affected. Under investigation.
 
 ## [0.9.1] - 2026-09-26
 
