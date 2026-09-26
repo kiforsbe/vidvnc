@@ -888,6 +888,8 @@ test('with the relay, a bad answer, a refused registration or no relay fails the
     runtime.offerVideo(a, { sdp, displayId: displays[0].id, profile: 'mobile' }, {});
   await assert.rejects(offer(clientOffer(['a=tag:bad-answer'])), /loopback UDP host candidate/);
   assert.deepEqual(relay.allowed, []);
+  await assert.rejects(offer(clientOffer(['a=tag:foreign-port'])), /does not own/);
+  assert.deepEqual(relay.allowed, []);
   await assert.rejects(
     offer(clientOffer().replace('a=ice-pwd:clientpasswordclientpass', 'a=ice-pwd:short')),
     (error) => error.status === 400,

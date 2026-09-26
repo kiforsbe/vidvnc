@@ -223,3 +223,25 @@ test('compatibility offer runs one worker-owned peer and frees the slot on failu
   await assert.rejects(media.offer('legacy2', 'fail', profile(15)), /Invalid SDP/);
   assert.equal(media.workers.has('legacy2'), false);
 });
+
+test('a port check is answered by the worker, and fails closed on silence or exit', async () => {
+  const media = new NativeMedia({ launch, hostControl: true });
+  await media.start('source', { profile: profile(30) });
+  const relayOffer = 'v=0\r\na=ice-ufrag:ClNt\r\na=ice-pwd:clientpasswordclientpass\r\n';
+  await media.addPeer('source', 'peer', relayOffer);
+  assert.equal(await media.checkPort('source', 'peer', 50001), true);
+  assert.equal(await media.checkPort('unknown-source', 'peer', 50001), false);
+  // No reply in time: not owned.
+  const quiet = media.workers.get('source');
+  const write = quiet.child.stdin.write.bind(quiet.child.stdin);
+  quiet.child.stdin.write = (line, ...rest) =>
+    line.includes('check-port') ? true : write(line, ...rest);
+  assert.equal(await media.checkPort('source', 'peer', 50001, 50), false);
+  quiet.child.stdin.write = write;
+  // The worker exits while a check is waiting: not owned.
+  quiet.child.stdin.write = (line, ...rest) =>
+    line.includes('check-port') ? true : write(line, ...rest);
+  const pending = media.checkPort('source', 'peer', 50001, 10000);
+  await media.stop('source');
+  assert.equal(await pending, false);
+});

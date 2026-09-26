@@ -260,7 +260,17 @@ checked: the host app with a real browser and an iPhone, input through the broke
 - [x] **2.4 Broker:** input from the pipe through the existing checks; refuse to run without
       `hostControl`. The worker's ICE port range (`VIDVNC_ICE_PORTS`) and its check script are
       removed; media-net always gathers on 127.0.0.1.
-- [ ] **2.5 Answer attestation:** `check-port` with `GetExtendedUdpTable`.
+- [x] **2.5 Answer attestation:** `check-port` with `GetExtendedUdpTable`
+      (`NativeMedia.checkPort`, called in `StreamRuntime` before `allow`; fails closed on a
+      timeout or worker exit).
+
+First app run, 2026-09-26: video stopped after a second or two, locally and remotely. Likely
+cause: media-net had no standard handles of its own, so it inherited the worker's handle
+values, invalid in media-net, and strict handle checks turn the first write to stderr into a
+crash. Fixed by giving it the `NUL` device and routing GLib and GStreamer messages to the
+worker's log; the worker now logs media-net's exit code, and media-net logs connection and
+data channel events, caps and a frame count every 5 seconds. To be confirmed on Windows.
+
 - [ ] **2.6 Relay at low integrity** through `--sandbox`.
 - [ ] **2.7 Firewall:** outbound block for `media-worker.exe`.
 - [ ] **2.8 Documentation**; R4 status "mitigated".

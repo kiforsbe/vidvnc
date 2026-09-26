@@ -361,7 +361,12 @@ bounded sizes, expected message types; anything malformed ends the source. Input
 through the same broker as before the split — the owner's lease, the peer's control flag,
 the allow-lists and the rate limit — so a compromised media-net can act as the viewer that
 currently holds control, but cannot grant control or inject input when nobody holds it. A
-source whose `start` does not carry `hostControl` is refused. Viewers that arrive before
+source whose `start` does not carry `hostControl` is refused. Before registering a stream
+with the relay, the server asks the worker to attest the answer's loopback port
+(`check-port`): the worker confirms with `GetExtendedUdpTable` that `127.0.0.1:<port>` is
+owned by its own media-net, so a compromised media-net cannot point the relay at another
+program's socket. media-net's standard handles are the `NUL` device, and its GLib and
+GStreamer messages go to the worker's log. Viewers that arrive before
 media-net is ready wait in the worker, in order. media-net writes no files: its log lines go
 to the worker, which writes them to `native-worker.log` with a `NET` prefix. Capture starts
 only when the first viewer is answered.

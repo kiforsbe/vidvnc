@@ -130,6 +130,8 @@ struct Options {
     bool mitigations = true;       // process mitigation policies
     bool object_security = true;   // the process and thread security descriptors
     bool detached = true;          // no console; false: CREATE_NO_WINDOW (a hidden console)
+    // Standard handles for the child (all or none); they must also be in the inherit list.
+    HANDLE std_input = nullptr, std_output = nullptr, std_error = nullptr;
 };
 
 inline Result make_tokens(Tokens &out, bool restricted = true) {
@@ -311,6 +313,12 @@ inline Result launch(const std::wstring &executable, std::wstring command_line,
     STARTUPINFOEXW startup{};
     startup.StartupInfo.cb = sizeof(startup);
     startup.StartupInfo.lpDesktop = options.alternate_desktop ? desktop.data() : nullptr;
+    if (options.std_input && options.std_output && options.std_error) {
+        startup.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = options.std_input;
+        startup.StartupInfo.hStdOutput = options.std_output;
+        startup.StartupInfo.hStdError = options.std_error;
+    }
     startup.lpAttributeList = attributes;
     // Only SYSTEM and the unrestricted user (this worker) may open the process and its
     // threads; another sandboxed process, whose user SID is deny-only, cannot.

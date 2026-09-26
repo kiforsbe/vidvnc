@@ -252,6 +252,10 @@ export class NativeMedia {
       active.peers.delete(message.peerId);
       entry.resolveRemoved();
     }
+    if (message.type === 'port-owned' && typeof message.owned === 'boolean') {
+      const check = active.portChecks?.get(`${message.peerId}|${message.port}`);
+      check?.(message.owned);
+    }
     if (message.type === 'metrics') {
       active.diagnostics?.record('server', peerSample(message, active.id));
       this.onMetrics(active.id, message);
@@ -290,6 +294,27 @@ export class NativeMedia {
       }, this.negotiationTimeoutMs);
       active.peers.set(peerId, entry);
       active.child.stdin.write(JSON.stringify({ type: 'add-peer', peerId, sdp }) + '\n');
+    });
+  }
+  // Asks the worker whether the loopback port in a peer's answer belongs to that source's own
+  // sandboxed network process (the answer comes from there and is untrusted). Resolves false on
+  // any doubt: a stopped worker, a timeout, or a port someone else owns.
+  checkPort(sourceId, peerId, port, timeoutMs = 3000) {
+    const active = this.workers.get(sourceId);
+    if (!active || active.stopping || !active.child.stdin.writable) return Promise.resolve(false);
+    active.portChecks ??= new Map();
+    const key = `${peerId}|${port}`;
+    if (active.portChecks.has(key)) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const finish = (owned) => {
+        clearTimeout(timer);
+        active.portChecks.delete(key);
+        resolve(owned === true);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      active.portChecks.set(key, finish);
+      active.closed.then(() => finish(false));
+      active.child.stdin.write(JSON.stringify({ type: 'check-port', peerId, port }) + '\n');
     });
   }
   removePeer(sourceId, peerId) {

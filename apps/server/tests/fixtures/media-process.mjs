@@ -73,6 +73,13 @@ input.on('line', (line) => {
     }
     send({ type: 'answer', peerId, sdp: `answer:${message.sdp}` });
   }
+  // The worker's answer attestation: a port the fixture's relay answer used, unless the
+  // offer asked for a foreign one.
+  if (message.type === 'check-port') {
+    const offer = peers.get(peerId) ?? '';
+    const owned = offer.includes('a=ice-ufrag:') && !offer.includes('foreign-port');
+    return send({ type: 'port-owned', peerId, port: message.port, owned });
+  }
   if (message.type === 'remove-peer') {
     if (peers.get(peerId)?.includes('no-remove')) return;
     peers.delete(peerId);

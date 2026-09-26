@@ -364,7 +364,8 @@ export class StreamRuntime {
       if (ready.status === 'rejected') throw ready.reason;
       if (peer.status === 'rejected') throw peer.reason;
       let answer = peer.value;
-      if (this.relay) answer = await this.#throughRelay(stream.id, answer, client, network);
+      if (this.relay)
+        answer = await this.#throughRelay(source.id, stream.id, answer, client, network);
       // Known only once the worker is ready: which GPU won, and why.
       diagnostics.setEncoder(this.media.encoder?.(source.id) ?? null);
       if (
@@ -386,12 +387,18 @@ export class StreamRuntime {
   // loopback candidate replaced by the relay's port on addresses this client can reach. The
   // registration is confirmed before the answer leaves, so the first check is never dropped.
   async #throughRelay(
+    sourceId,
     streamId,
     answer,
     client,
     { internet = false, clientHint = null, localAddress } = {},
   ) {
     const worker = validateRelayAnswer(answer);
+    // The answer comes from the source's sandboxed network process and is untrusted: its
+    // loopback port must be one that process really owns, or the relay would forward an
+    // authenticated client to some other program's socket.
+    if (!(await this.media.checkPort(sourceId, streamId, worker.port)))
+      throw new Error('The network process answered with a port it does not own.');
     const addresses = await this.relayAddresses({ internet, localAddress });
     await this.relay.allow({
       streamId,

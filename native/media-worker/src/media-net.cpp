@@ -38,6 +38,9 @@
 namespace {
 
 HANDLE control_out = nullptr, input_out = nullptr;
+// Diagnostics: frames pushed per kind, and the last push result that was not OK.
+std::atomic<unsigned> pushed_video{0}, pushed_audio{0};
+std::atomic<int> last_push_failure{GST_FLOW_OK};
 std::mutex control_mutex, input_mutex;
 std::atomic<bool> pipes_broken{false};
 GMainLoop *loop = nullptr;
@@ -189,6 +192,7 @@ void channel_message(GstWebRTCDataChannel *, gchar *text, gpointer data) {
         pipes_broken = true;
 }
 void channel_closed(GstWebRTCDataChannel *, gpointer data) {
+    log_line("PEER id=" + static_cast<PeerRef *>(data)->id + " input channel closed");
     emit("channel-closed", {{"peerId", static_cast<PeerRef *>(data)->id}});
 }
 struct ChannelAttach {
@@ -205,6 +209,7 @@ void channel_created(GstElement *, GstWebRTCDataChannel *channel, gpointer data)
         return;
     }
     const auto &ref = *static_cast<PeerRef *>(data);
+    log_line("PEER id=" + ref.id + " input channel opened");
     // Queue the attach before connecting message handlers so replies always find the channel.
     g_main_context_invoke_full(
         nullptr, G_PRIORITY_DEFAULT,
@@ -244,6 +249,17 @@ Peer *peer_of(GstObject *object, bool &attached) {
     return nullptr;
 }
 gboolean bus_message(GstBus *, GstMessage *message, gpointer) {
+    if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_WARNING) {
+        GError *warning = nullptr;
+        gchar *debug = nullptr;
+        gst_message_parse_warning(message, &warning, &debug);
+        log_line("GSTREAMER WARNING source=" + std::string(GST_OBJECT_NAME(message->src)) +
+                 " message=" + (warning ? warning->message : "unknown") +
+                 " debug=" + (debug ? debug : "none"));
+        if (warning)
+            g_error_free(warning);
+        g_free(debug);
+    }
     if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR) {
         GError *error = nullptr;
         gchar *debug = nullptr;
@@ -305,6 +321,7 @@ void connection_changed(GObject *, GParamSpec *, gpointer data) {
     on_main(*static_cast<PeerRef *>(data), [](Peer &peer) {
         GstWebRTCPeerConnectionState state;
         g_object_get(peer.webrtc, "connection-state", &state, nullptr);
+        log_line("PEER id=" + peer.id + " connection-state=" + std::to_string(state));
         if (state == GST_WEBRTC_PEER_CONNECTION_STATE_FAILED)
             fail_peer(peer, "WebRTC connection failed.");
         // RTP sent before DTLS connects is dropped, so the join keyframe waits for connected.
@@ -714,6 +731,7 @@ void read_frames(HANDLE frames) {
                 break;
             g_object_set(source, "caps", caps, nullptr);
             gst_caps_unref(caps);
+            log_line(std::string("CAPS ") + text);
             continue;
         }
         auto buffer = gst_buffer_new_memdup(payload.data(), payload.size());
@@ -721,7 +739,10 @@ void read_frames(HANDLE frames) {
             GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
         if (header->duration)
             GST_BUFFER_DURATION(buffer) = header->duration;
-        gst_app_src_push_buffer(GST_APP_SRC(source), buffer);
+        const auto flow = gst_app_src_push_buffer(GST_APP_SRC(source), buffer);
+        if (flow != GST_FLOW_OK)
+            last_push_failure = flow;
+        ++(video ? pushed_video : pushed_audio);
     }
     g_main_context_invoke(
         nullptr,
@@ -766,6 +787,19 @@ bool preload() {
 int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HANDLE input) {
     control_out = control_out_handle;
     input_out = input;
+    // Nothing goes to stderr (it is the NUL device): GLib messages and GStreamer's own debug
+    // output are sent to the worker's log instead.
+    g_log_set_default_handler(
+        [](const gchar *domain, GLogLevelFlags level, const gchar *message, gpointer) {
+            if (level & (G_LOG_LEVEL_DEBUG | G_LOG_LEVEL_INFO))
+                return;
+            log_line(std::string("GLIB ") + (domain ? domain : "") + " " +
+                     (message ? message : ""));
+        },
+        nullptr);
+    g_set_print_handler([](const gchar *text) { log_line(std::string("PRINT ") + text); });
+    g_set_printerr_handler([](const gchar *text) { log_line(std::string("PRINTERR ") + text); });
+    gst_debug_remove_log_function(gst_debug_log_default);
     // Still impersonating the same-access token: start Winsock and load every plugin now.
     WSADATA winsock;
     const bool sockets = WSAStartup(MAKEWORD(2, 2), &winsock) == 0;
@@ -812,6 +846,12 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
                 stop_loop();
                 return G_SOURCE_REMOVE;
             }
+            static unsigned ticks = 0;
+            if (++ticks % 5 == 0)
+                log_line("FRAMES pushed video=" + std::to_string(pushed_video.load()) +
+                         " audio=" + std::to_string(pushed_audio.load()) +
+                         " last-failure=" + std::to_string(last_push_failure.load()) +
+                         " peers=" + std::to_string(peers.size()));
             if (peers.empty())
                 return G_SOURCE_CONTINUE;
             auto rows = json_object_new();

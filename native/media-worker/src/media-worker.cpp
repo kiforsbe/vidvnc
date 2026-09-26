@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <winsock2.h>
+#include <iphlpapi.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/video/video-event.h>
@@ -293,8 +294,21 @@ static void fail_from_thread(const char *message) {
     g_main_context_invoke(
         nullptr,
         [](gpointer text) -> gboolean {
-            if (!shutdown_started)
-                fatal(static_cast<const char *>(text));
+            if (shutdown_started)
+                return G_SOURCE_REMOVE;
+            // Say how media-net ended: a crash code (for example 0xC0000005) points at the
+            // cause, where "stopped" alone does not.
+            if (net && net->launched.process && error_log.is_open()) {
+                DWORD code = STILL_ACTIVE;
+                WaitForSingleObject(net->launched.process.get(), 500);
+                GetExitCodeProcess(net->launched.process.get(), &code);
+                char hex[16];
+                snprintf(hex, sizeof(hex), "0x%08lX", static_cast<unsigned long>(code));
+                error_log << "NET " << static_cast<const char *>(text)
+                          << " exit=" << (code == STILL_ACTIVE ? std::string("still running") : hex)
+                          << std::endl;
+            }
+            fatal(static_cast<const char *>(text));
             return G_SOURCE_REMOVE;
         },
         const_cast<char *>(message));
@@ -1184,11 +1198,25 @@ static bool start_network() {
     // which its job forbids.
     SetEnvironmentVariableW(L"GST_REGISTRY_UPDATE", L"no");
     SetEnvironmentVariableW(L"GST_REGISTRY_FORK", L"no");
+    // Standard handles: without them, Windows copies the worker's handle values into media-net,
+    // where they are invalid, and strict handle checks turn the first write to stderr (a GLib
+    // warning, say) into a crash. The NUL device gives it real ones that go nowhere.
+    SECURITY_ATTRIBUTES inheritable{sizeof(inheritable), nullptr, TRUE};
+    sandbox::Handle null_device(CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                                            FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable,
+                                            OPEN_EXISTING, 0, nullptr));
+    if (!null_device) {
+        fatal("Unable to open the null device for the network process.");
+        return false;
+    }
+    sandbox::Options options;
+    options.std_input = options.std_output = options.std_error = null_device.get();
     const auto launched =
         sandbox::launch(executable, command_line,
                         {net->control_to.child.get(), net->control_from.child.get(),
-                         net->frames.child.get(), net->input.child.get()},
-                        net->launched);
+                         net->frames.child.get(), net->input.child.get(), null_device.get()},
+                        net->launched, options);
+    null_device.reset();
     // media-net has its ends now (or never will); the worker keeps only its own.
     net->control_to.child.reset();
     net->control_from.child.reset();
@@ -1228,6 +1256,27 @@ static bool start_network() {
         },
         nullptr);
     return true;
+}
+// Answer attestation (design, "Signaling changes", step 2): the loopback port in an answer
+// from media-net must belong to this source's own media-net, per Windows' UDP table, so a
+// compromised media-net cannot point the relay at another process's socket.
+static bool port_owned(unsigned port) {
+    if (!net || !net->launched.pid)
+        return false;
+    ULONG size = 0;
+    GetExtendedUdpTable(nullptr, &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0);
+    std::vector<unsigned char> buffer(size);
+    if (!size || GetExtendedUdpTable(buffer.data(), &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID,
+                                     0) != NO_ERROR)
+        return false;
+    const auto table = reinterpret_cast<const MIB_UDPTABLE_OWNER_PID *>(buffer.data());
+    for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+        const auto &row = table->table[i];
+        if (row.dwLocalAddr == htonl(INADDR_LOOPBACK) &&
+            ntohs(static_cast<u_short>(row.dwLocalPort)) == port)
+            return row.dwOwningPid == net->launched.pid;
+    }
+    return false;
 }
 static void stop_network() {
     if (!net)
@@ -1424,6 +1473,21 @@ static gboolean command(gpointer data) {
                           << static_cast<gint64>(request) << ",\"allowed\":"
                           << (peer_permission.allowed(peer_id, now) ? "true" : "false") << "}"
                           << std::endl;
+            }
+        } else if (type == "check-port") {
+            const auto port = number_member(object, "port");
+            const auto found = peers.find(peer_id);
+            if (!valid_peer || !std::isfinite(port) || port != std::floor(port) || port < 1024 ||
+                port > 65535)
+                fatal("Invalid port check");
+            else {
+                const bool owned = found != peers.end() && !found->second->removing &&
+                                   found->second->answered &&
+                                   port_owned(static_cast<unsigned>(port));
+                auto reply = typed_object("port-owned", {{"peerId", peer_id}});
+                json_object_set_int_member(reply, "port", static_cast<gint64>(port));
+                json_object_set_boolean_member(reply, "owned", owned);
+                write_object(reply);
             }
         } else if (type == "stop")
             begin_shutdown();
