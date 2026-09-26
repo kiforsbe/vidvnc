@@ -5,6 +5,14 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Fixed
+
+- Touch control in the browser viewer: dragging a finger now only moves the pointer instead of
+  clicking when the finger lifts. A quick tap clicks, and touching and holding still before
+  dragging presses the button so windows and selections can still be dragged.
+
 ## [0.9.0] - 2026-09-25
 
 ### Added

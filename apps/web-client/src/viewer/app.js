@@ -781,6 +781,15 @@ export function createViewer({ onExit }) {
       send({ type: 'move', ...point });
     }
   };
+  // Touch: dragging only moves the cursor, a quick tap clicks, and holding
+  // still before dragging presses the button so windows can still be dragged.
+  const TAP_SLOP = 10;
+  const HOLD_MS = 450;
+  let touch = null;
+  function endTouch() {
+    if (touch) clearTimeout(touch.hold);
+    touch = null;
+  }
   $('video').onpointerdown = (event) => {
     if ($('video').paused && $('video').srcObject)
       $('video')
@@ -793,15 +802,49 @@ export function createViewer({ onExit }) {
     $('video').focus();
     $('video').setPointerCapture(event.pointerId);
     send({ type: 'move', ...point });
+    if (event.pointerType === 'touch') {
+      if (touch) return;
+      const state = { id: event.pointerId, x: event.clientX, y: event.clientY, pressed: false };
+      state.hold = setTimeout(() => {
+        if (touch !== state || state.moved || !enabled) return;
+        state.pressed = true;
+        send({ type: 'button', button: 0, down: true });
+      }, HOLD_MS);
+      touch = state;
+      return;
+    }
     send({ type: 'button', button: event.button, down: true });
   };
+  $('video').addEventListener('pointermove', (event) => {
+    if (!touch || event.pointerId !== touch.id || touch.moved) return;
+    if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > TAP_SLOP) {
+      touch.moved = true;
+      clearTimeout(touch.hold);
+    }
+  });
   $('video').onpointerup = (event) => {
+    if (touch && event.pointerId === touch.id) {
+      const { pressed, moved } = touch;
+      endTouch();
+      if (!enabled) return;
+      event.preventDefault();
+      if (pressed) send({ type: 'button', button: 0, down: false });
+      else if (!moved) {
+        send({ type: 'button', button: 0, down: true });
+        send({ type: 'button', button: 0, down: false });
+      }
+      return;
+    }
+    if (event.pointerType === 'touch') return;
     if (enabled && event.button <= 2) {
       event.preventDefault();
       send({ type: 'button', button: event.button, down: false });
     }
   };
-  $('video').onpointercancel = release;
+  $('video').onpointercancel = (event) => {
+    if (touch && event.pointerId === touch.id) endTouch();
+    release();
+  };
   $('video').oncontextmenu = (event) => event.preventDefault();
   $('video').addEventListener(
     'wheel',
