@@ -1,6 +1,6 @@
 # macOS support: native host, server and distribution
 
-**Status: draft for review, revision 1, 2026-10-09.** Nothing here is implemented. It covers
+**Status: accepted by the owner, revision 2, 2026-10-09,** with Q4 and Q14 still open (see the [decision register](#decision-register)). Nothing here is implemented. It covers
 the `macos-server` and `macos-cli` targets in [targets.json](../../../packaging/targets.json):
 a native macOS host app, a macOS build of the server and media worker, and how both are
 signed and distributed. The native macOS viewer (`macos-client`) is a separate piece of
@@ -69,42 +69,44 @@ Every open decision in this design, when it must be made, and the proposal. Deci
 the owner have a `Q` number; design decisions, explained under [Decisions](#decisions),
 have a `D` number and are confirmed or overturned by a [prototype gate](#prototype-gates).
 Update the Status column as each one is settled, and record the reason next to the
-decision it changes.
+decision it changes. On 2026-10-09 the owner accepted D1 to D10 and most proposals; an
+accepted design decision still stands or falls with its gate.
 
 ### Owner decisions
 
-In the order they are needed.
+In the order they are needed. Decided on 2026-10-09 unless the status says otherwise.
 
-| ID  | Decision                                                                                                                                         | Needed                                             | Proposal                                                                                                    | Status |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------ |
-| Q7  | Apply for Apple's managed `com.apple.developer.persistent-content-capture` entitlement ([D5](#d5-permissions-and-onboarding))                    | Now: Apple's review takes weeks                    | Apply now. If refused, the periodic capture re-approval is a documented known limitation                    | Open   |
-| Q6  | Lowest supported macOS ([older versions](#older-macos-versions-on-apple-silicon))                                                                | Before the host app is built                       | macOS 27 only. If 13.5 might ever be wanted, say so now, so the host uses `ObservableObject` from the start | Open   |
-| Q2  | Confirm each new network before the server binds to it, since macOS has no Private profile ([D6](#d6-lan-eligibility-without-a-network-profile)) | Before the server's LAN eligibility work           | Yes for the app, one prompt the first time it sees a network; no for the CLI                                | Open   |
-| Q4  | Should the CLI disclaim TCC responsibility, so its grants are its own rather than Terminal's?                                                    | After MG3                                          | Not at first; accept and document Terminal's grants                                                         | Open   |
-| Q1  | Pursue a Mac App Store edition ([channel B](#channel-b-mac-app-store-gated))                                                                     | After MG7, including App Review's answer           | Default no. Ship Developer ID first, but keep the app sandbox-clean                                         | Open   |
-| Q8  | A view-only App Store edition, if App Review refuses input injection                                                                             | After MG7, only if Q1 is yes                       | Not proposed                                                                                                | Open   |
-| Q9  | App Store licensing: the bundled LGPL libraries and App Store terms, possibly a custom EULA                                                      | Before any App Store submission, only if Q1 is yes | Licensing review                                                                                            | Open   |
-| Q10 | Share settings between an App Store app and the CLI through an App Group                                                                         | Only if Q1 is yes                                  | No; each keeps its own settings                                                                             | Open   |
-| Q5  | Should the macOS CLI bundle Node.js, unlike Windows?                                                                                             | Before packaging                                   | No; keep Node.js a declared prerequisite, as on Windows                                                     | Open   |
-| Q11 | Where the signing and notarization credentials live                                                                                              | Before packaging                                   | The owner's login keychain and a `notarytool` keychain profile; no CI signing at first, nothing in the repo | Open   |
-| Q12 | Does the AGPL section 7 permission in [LICENSING.md](../../../LICENSING.md) need to name Apple frameworks?                                       | Before the first macOS release                     | Probably not, as they are system libraries; the owner confirms                                              | Open   |
-| Q13 | Version number of the first release with macOS support                                                                                           | At release                                         | A minor version: it adds the `videotoolbox` encoder setting value                                           | Open   |
-| Q3  | Map Control to Command for viewers on Windows and iPhone ([D4](#d4-input))                                                                       | After the first macOS release                      | A per-device setting, later; off by default                                                                 | Open   |
+| ID  | Decision                                                                                                                                         | Needed                                       | Decision or proposal                                                                                                                                                                                                                   | Status                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Q14 | Bundle identifier of the app and its capture helper                                                                                              | Now: the Q7 request and every App ID need it | A reverse-DNS name under a domain the owner controls, for example `io.github.kiforsbe.vidvnc` and `io.github.kiforsbe.vidvnc.capture`. Never change it after the first release: a new identifier resets every user's privacy approvals | **Open**                                         |
+| Q7  | Apply for Apple's managed `com.apple.developer.persistent-content-capture` entitlement                                                           | Now: Apple's review takes weeks              | Apply ([steps](#applying-for-persistent-content-capture)). If refused, the periodic capture re-approval is a documented known limitation                                                                                               | Accepted                                         |
+| Q6  | Lowest supported macOS ([older versions](#older-macos-versions-on-apple-silicon))                                                                | Before the host app is built                 | macOS 27 only, Apple Silicon only. The host may use Observation and other macOS 27 APIs                                                                                                                                                | Accepted                                         |
+| Q2  | Confirm each new network before the server binds to it, since macOS has no Private profile ([D6](#d6-lan-eligibility-without-a-network-profile)) | Before the server's LAN eligibility work     | Yes for the app, one prompt the first time it sees a network; no for the CLI                                                                                                                                                           | Accepted                                         |
+| Q4  | Should the CLI disclaim TCC responsibility, so its grants are its own rather than Terminal's?                                                    | After MG3                                    | Not at first; accept and document Terminal's grants                                                                                                                                                                                    | **Open**                                         |
+| Q1  | Pursue a Mac App Store edition ([channel B](#channel-b-mac-app-store-gated))                                                                     | After MG7, including App Review's answer     | Ship Developer ID first and keep the app sandbox-clean. No App Store edition unless MG7 shows App Review accepts a host that posts input                                                                                               | Accepted                                         |
+| Q8  | A view-only App Store edition, if App Review refuses input injection                                                                             | After MG7                                    | No                                                                                                                                                                                                                                     | Accepted                                         |
+| Q9  | App Store licensing: the bundled LGPL libraries and App Store terms, possibly a custom EULA                                                      | Before any App Store submission              | A licensing review before any submission; not needed while Q1 rules the store out                                                                                                                                                      | Accepted                                         |
+| Q10 | Settings shared between the app and the command-line server                                                                                      | Before packaging                             | **The app includes the command-line server, and the two share one configuration.** The standalone CLI ZIP uses the same settings folder as the Developer ID app. An App Store edition, if ever built, would share through an App Group | Decided by the owner (changed from the proposal) |
+| Q5  | Should the macOS CLI bundle Node.js?                                                                                                             | Before packaging                             | **Yes: the CLI ZIP bundles Node.js,** as the app does. The owner will move the Windows CLI to a bundled Node.js too, as a separate later change                                                                                        | Decided by the owner (changed from the proposal) |
+| Q11 | Where the signing and notarization credentials live                                                                                              | Before packaging                             | The owner's login keychain and a `notarytool` keychain profile; no CI signing at first, nothing in the repository                                                                                                                      | Accepted                                         |
+| Q12 | Does the AGPL section 7 permission in [LICENSING.md](../../../LICENSING.md) need to name Apple frameworks?                                       | Before the first macOS release               | No: Apple's frameworks are system libraries under the AGPL, so the permission is unchanged                                                                                                                                             | Accepted                                         |
+| Q13 | Version number of the first release with macOS support                                                                                           | At release                                   | A minor version: it adds the `videotoolbox` encoder setting value                                                                                                                                                                      | Accepted                                         |
+| Q3  | Map Control to Command for viewers on Windows and iPhone ([D4](#d4-input))                                                                       | After the first macOS release                | A per-device setting, later; off by default                                                                                                                                                                                            | Accepted                                         |
 
 ### Design decisions
 
-| ID  | Decision                                                                       | Confirmed by                                             | Proposal                                                                                                                                                                        | Status   |
-| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| D1  | [How the worker captures and encodes](#d1-capture-and-encode-natively)         | MG2: latency and CPU against the Windows baseline        | ScreenCaptureKit into VideoToolbox directly; GStreamer for Opus and WebRTC. Fallback: GStreamer `vtenc`                                                                         | Proposed |
-| D2  | [Pipes to media-net](#d2-pipes-and-media-net)                                  | MG1                                                      | POSIX pipes; record formats unchanged                                                                                                                                           | Proposed |
-| D3  | [Sandbox for media-net and the relay](#d3-sandbox-for-media-net-and-the-relay) | MG4: the macOS `sandbox-probe`                           | Developer ID: a launcher-applied profile. App Store: XPC services. If none passes, no release without the split unless the owner accepts the risk in writing                    | Proposed |
-| D4  | [Input](#d4-input)                                                             | MG3                                                      | `CGEventPost`, a macOS key table behind the existing allow-list                                                                                                                 | Proposed |
-| D5  | [Permissions and onboarding](#d5-permissions-and-onboarding)                   | MG6: Remote Desktop category, Local Network, re-approval | Ask only after an owner action that needs it, never at launch; a Permissions page with live state                                                                               | Proposed |
-| D6  | [LAN eligibility](#d6-lan-eligibility-without-a-network-profile)               | Spec review, before the server work                      | Physical Ethernet and Wi-Fi with private addresses, read through the worker's `--adapters` mode; VPNs and bridges excluded                                                      | Proposed |
-| D7  | [Self-signed TLS](#d7-tls-without-powershell)                                  | Spec review, before the server work                      | A portable JavaScript `self-signed` strategy, key file `0600`; Keychain later                                                                                                   | Proposed |
-| D8  | [Host app](#d8-host-app)                                                       | Spec review                                              | Swift 6, SwiftUI and AppKit; owner-protocol contract first, then a design preview, then the UI                                                                                  | Proposed |
-| D9  | [Bundle layout and runtime](#d9-bundle-layout-and-runtime)                     | MG5 (Node.js entitlements) and MG8 (notarization)        | Node.js bundled in the app, renamed, with only `allow-jit`                                                                                                                      | Proposed |
-| D10 | [Distribution format](#same-products-as-windows)                               | Before packaging                                         | The app (with the server) in a signed, notarized DMG, and the same app on the Mac App Store if Q1 says so; the CLI as a signed, notarized ZIP on GitHub releases, as on Windows | Proposed |
+| ID  | Decision                                                                       | Confirmed by                                             | Proposal                                                                                                                                                                        | Status                      |
+| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| D1  | [How the worker captures and encodes](#d1-capture-and-encode-natively)         | MG2: latency and CPU against the Windows baseline        | ScreenCaptureKit into VideoToolbox directly; GStreamer for Opus and WebRTC. Fallback: GStreamer `vtenc`                                                                         | Accepted; MG2 confirms      |
+| D2  | [Pipes to media-net](#d2-pipes-and-media-net)                                  | MG1                                                      | POSIX pipes; record formats unchanged                                                                                                                                           | Accepted; MG1 confirms      |
+| D3  | [Sandbox for media-net and the relay](#d3-sandbox-for-media-net-and-the-relay) | MG4: the macOS `sandbox-probe`                           | Developer ID: a launcher-applied profile. App Store: XPC services. If none passes, no release without the split unless the owner accepts the risk in writing                    | Accepted; MG4 confirms      |
+| D4  | [Input](#d4-input)                                                             | MG3                                                      | `CGEventPost`, a macOS key table behind the existing allow-list                                                                                                                 | Accepted; MG3 confirms      |
+| D5  | [Permissions and onboarding](#d5-permissions-and-onboarding)                   | MG6: Remote Desktop category, Local Network, re-approval | Ask only after an owner action that needs it, never at launch; a Permissions page with live state                                                                               | Accepted; MG6 confirms      |
+| D6  | [LAN eligibility](#d6-lan-eligibility-without-a-network-profile)               | Spec review, before the server work                      | Physical Ethernet and Wi-Fi with private addresses, read through the worker's `--adapters` mode; VPNs and bridges excluded                                                      | Accepted                    |
+| D7  | [Self-signed TLS](#d7-tls-without-powershell)                                  | Spec review, before the server work                      | A portable JavaScript `self-signed` strategy, key file `0600`; Keychain later                                                                                                   | Accepted                    |
+| D8  | [Host app](#d8-host-app)                                                       | Spec review                                              | Swift 6, SwiftUI and AppKit; owner-protocol contract first, then a design preview, then the UI                                                                                  | Accepted                    |
+| D9  | [Bundle layout and runtime](#d9-bundle-layout-and-runtime)                     | MG5 (Node.js entitlements) and MG8 (notarization)        | Node.js bundled in the app and the CLI, renamed, with only `allow-jit`; the worker in a capture helper bundle that can carry a provisioning profile                             | Accepted; MG5, MG8 confirms |
+| D10 | [Distribution format](#same-products-as-windows)                               | Before packaging                                         | The app (with the server) in a signed, notarized DMG, and the same app on the Mac App Store if Q1 says so; the CLI as a signed, notarized ZIP on GitHub releases, as on Windows | Accepted                    |
 
 ## What is Windows-specific today
 
@@ -319,10 +321,37 @@ and release on loss. Only the last step differs.
 - Since macOS 15, ScreenCaptureKit users are asked again periodically to keep allowing
   capture. Apple's managed `com.apple.developer.persistent-content-capture` entitlement
   removes this for remote-desktop products, but Apple describes it as for headless "VNC"
-  deployments and grants it on request. The owner applies for it; if refused, the periodic
-  prompt is a documented known limitation.
+  deployments and grants it on request. The owner applies for it
+  ([below](#applying-for-persistent-content-capture)); if refused, the periodic prompt is a
+  documented known limitation.
 - macOS 27 adds a "Remote Desktop" privacy category separate from Screen Recording, with no
   public API to read it. Gate MG6 establishes what triggers it and whether VidVNC needs it.
+
+#### Applying for persistent content capture
+
+Apple's documentation for the entitlement says to request it with the
+[Persistent Content Capture request form](https://developer.apple.com/contact/request/persistent-content-capture/),
+then add it to the app's provisioning profile once approved. Steps for the owner:
+
+1. Choose the bundle identifiers ([Q14](#decision-register)) and register them as explicit
+   App IDs in Certificates, Identifiers & Profiles, under Identifiers: one for VidVNC.app and
+   one for the capture helper.
+2. Sign in with the Account Holder or an Admin of the developer team and submit the form.
+   Describe VidVNC as what it is: a VNC-style remote desktop host that the Mac's owner
+   installs to see and control that Mac from their own devices, which must keep capturing
+   while nobody is at the Mac, so a recurring on-screen re-approval would end remote
+   sessions. Name both App IDs.
+3. When Apple approves, enable the capability on each App ID (its Capability Requests or
+   Additional Capabilities tab), then create a **Developer ID** provisioning profile for each
+   under Profiles and download them. They are not secrets, but stay out of the repository
+   like the other signing inputs ([Q11](#decision-register)).
+4. Packaging embeds each profile (`Contents/embedded.provisionprofile`) and signs with the
+   entitlement set to `true` ([D9](#d9-bundle-layout-and-runtime)). Gate MG6 confirms that the
+   periodic prompt stops for the signed build.
+
+A managed entitlement is only honoured with a provisioning profile, and a bare executable
+cannot carry one, which is why the worker moves into a helper bundle. Which of the app and
+the worker macOS checks for the entitlement is not documented; MG6 establishes it.
 
 ### D6. LAN eligibility without a network profile
 
@@ -332,8 +361,12 @@ network profile. Proposal: a `macos-lan-adapters.mjs` provider returning the sam
 or Wi-Fi port (from SystemConfiguration, through the worker's new read-only `--adapters`
 mode, so it works inside an App Sandbox), is up, and has a private, unique-local or
 link-local address. VPN, bridge, `utun` and Thunderbolt-bridge interfaces are ineligible.
-`VIDVNC_HOST` can still only narrow. Remote access keeps its separate opt-in. Whether the
-owner must also confirm each new network the first time is [Q2](#decision-register).
+`VIDVNC_HOST` can still only narrow. Remote access keeps its separate opt-in.
+
+The app also asks the owner to confirm each network the first time it sees it, and binds
+to it only after a yes; the CLI does not ask ([Q2](#decision-register)). A network is
+recognised by its subnet and its router's hardware address, because reading the Wi-Fi name
+needs Location Services permission.
 
 ### D7. TLS without PowerShell
 
@@ -374,7 +407,10 @@ ID build; the Mac App Store build cannot run tools from `PATH` and offers `provi
 VidVNC.app/Contents/
   MacOS/VidVNC                  Swift host
   MacOS/VidVNC Server           Node.js, renamed, signed with allow-jit
-  MacOS/media-worker            worker and media-net (one binary, as on Windows)
+  Helpers/vidvnc                command-line server launcher (the bundled CLI)
+  Helpers/VidVNC Capture.app/   capture helper bundle with its own provisioning profile:
+    Contents/MacOS/media-worker   worker and media-net (one binary, as on Windows)
+  embedded.provisionprofile     Developer ID profile carrying persistent content capture
   Frameworks/                   allow-listed GStreamer, GLib, libnice, OpenSSL, Opus, libsrtp, usrsctp dylibs
   PlugIns/gstreamer/            allow-listed GStreamer plugins
   Resources/server/             apps/server, apps/web-client, media-worker JS adapter
@@ -382,8 +418,17 @@ VidVNC.app/Contents/
   Resources/notices/            third-party notices
 ```
 
-- Node.js is bundled as plain files, as the Windows host package already may. Renaming it
-  makes firewall and Activity Monitor entries say VidVNC.
+- Node.js is bundled as plain files, in the app and in the standalone CLI ZIP
+  ([Q5](#decision-register)). Renaming it makes firewall and Activity Monitor entries say
+  VidVNC.
+- **The app contains the command-line server** ([Q10](#decision-register)): `Helpers/vidvnc`
+  runs the bundled Node.js on the bundled server, with the same settings and logs as the
+  app. The host offers "Install command-line tool", which links it into a folder on the
+  user's `PATH` after asking. The standalone CLI ZIP holds the same launcher, Node.js,
+  server, capture helper and libraries, without the host.
+- The worker lives in a capture helper bundle because a managed entitlement needs a
+  provisioning profile, which a bare executable cannot carry
+  ([Applying for persistent content capture](#applying-for-persistent-content-capture)).
 - GStreamer comes from the pinned 1.28.6 macOS framework; the allow-list is the Windows one
   minus the Windows-only plugins (`d3d11`, `wasapi`, the four encoder plugins) plus
   `applemedia` only if D1's alternative is chosen. Install names are rewritten to `@rpath`.
@@ -412,14 +457,18 @@ distributed differ.
   which starts the bundled media worker, exactly as the WinUI app does on Windows. The two
   editions are the same bundle with different signing and entitlements, not different
   products.
-- **The command-line server installs separately**, for people who download it from the
+- **The app also contains the command-line server**, and the two share one configuration
+  ([Q10](#decision-register)). Someone with the app can run `vidvnc` from Terminal without
+  installing anything else.
+- **The command-line server also installs separately**, for people who download it from the
   project's GitHub releases, as on Windows. It is the same server payload without the host,
-  and uses Node.js from `PATH` as a declared prerequisite ([Q5](#decision-register)). It is
-  never on the Mac App Store, which distributes apps, not command-line tools.
-- The Developer ID app and the CLI share settings in `~/Library/Application Support/VidVNC`,
-  as the Windows app and CLI share `%LOCALAPPDATA%\VidVNC`. A Mac App Store app keeps its
-  settings in its sandbox container, so it shares them with the CLI only through an App
-  Group ([Q10](#decision-register)).
+  with Node.js bundled, so it needs nothing installed first ([Q5](#decision-register)). It
+  is never on the Mac App Store, which distributes apps, not command-line tools.
+- The app, its bundled CLI and the standalone CLI all use
+  `~/Library/Application Support/VidVNC`, as the Windows app and CLI share
+  `%LOCALAPPDATA%\VidVNC`. A Mac App Store app would keep its settings in its sandbox
+  container and share them only through an App Group; no App Store edition is planned
+  ([Q1](#decision-register)).
 
 ### Channel A: Developer ID (committed)
 
@@ -435,15 +484,18 @@ from wherever it is unpacked.
   `com.apple.security.cs.allow-jit` (V8); the worker none beyond the hardened runtime
   defaults (library validation stays on: every dylib is signed by the same team). Gate MG5
   confirms the minimal set.
+- The app and the capture helper embed their Developer ID provisioning profiles, needed for
+  the managed entitlement ([Q7](#decision-register)). The standalone CLI's capture helper
+  embeds the same helper profile.
 - Signing order is inside-out: dylibs and plugins, helpers, then the app, then the DMG.
   `codesign --verify --deep --strict`, `spctl --assess` and `stapler validate` are part of
   the package check.
 - Credentials stay out of the repository: the signing identity in the owner's login
   keychain, notarization through a `notarytool` keychain profile. The package scripts take
   their names from the environment and fail with instructions when absent.
-- This is the channel that satisfies "at the very least, sideloaded and signed with my
-  Apple developer identity": the app is not sideloaded in any unsupported sense, it is the
-  standard way to ship Mac software outside the store.
+- This is the channel that meets the requirement to install outside the store, signed with
+  the owner's Apple developer identity. It is Apple's standard way to ship Mac software
+  outside the store, not an unsupported sideload.
 
 ### Channel B: Mac App Store (gated)
 
@@ -472,7 +524,8 @@ owner may or may not want; it is not proposed by default.
 
 ## Older macOS versions on Apple Silicon
 
-The first release supports **macOS 27 only**. This section records what an earlier floor
+The first release supports **macOS 27 only**, as the owner decided
+([Q6](#decision-register)). This section records what an earlier floor
 would cost, so the owner can lower it later on purpose. The first M1 Macs shipped with
 macOS 11 (Big Sur), in November 2020.
 
@@ -535,7 +588,7 @@ lands:
 | A tampered bundle or dylib                                                              | Hardened runtime, library validation, notarization; Gatekeeper on first launch                          |
 | Settings or key files read by other local users                                         | Data directory `0700`, key files `0600`                                                                 |
 | CLI from Terminal holds capture and input grants for everything Terminal runs           | Documented; Q4 decides whether to disclaim responsibility                                               |
-| Server listens on networks the user does not trust                                      | D6 eligibility rules; Q2 decides on per-network confirmation                                            |
+| Server listens on networks the user does not trust                                      | D6 eligibility rules; the app asks the owner before binding to a new network (Q2)                       |
 
 Verification is recorded in the security analysis's verification record as each gate runs.
 
@@ -544,16 +597,16 @@ Verification is recorded in the security analysis's verification record as each 
 All run on the owner's Apple Silicon Mac on macOS 27, before the matching phase starts.
 Results go into this table and, for security results, the verification record.
 
-| Gate | Question                                                                                                                                                                   | Result |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| MG1  | Does media-net build with Clang against GStreamer 1.28.6's macOS framework, and pass `relay-check.mjs` (P1, P2) against Chromium on loopback?                              | —      |
-| MG2  | Does ScreenCaptureKit into VideoToolbox deliver 1080p60 and 4K30 H.264 and HEVC to Chromium and an iPhone, with latency and CPU at or below the Windows NVENC baseline?    | —      |
-| MG3  | Does `CGEventPost` from a worker spawned by app, server and worker in turn work, and which app do the Screen Recording and Accessibility prompts name?                     | —      |
-| MG4  | Under each D3 candidate, can a sandboxed probe capture, post events, read `~/Documents`, open a non-loopback socket, fork or exec? Does `webrtcbin` still work?            | —      |
-| MG5  | What is the minimal hardened-runtime entitlement set for the bundled Node.js running the server and the relay bundle under Node's permission model?                        | —      |
-| MG6  | On macOS 27: what triggers the Remote Desktop privacy category; does the relay's reply to LAN peers need Local Network approval; how often is capture re-approved?         | —      |
-| MG7  | Mac App Store: does a sandboxed (inherit) build run end to end, can XPC give media-net its own sandbox, and what does App Review say about a host that posts input events? | —      |
-| MG8  | Does a bundle with the host, Node.js, the worker and the GStreamer dylibs pass notarization, stapling and `spctl --assess` on a clean Mac with no developer tools?         | —      |
+| Gate | Question                                                                                                                                                                                                                                              | Result |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| MG1  | Does media-net build with Clang against GStreamer 1.28.6's macOS framework, and pass `relay-check.mjs` (P1, P2) against Chromium on loopback?                                                                                                         | —      |
+| MG2  | Does ScreenCaptureKit into VideoToolbox deliver 1080p60 and 4K30 H.264 and HEVC to Chromium and an iPhone, with latency and CPU at or below the Windows NVENC baseline?                                                                               | —      |
+| MG3  | Does `CGEventPost` from a worker spawned by app, server and worker in turn work, and which app do the Screen Recording and Accessibility prompts name?                                                                                                | —      |
+| MG4  | Under each D3 candidate, can a sandboxed probe capture, post events, read `~/Documents`, open a non-loopback socket, fork or exec? Does `webrtcbin` still work?                                                                                       | —      |
+| MG5  | What is the minimal hardened-runtime entitlement set for the bundled Node.js running the server and the relay bundle under Node's permission model?                                                                                                   | —      |
+| MG6  | On macOS 27: what triggers the Remote Desktop privacy category; does the relay's reply to LAN peers need Local Network approval; how often is capture re-approved, and does the persistent-content-capture entitlement stop it, and on which process? | —      |
+| MG7  | Mac App Store: does a sandboxed (inherit) build run end to end, can XPC give media-net its own sandbox, and what does App Review say about a host that posts input events?                                                                            | —      |
+| MG8  | Does a bundle with the host, Node.js, the worker and the GStreamer dylibs pass notarization, stapling and `spctl --assess` on a clean Mac with no developer tools?                                                                                    | —      |
 
 ## Documentation changes
 
@@ -562,8 +615,7 @@ the overview, media pipeline, network process, input, process lifetime, security
 platform target), PACKAGING and `packaging/macos/README.md`, README (install and run on a
 Mac, data and log locations, permissions), CONTRIBUTING (building on a Mac), the
 `apps/macos-host` README, `tools/debug/README.md` (Xcode and LLDB), LICENSING (macOS
-notices; whether the AGPL section 7 permission needs Apple frameworks, which are probably
-already system libraries), the security analysis, the roadmap and the changelog. Adding
+notices; the AGPL section 7 permission is unchanged, [Q12](#decision-register)), the security analysis, the roadmap and the changelog. Adding
 the `videotoolbox` encoder value is a settings change, so the release that ships it is a
 minor version.
 
