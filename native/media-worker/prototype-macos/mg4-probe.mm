@@ -121,6 +121,15 @@ bool udp_echo(unsigned short port, std::string &detail) {
     const int s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s < 0)
         return detail = "socket: " + err(), false;
+    // Bound to 127.0.0.1 first, as libnice binds its host candidates.
+    sockaddr_in self{};
+    self.sin_family = AF_INET;
+    self.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(s, reinterpret_cast<sockaddr *>(&self), sizeof(self)) != 0) {
+        detail = "bind 127.0.0.1: " + err();
+        close(s);
+        return false;
+    }
     sockaddr_in to{};
     to.sin_family = AF_INET;
     to.sin_port = htons(port);
@@ -187,7 +196,33 @@ std::string lan_address() {
     }
     return address;
 }
-constexpr unsigned short lan_port = 47123;
+constexpr unsigned short lan_port = 47123, wildcard_port = 47124;
+// A socket bound to 0.0.0.0 on a fixed port; the parent sends there through the LAN address.
+std::string wildcard_inbound(bool &received) {
+    received = false;
+    const int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0)
+        return "socket denied: " + err();
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_port = htons(wildcard_port);
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(s, reinterpret_cast<sockaddr *>(&local), sizeof(local)) != 0) {
+        const auto text = "bind 0.0.0.0 denied: " + err();
+        close(s);
+        return text;
+    }
+    pollfd p{s, POLLIN, 0};
+    char buffer[64];
+    const int ready = poll(&p, 1, 1500);
+    const auto got = ready == 1 ? recv(s, buffer, sizeof(buffer), 0) : -1;
+    const int code = errno;
+    close(s);
+    received = got > 0;
+    return std::string("bound 0.0.0.0:") + std::to_string(wildcard_port) + ", " +
+           (received ? "received the parent's LAN datagram"
+                     : ready == 1 ? "receive denied: " + err(code) : "nothing received in 1.5 s");
+}
 // Bind to the LAN address on a fixed port and wait for the datagrams the parent keeps sending
 // there. Returns "bound", "received" or the error.
 std::string lan_inbound(bool &bound, bool &received) {
@@ -362,6 +397,9 @@ int child(unsigned short port, const std::string &secret, double x, double y,
     check("cannot receive on the LAN address", !lan_received, lan);
     if (lan_bound)
         info("binding to the LAN address itself was allowed");
+    bool wildcard_received = false;
+    const auto wildcard = wildcard_inbound(wildcard_received);
+    check("cannot receive LAN datagrams on a 0.0.0.0 socket", !wildcard_received, wildcard);
     const pid_t forked = fork();
     if (forked == 0)
         _exit(0);
@@ -416,9 +454,10 @@ std::string profile_text(const std::string &gstreamer, const std::string &execut
          << "(allow file-write-data (literal \"/dev/null\"))\n"
          << "(allow sysctl-read)\n"
          << "(allow system-socket)\n"
-         << "(allow network-bind (local ip \"localhost:*\"))\n"
-         << "(allow network-outbound (remote ip \"localhost:*\"))\n"
-         << "(allow network-inbound (local ip \"localhost:*\"))\n"
+         << (getenv("MG4_NET_RULES") ? std::string(getenv("MG4_NET_RULES")) + "\n"
+                                     : "(allow network-bind (local ip \"localhost:*\"))\n"
+                                       "(allow network-outbound (remote ip \"localhost:*\"))\n"
+                                       "(allow network-inbound (local ip \"localhost:*\"))\n")
          << "(allow process-info* (target self))\n";
     if (for_exec)
         text << "(allow process-exec (literal \"" << executable << "\"))\n"
@@ -491,8 +530,11 @@ int run_all() {
         to.sin_family = AF_INET;
         to.sin_port = htons(lan_port);
         inet_pton(AF_INET, address.c_str(), &to.sin_addr);
+        sockaddr_in wild = to;
+        wild.sin_port = htons(wildcard_port);
         for (;;) {
             sendto(s, "mg4-lan", 7, 0, reinterpret_cast<sockaddr *>(&to), sizeof(to));
+            sendto(s, "mg4-lan", 7, 0, reinterpret_cast<sockaddr *>(&wild), sizeof(wild));
             usleep(100000);
         }
     }).detach();
@@ -595,6 +637,16 @@ int main(int argc, char **argv) {
         }
         return child(static_cast<unsigned short>(std::stoi(argv[2])), argv[3], std::stod(argv[4]),
                      std::stod(argv[5]), profile, skip_documents);
+    }
+    if (argc == 3 && std::string(argv[1]) == "--is-sandboxed") {
+        std::cout << (sandbox_check(std::stoi(argv[2]), nullptr, 0) ? "sandboxed" : "not sandboxed")
+                  << std::endl;
+        return 0;
+    }
+    // The launcher profile for another program (for media-net under the stand-in worker).
+    if (argc == 4 && std::string(argv[1]) == "--print-profile") {
+        std::cout << profile_text(argv[3], argv[2], true);
+        return 0;
     }
     if (argc == 2 && std::string(argv[1]) == "--run-all")
         return run_all();

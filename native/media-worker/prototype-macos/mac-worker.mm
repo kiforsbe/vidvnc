@@ -268,12 +268,17 @@ bool start_network() {
         return std::to_string(shim_fd(handle.get()));
     };
     const auto self = executable_path();
-    std::vector<std::string> args{self,
+    // MG4: VIDVNC_MG4_LAUNCHER=<mg4-probe> and VIDVNC_MG4_PROFILE=<file> start media-net through
+    // `mg4-probe --launch <profile> -- <worker> --network ...`, the launcher-applied sandbox.
+    std::vector<std::string> args;
+    if (const char *launcher = getenv("VIDVNC_MG4_LAUNCHER"))
+        args = {launcher, "--launch", getenv("VIDVNC_MG4_PROFILE"), "--"};
+    args.insert(args.end(), {self,
                                   "--network",
                                   fd_text(control_to.child),
                                   fd_text(control_from.child),
                                   fd_text(frames_pipe.child),
-                                  fd_text(input_pipe.child)};
+                                  fd_text(input_pipe.child)});
     std::vector<char *> argv;
     for (auto &arg : args)
         argv.push_back(arg.data());
@@ -283,7 +288,7 @@ bool start_network() {
     posix_spawn_file_actions_init(&actions);
     for (int fd = 0; fd <= 2; ++fd)
         posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", O_RDWR, 0);
-    const int spawned = posix_spawn(&net_pid, self.c_str(), &actions, nullptr, argv.data(), environ);
+    const int spawned = posix_spawn(&net_pid, args[0].c_str(), &actions, nullptr, argv.data(), environ);
     posix_spawn_file_actions_destroy(&actions);
     control_to.child.reset();
     control_from.child.reset();
