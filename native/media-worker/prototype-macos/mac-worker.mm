@@ -38,6 +38,9 @@
 #include "video-codec.hpp"
 
 extern char **environ;
+// Private libsystem call (used by launchd and TCC tooling): the process macOS holds responsible.
+extern "C" pid_t responsibility_get_pid_responsible_for_pid(pid_t);
+#include <libproc.h>
 
 namespace {
 
@@ -483,6 +486,11 @@ int mg3_probe() {
     }
     auto result = typed_object("mg3", {{"executable", executable_path()},
                                        {"screenCaptureKit", capture}});
+    const pid_t responsible = responsibility_get_pid_responsible_for_pid(getpid());
+    char responsible_path[PROC_PIDPATHINFO_MAXSIZE] = {};
+    proc_pidpath(responsible, responsible_path, sizeof(responsible_path));
+    json_object_set_int_member(result, "responsiblePid", responsible);
+    json_object_set_string_member(result, "responsiblePath", responsible_path);
     json_object_set_int_member(result, "pid", getpid());
     json_object_set_int_member(result, "ppid", getppid());
     json_object_set_boolean_member(result, "capturePreflight", capture_before);
