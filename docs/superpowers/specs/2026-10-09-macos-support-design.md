@@ -1,6 +1,6 @@
 # macOS support: native host, server and distribution
 
-**Status: accepted by the owner, revision 2, 2026-10-09,** with Q4 and Q14 still open (see the [decision register](#decision-register)). Nothing here is implemented. It covers
+**Status: accepted by the owner, revision 2, 2026-10-09;** every decision in the [decision register](#decision-register) is settled. Nothing here is implemented. It covers
 the `macos-server` and `macos-cli` targets in [targets.json](../../../packaging/targets.json):
 a native macOS host app, a macOS build of the server and media worker, and how both are
 signed and distributed. The native macOS viewer (`macos-client`) is a separate piece of
@@ -74,15 +74,15 @@ accepted design decision still stands or falls with its gate.
 
 ### Owner decisions
 
-In the order they are needed. Decided on 2026-10-09 unless the status says otherwise.
+In the order they are needed. All were decided on 2026-10-09.
 
 | ID  | Decision                                                                                                                                         | Needed                                       | Decision or proposal                                                                                                                                                                                                                   | Status                                           |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Q14 | Bundle identifier of the app and its capture helper                                                                                              | Now: the Q7 request and every App ID need it | A reverse-DNS name under a domain the owner controls, for example `io.github.kiforsbe.vidvnc` and `io.github.kiforsbe.vidvnc.capture`. Never change it after the first release: a new identifier resets every user's privacy approvals | **Open**                                         |
+| Q14 | Bundle identifier of the app and its capture helper                                                                                              | Now: the Q7 request and every App ID need it | `io.github.kiforsbe.vidvnc` for the app and `io.github.kiforsbe.vidvnc.capture` for the capture helper. Never change it after the first release: a new identifier resets every user's privacy approvals                                | Accepted                                         |
 | Q7  | Apply for Apple's managed `com.apple.developer.persistent-content-capture` entitlement                                                           | Now: Apple's review takes weeks              | Apply ([steps](#applying-for-persistent-content-capture)). If refused, the periodic capture re-approval is a documented known limitation                                                                                               | Accepted                                         |
 | Q6  | Lowest supported macOS ([older versions](#older-macos-versions-on-apple-silicon))                                                                | Before the host app is built                 | macOS 27 only, Apple Silicon only. The host may use Observation and other macOS 27 APIs                                                                                                                                                | Accepted                                         |
 | Q2  | Confirm each new network before the server binds to it, since macOS has no Private profile ([D6](#d6-lan-eligibility-without-a-network-profile)) | Before the server's LAN eligibility work     | Yes for the app, one prompt the first time it sees a network; no for the CLI                                                                                                                                                           | Accepted                                         |
-| Q4  | Should the CLI disclaim TCC responsibility, so its grants are its own rather than Terminal's?                                                    | After MG3                                    | Not at first; accept and document Terminal's grants                                                                                                                                                                                    | **Open**                                         |
+| Q4  | Should the CLI disclaim TCC responsibility, so its grants are its own rather than Terminal's?                                                    | After MG3                                    | Not at first; accept and document Terminal's grants                                                                                                                                                                                    | Accepted                                         |
 | Q1  | Pursue a Mac App Store edition ([channel B](#channel-b-mac-app-store-gated))                                                                     | After MG7, including App Review's answer     | Ship Developer ID first and keep the app sandbox-clean. No App Store edition unless MG7 shows App Review accepts a host that posts input                                                                                               | Accepted                                         |
 | Q8  | A view-only App Store edition, if App Review refuses input injection                                                                             | After MG7                                    | No                                                                                                                                                                                                                                     | Accepted                                         |
 | Q9  | App Store licensing: the bundled LGPL libraries and App Store terms, possibly a custom EULA                                                      | Before any App Store submission              | A licensing review before any submission; not needed while Q1 rules the store out                                                                                                                                                      | Accepted                                         |
@@ -333,9 +333,9 @@ Apple's documentation for the entitlement says to request it with the
 [Persistent Content Capture request form](https://developer.apple.com/contact/request/persistent-content-capture/),
 then add it to the app's provisioning profile once approved. Steps for the owner:
 
-1. Choose the bundle identifiers ([Q14](#decision-register)) and register them as explicit
-   App IDs in Certificates, Identifiers & Profiles, under Identifiers: one for VidVNC.app and
-   one for the capture helper.
+1. Register the bundle identifiers ([Q14](#decision-register)) as explicit App IDs in
+   Certificates, Identifiers & Profiles, under Identifiers: `io.github.kiforsbe.vidvnc` for
+   VidVNC.app and `io.github.kiforsbe.vidvnc.capture` for the capture helper.
 2. Sign in with the Account Holder or an Admin of the developer team and submit the form.
    Describe VidVNC as what it is: a VNC-style remote desktop host that the Mac's owner
    installs to see and control that Mac from their own devices, which must keep capturing
