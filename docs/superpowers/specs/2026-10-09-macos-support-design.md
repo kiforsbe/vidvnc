@@ -36,9 +36,9 @@ says how.
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M1  | An Apple Silicon Mac on macOS 27 shares its displays and audio, and takes keyboard and mouse, with the existing browser viewer. No viewer, signaling, relay or owner-protocol change beyond listed additions.   |
 | M2  | A native macOS host app (Swift, SwiftUI and AppKit) at parity with the Windows host's pages, plus a Permissions page for macOS privacy settings.                                                                |
-| M3  | A macOS command-line server built from the same server payload as the app, as on Windows.                                                                                                                       |
+| M3  | A macOS command-line server built from the same server payload as the app and installed separately from GitHub releases, as on Windows.                                                                         |
 | M4  | The app installs as a Developer ID–signed, notarized and stapled app that Gatekeeper opens without warnings. **This is the committed distribution.**                                                            |
-| M5  | A Mac App Store build is pursued as a second signing configuration of the same app, **only if** the App Store gates pass (see [Mac App Store](#channel-b-mac-app-store-gated)).                                 |
+| M5  | A Mac App Store build, server included, is pursued as a second signing configuration of the same app, **only if** the App Store gates pass (see [Mac App Store](#channel-b-mac-app-store-gated)).               |
 | M6  | Security properties match Windows: the server listens only after the owner approves, the worker never touches the network, WebRTC runs in a sandboxed process, the relay is sandboxed, every link fails closed. |
 | M7  | One source tree. The server and web client are shared unchanged in behaviour; the worker's platform-neutral C++ (broker, policy, records, rate control, telemetry) is shared; only platform modules differ.     |
 
@@ -93,18 +93,18 @@ In the order they are needed.
 
 ### Design decisions
 
-| ID  | Decision                                                                       | Confirmed by                                             | Proposal                                                                                                                                                     | Status   |
-| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| D1  | [How the worker captures and encodes](#d1-capture-and-encode-natively)         | MG2: latency and CPU against the Windows baseline        | ScreenCaptureKit into VideoToolbox directly; GStreamer for Opus and WebRTC. Fallback: GStreamer `vtenc`                                                      | Proposed |
-| D2  | [Pipes to media-net](#d2-pipes-and-media-net)                                  | MG1                                                      | POSIX pipes; record formats unchanged                                                                                                                        | Proposed |
-| D3  | [Sandbox for media-net and the relay](#d3-sandbox-for-media-net-and-the-relay) | MG4: the macOS `sandbox-probe`                           | Developer ID: a launcher-applied profile. App Store: XPC services. If none passes, no release without the split unless the owner accepts the risk in writing | Proposed |
-| D4  | [Input](#d4-input)                                                             | MG3                                                      | `CGEventPost`, a macOS key table behind the existing allow-list                                                                                              | Proposed |
-| D5  | [Permissions and onboarding](#d5-permissions-and-onboarding)                   | MG6: Remote Desktop category, Local Network, re-approval | Ask only after an owner action that needs it, never at launch; a Permissions page with live state                                                            | Proposed |
-| D6  | [LAN eligibility](#d6-lan-eligibility-without-a-network-profile)               | Spec review, before the server work                      | Physical Ethernet and Wi-Fi with private addresses, read through the worker's `--adapters` mode; VPNs and bridges excluded                                   | Proposed |
-| D7  | [Self-signed TLS](#d7-tls-without-powershell)                                  | Spec review, before the server work                      | A portable JavaScript `self-signed` strategy, key file `0600`; Keychain later                                                                                | Proposed |
-| D8  | [Host app](#d8-host-app)                                                       | Spec review                                              | Swift 6, SwiftUI and AppKit; owner-protocol contract first, then a design preview, then the UI                                                               | Proposed |
-| D9  | [Bundle layout and runtime](#d9-bundle-layout-and-runtime)                     | MG5 (Node.js entitlements) and MG8 (notarization)        | Node.js bundled in the app, renamed, with only `allow-jit`                                                                                                   | Proposed |
-| D10 | [Distribution format](#channel-a-developer-id-committed)                       | Before packaging                                         | A signed, notarized DMG for the app; a signed, notarized `.pkg` for the CLI                                                                                  | Proposed |
+| ID  | Decision                                                                       | Confirmed by                                             | Proposal                                                                                                                                                                        | Status   |
+| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| D1  | [How the worker captures and encodes](#d1-capture-and-encode-natively)         | MG2: latency and CPU against the Windows baseline        | ScreenCaptureKit into VideoToolbox directly; GStreamer for Opus and WebRTC. Fallback: GStreamer `vtenc`                                                                         | Proposed |
+| D2  | [Pipes to media-net](#d2-pipes-and-media-net)                                  | MG1                                                      | POSIX pipes; record formats unchanged                                                                                                                                           | Proposed |
+| D3  | [Sandbox for media-net and the relay](#d3-sandbox-for-media-net-and-the-relay) | MG4: the macOS `sandbox-probe`                           | Developer ID: a launcher-applied profile. App Store: XPC services. If none passes, no release without the split unless the owner accepts the risk in writing                    | Proposed |
+| D4  | [Input](#d4-input)                                                             | MG3                                                      | `CGEventPost`, a macOS key table behind the existing allow-list                                                                                                                 | Proposed |
+| D5  | [Permissions and onboarding](#d5-permissions-and-onboarding)                   | MG6: Remote Desktop category, Local Network, re-approval | Ask only after an owner action that needs it, never at launch; a Permissions page with live state                                                                               | Proposed |
+| D6  | [LAN eligibility](#d6-lan-eligibility-without-a-network-profile)               | Spec review, before the server work                      | Physical Ethernet and Wi-Fi with private addresses, read through the worker's `--adapters` mode; VPNs and bridges excluded                                                      | Proposed |
+| D7  | [Self-signed TLS](#d7-tls-without-powershell)                                  | Spec review, before the server work                      | A portable JavaScript `self-signed` strategy, key file `0600`; Keychain later                                                                                                   | Proposed |
+| D8  | [Host app](#d8-host-app)                                                       | Spec review                                              | Swift 6, SwiftUI and AppKit; owner-protocol contract first, then a design preview, then the UI                                                                                  | Proposed |
+| D9  | [Bundle layout and runtime](#d9-bundle-layout-and-runtime)                     | MG5 (Node.js entitlements) and MG8 (notarization)        | Node.js bundled in the app, renamed, with only `allow-jit`                                                                                                                      | Proposed |
+| D10 | [Distribution format](#same-products-as-windows)                               | Before packaging                                         | The app (with the server) in a signed, notarized DMG, and the same app on the Mac App Store if Q1 says so; the CLI as a signed, notarized ZIP on GitHub releases, as on Windows | Proposed |
 
 ## What is Windows-specific today
 
@@ -126,7 +126,7 @@ In the order they are needed.
 | Encoder ids           | `nvenc`, `qsv`, `amf`, `mediafoundation` in [encoder-backends.mjs](../../../apps/server/src/encoder-backends.mjs) and the CLI       | Add `videotoolbox`                                                                                         |
 | Host and process tree | WinUI 3, a kill-on-close job ([ServerJob.cs](../../../apps/windows-host/ServerJob.cs))                                              | SwiftUI and AppKit; pipe-closure cascade plus parent-exit watches ([D8](#d8-host-app))                     |
 | Firewall              | Rules keyed to the executable                                                                                                       | macOS Application Firewall prompt, keyed to the signed server binary                                       |
-| Packaging             | MSIX and ZIP, [packaging/windows](../../../packaging/windows/README.md)                                                             | `.app` in a DMG, a `.pkg` for the CLI, optionally a Mac App Store `.pkg`                                   |
+| Packaging             | MSIX and ZIP, [packaging/windows](../../../packaging/windows/README.md)                                                             | `.app` in a DMG, a ZIP for the CLI, optionally the Mac App Store                                           |
 
 The server's session, admission, policy, relay, signaling and diagnostics code, the web
 client, and the worker's broker, policy and record code are already portable. The Portable
@@ -395,13 +395,41 @@ VidVNC.app/Contents/
 
 ## Distribution: Developer ID and the Mac App Store
 
+### Same products as Windows
+
+macOS gets the same packages as Windows, built from the same payload groups in
+[targets.json](../../../packaging/targets.json); only the target and the way they are
+distributed differ.
+
+| Product                       | Windows                   | macOS                                                             | Contents (both)                                                        |
+| ----------------------------- | ------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| VidVNC app (`*-server`)       | MSIX                      | VidVNC.app: a notarized DMG and, if Q1 says so, the Mac App Store | Native host, Node server, web client, media worker and media libraries |
+| Command-line server (`*-cli`) | ZIP, runs from any folder | ZIP, runs from any folder, signed and notarized                   | Node server, web client, media worker and media libraries; no host     |
+| Native viewer (`*-client`)    | Planned                   | Planned, separate work                                            | Viewer only, no server                                                 |
+
+- **The app always includes the server.** Whether it comes from the DMG or the Mac App
+  Store, VidVNC.app is the complete host: the Swift app starts the bundled Node server,
+  which starts the bundled media worker, exactly as the WinUI app does on Windows. The two
+  editions are the same bundle with different signing and entitlements, not different
+  products.
+- **The command-line server installs separately**, for people who download it from the
+  project's GitHub releases, as on Windows. It is the same server payload without the host,
+  and uses Node.js from `PATH` as a declared prerequisite ([Q5](#decision-register)). It is
+  never on the Mac App Store, which distributes apps, not command-line tools.
+- The Developer ID app and the CLI share settings in `~/Library/Application Support/VidVNC`,
+  as the Windows app and CLI share `%LOCALAPPDATA%\VidVNC`. A Mac App Store app keeps its
+  settings in its sandbox container, so it shares them with the CLI only through an App
+  Group ([Q10](#decision-register)).
+
 ### Channel A: Developer ID (committed)
 
 VidVNC.app, signed with the owner's **Developer ID Application** certificate, hardened
 runtime on every executable, notarized with `notarytool` and stapled, shipped in a signed
-DMG. The CLI bundle ships as a `.pkg` signed with **Developer ID Installer**, notarized and
-stapled, installing to `/usr/local/vidvnc` with a `vidvnc` link in `/usr/local/bin`; like the
-Windows CLI it uses Node.js from `PATH` as a declared prerequisite.
+DMG. The CLI ships as a ZIP whose executables and libraries are signed with the same
+certificate and notarized. A bare executable cannot have a notarization ticket stapled to
+it, so the first run of a downloaded CLI asks Apple's servers to confirm it; the README
+says so. An installer `.pkg` is not needed, because the CLI, like the Windows one, runs
+from wherever it is unpacked.
 
 - Entitlements are per executable and minimal: the server binary
   `com.apple.security.cs.allow-jit` (V8); the worker none beyond the hardened runtime
@@ -419,8 +447,8 @@ Windows CLI it uses Node.js from `PATH` as a declared prerequisite.
 
 ### Channel B: Mac App Store (gated)
 
-A second signing configuration of the same app, built only if the gates below pass. What
-is known now:
+A second signing configuration of the same app, built only if the gates below pass. It is
+the complete app, server included, like the DMG edition. What is known now:
 
 | Requirement                     | Effect on VidVNC                                                                                                                                                                                                                                                              | Status            |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
