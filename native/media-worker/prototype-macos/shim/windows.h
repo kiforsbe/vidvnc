@@ -12,7 +12,7 @@
 typedef void *HANDLE;
 typedef std::uint32_t DWORD;
 typedef std::uint16_t WORD;
-typedef int BOOL;
+#include <objc/objc.h> // BOOL, the same type in C++ and Objective-C++ translation units
 #ifndef TRUE
 #define TRUE 1
 #define FALSE 0

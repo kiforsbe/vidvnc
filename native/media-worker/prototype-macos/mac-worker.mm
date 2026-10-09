@@ -1,17 +1,23 @@
-// MG1 prototype only (throwaway): a stand-in for media-worker on macOS, just enough of the
-// owner-side protocol (native-media.mjs) for tests/relay-check.mjs. It runs the real media-net
-// (media-net.cpp, compiled unmodified through the shim in shim/) as `--network <fds>`, feeds it
-// Opus from audiotestsrc, and passes answers and peer events through. No capture, no input
-// broker, no sandbox.
+// MG1/MG2 prototype only (throwaway): a stand-in for media-worker on macOS, just enough of the
+// owner-side protocol (native-media.mjs) for relay-check-mac.mjs. It runs the real media-net
+// (media-net.cpp, compiled unmodified through the shim in shim/) as `--network <fds>`, and feeds
+// it Opus from audiotestsrc (MG1) or ScreenCaptureKit + VideoToolbox access units (MG2, see
+// screen-encoder.mm). Answers and peer events pass through. Every input message is answered
+// with control-state false; there is no input broker, injection or sandbox.
+//
+// VIDVNC_MG2_STATS=<file>: every 2 seconds, append the encoder's counters as a JSON line.
 #include <windows.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
+#include <gst/app/gstappsrc.h>
 #include <json-glib/json-glib.h>
 #include <spawn.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <mach-o/dyld.h>
+#include <CoreGraphics/CoreGraphics.h>
 #include <atomic>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -24,6 +30,10 @@
 #include "media-net.hpp"
 #include "net-pipes.hpp"
 #include "net-records.hpp"
+#include "rate-control.hpp"
+#include "screen-encoder.hpp"
+#include "stream-profile.hpp"
+#include "video-codec.hpp"
 
 extern char **environ;
 
@@ -31,8 +41,13 @@ namespace {
 
 GMainLoop *loop = nullptr;
 GstElement *pipeline = nullptr;
+GstElement *video_in = nullptr;
 bool started = false, playing = false, failed = false, net_ready = false;
+bool video_enabled = false;
 int audio_channels = 0;
+StreamProfile profile;
+const VideoCodec *video_codec = nullptr;
+std::unique_ptr<ScreenEncoder> encoder;
 JsonObject *pending_ready = nullptr;
 std::set<std::string> peers;
 std::vector<std::pair<std::string, std::string>> waiting_peers;
@@ -40,12 +55,18 @@ std::mutex stdout_mutex, frame_mutex;
 pid_t net_pid = 0;
 net_pipes::Pipe control_to, control_from, frames_pipe, input_pipe;
 std::unique_ptr<net_pipes::QueuedWriter> control_writer, frame_writer;
-std::string sent_caps;
+std::atomic<unsigned> overflows{0};
+
+struct FrameSink {
+    net_records::FrameKind buffer_kind, caps_kind;
+    std::string sent_caps;
+};
+FrameSink video_sink{net_records::FrameKind::VideoBuffer, net_records::FrameKind::VideoCaps};
+FrameSink audio_sink{net_records::FrameKind::AudioBuffer, net_records::FrameKind::AudioCaps};
 
 void write_object(JsonObject *object) {
     std::lock_guard<std::mutex> lock(stdout_mutex);
-    std::cout << object_text(object) << std::endl;
-    json_object_unref(object);
+    std::cout << object_text(object) << std::endl; // object_text takes ownership
 }
 void emit(const char *type, std::initializer_list<std::pair<const char *, std::string>> fields = {}) {
     write_object(typed_object(type, fields));
@@ -56,23 +77,23 @@ void fatal(const std::string &message) {
     if (loop)
         g_main_loop_quit(loop);
 }
-void fail_from_thread(const char *message) {
-    g_main_context_invoke(
-        nullptr,
+void fail_from_thread(const std::string &message) {
+    g_main_context_invoke_full(
+        nullptr, G_PRIORITY_DEFAULT,
         [](gpointer text) -> gboolean {
-            fatal(static_cast<const char *>(text));
+            fatal(*static_cast<std::string *>(text));
             return G_SOURCE_REMOVE;
         },
-        const_cast<char *>(message));
+        new std::string(message), [](gpointer text) { delete static_cast<std::string *>(text); });
 }
 void send_net(JsonObject *object) {
-    const auto line = object_text(object) + "\n";
-    json_object_unref(object);
+    const auto line = object_text(object) + "\n"; // object_text takes ownership
     if (!control_writer || !control_writer->push(line))
         fatal("The network process stopped accepting commands.");
 }
 
-GstFlowReturn new_sample(GstAppSink *sink, gpointer) {
+GstFlowReturn new_sample(GstAppSink *sink, gpointer data) {
+    auto &state = *static_cast<FrameSink *>(data);
     auto sample = gst_app_sink_pull_sample(sink);
     if (!sample)
         return GST_FLOW_EOS;
@@ -80,25 +101,71 @@ GstFlowReturn new_sample(GstAppSink *sink, gpointer) {
     const auto caps = gst_sample_get_caps(sample);
     std::lock_guard<std::mutex> lock(frame_mutex);
     if (buffer && caps && frame_writer) {
+        bool queued = true;
         gchar *caps_text = gst_caps_to_string(caps);
-        if (sent_caps != caps_text) {
-            net_records::FrameHeader header{net_records::FrameKind::AudioCaps, 0,
+        if (state.sent_caps != caps_text) {
+            net_records::FrameHeader header{state.caps_kind, 0,
                                             static_cast<std::uint32_t>(strlen(caps_text)), 0};
-            if (frame_writer->push(net_records::encode_frame(header, caps_text)))
-                sent_caps = caps_text;
+            queued = frame_writer->push(net_records::encode_frame(header, caps_text));
+            if (queued)
+                state.sent_caps = caps_text;
         }
         g_free(caps_text);
         GstMapInfo map{};
-        if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        if (queued && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+            const bool delta = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
             net_records::FrameHeader header{
-                net_records::FrameKind::AudioBuffer, 0, static_cast<std::uint32_t>(map.size),
+                state.buffer_kind, static_cast<std::uint8_t>(delta ? net_records::flag_delta : 0),
+                static_cast<std::uint32_t>(map.size),
                 GST_BUFFER_DURATION_IS_VALID(buffer) ? GST_BUFFER_DURATION(buffer) : 0};
-            frame_writer->push(net_records::encode_frame(header, map.data));
+            queued = frame_writer->push(net_records::encode_frame(header, map.data));
             gst_buffer_unmap(buffer, &map);
+        }
+        if (!queued) {
+            // The real worker skips to a keyframe here; the prototype just counts and asks.
+            ++overflows;
+            frame_writer->clear();
+            video_sink.sent_caps.clear();
+            audio_sink.sent_caps.clear();
+            if (encoder)
+                encoder->request_keyframe();
         }
     }
     gst_sample_unref(sample);
     return GST_FLOW_OK;
+}
+void attach_sink(const char *name, FrameSink &state) {
+    auto sink = gst_bin_get_by_name(GST_BIN(pipeline), name);
+    if (!sink)
+        return;
+    GstAppSinkCallbacks callbacks{};
+    callbacks.new_sample = new_sample;
+    gst_app_sink_set_callbacks(GST_APP_SINK(sink), &callbacks, &state, nullptr);
+    gst_object_unref(sink);
+}
+
+void start_capture() {
+    if (!video_enabled || encoder)
+        return;
+    const auto rate = rate_control(video_codec->id, profile);
+    ScreenEncoderSettings settings;
+    settings.width = profile.width;
+    settings.height = profile.height;
+    settings.fps = profile.fps;
+    settings.bitrate_kbps = rate.bitrate_kbps;
+    settings.max_bitrate_kbps = rate.max_bitrate_kbps;
+    settings.gop_frames = rate.gop_frames;
+    settings.hevc = video_codec->id == "h265";
+    encoder = ScreenEncoder::create();
+    encoder->start(
+        settings,
+        [](const std::uint8_t *data, std::size_t size, bool keyframe) {
+            auto buffer = gst_buffer_new_memdup(data, size);
+            if (!keyframe)
+                GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+            gst_app_src_push_buffer(GST_APP_SRC(video_in), buffer);
+        },
+        [](const std::string &message) { fail_from_thread(message); });
 }
 
 void add_peer(const std::string &id, const std::string &sdp) {
@@ -133,6 +200,7 @@ gboolean net_message(gpointer data) {
         if (!playing) {
             playing = true;
             gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            start_capture();
         }
     } else if (type == "peer-failed" && peers.count(peer_id)) {
         peers.erase(peer_id);
@@ -140,11 +208,14 @@ gboolean net_message(gpointer data) {
     } else if (type == "peer-closed") {
         peers.erase(peer_id);
         emit("peer-closed", {{"peerId", peer_id}});
+    } else if (type == "keyframe-request") {
+        if (encoder)
+            encoder->request_keyframe();
     } else if (type == "log")
         std::cerr << "NET " << string_member(object, "text") << std::endl;
     else if (type == "fatal")
         fatal(std::string("Network process failed: ") + string_member(object, "reason"));
-    else if (type != "peer-metrics" && type != "channel-closed" && type != "keyframe-request")
+    else if (type != "peer-metrics" && type != "channel-closed")
         fatal("The network process sent an invalid message: " + text->substr(0, 200));
     if (parser)
         g_object_unref(parser);
@@ -155,6 +226,33 @@ std::string executable_path() {
     char path[4096];
     uint32_t size = sizeof(path);
     return _NSGetExecutablePath(path, &size) == 0 ? path : "";
+}
+
+// Every input message is answered with the peer's control state, which is always false here.
+void read_input(HANDLE handle) {
+    unsigned char header[4];
+    while (net_pipes::read_exact(handle, header, sizeof(header))) {
+        const auto sizes = net_records::decode_input_header(header);
+        if (!sizes)
+            return fail_from_thread("The network process sent a malformed input record.");
+        std::string peer(sizes->peer, '\0'), text(sizes->text, '\0');
+        if (!net_pipes::read_exact(handle, peer.data(), peer.size()) ||
+            !net_pipes::read_exact(handle, text.data(), text.size()))
+            break;
+        g_main_context_invoke_full(
+            nullptr, G_PRIORITY_DEFAULT,
+            [](gpointer data) -> gboolean {
+                const auto &id = *static_cast<std::string *>(data);
+                if (peers.count(id)) {
+                    auto state = typed_object("control-state", {{"peerId", id}});
+                    json_object_set_boolean_member(state, "control", FALSE);
+                    send_net(state);
+                }
+                return G_SOURCE_REMOVE;
+            },
+            new std::string(peer), [](gpointer data) { delete static_cast<std::string *>(data); });
+    }
+    fail_from_thread("The network process stopped.");
 }
 
 bool start_network() {
@@ -199,14 +297,25 @@ bool start_network() {
         });
         fail_from_thread("The network process stopped.");
     }).detach();
-    // Input records are drained and dropped: the prototype has no input broker.
-    const auto input = input_pipe.parent.get();
-    std::thread([input] {
-        char buffer[8192];
-        DWORD received = 0;
-        while (ReadFile(input, buffer, sizeof(buffer), &received, nullptr) && received) {
-        }
-    }).detach();
+    std::thread(read_input, input_pipe.parent.get()).detach();
+    return true;
+}
+
+bool set_profile(JsonObject *object) {
+    if (json_object_has_member(object, "streamPlan")) {
+        auto node = json_object_get_member(object, "streamPlan");
+        return node && JSON_NODE_HOLDS_OBJECT(node) &&
+               parse_stream_profile(json_node_get_object(node), profile);
+    }
+    const std::string name = string_member(object, "profile");
+    if (name == "mobile")
+        profile = {1280, 720, 15, 2000, 1200};
+    else if (name == "balanced")
+        profile = {1920, 1080, 30, 4000, 1200};
+    else if (name == "desktop" || name.empty())
+        profile = {2560, 1440, 30, 6000, 1200};
+    else
+        return false;
     return true;
 }
 
@@ -214,34 +323,54 @@ void start_source(JsonObject *object) {
     if (started)
         return fatal("Source already started");
     started = true;
-    if (boolean_member(object, "video"))
-        return fatal("The MG1 prototype streams audio only");
+    video_enabled = boolean_member(object, "video");
     const std::string format = string_member(object, "audioFormat");
     audio_channels = format == "mono-32k" ? 1 : format == "stereo-96k" ? 2 : 0;
-    if (!audio_channels)
+    if (!video_enabled && !audio_channels)
         return fatal("Audio sources require an audio format");
-    const std::string description =
-        "audiotestsrc is-live=true wave=sine ! audioconvert ! audioresample ! "
-        "audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=" +
-        std::to_string(audio_channels) + " ! opusenc bitrate=" +
-        (audio_channels == 1 ? "32000" : "96000") +
-        " bitrate-type=cbr frame-size=20 inband-fec=true ! "
-        "appsink name=audio-sink sync=false async=false";
+    std::string description;
+    if (video_enabled) {
+        if (!set_profile(object))
+            return fatal("Invalid stream profile");
+        const std::string codec_id = string_member(object, "codec");
+        video_codec = codec_id.empty() ? &video_codecs()[0] : find_video_codec(codec_id);
+        if (!video_codec || video_codec->id == "av1")
+            return fatal("The MG2 prototype encodes H.264 and H.265 only");
+        description = "appsrc name=video-in is-live=true format=time do-timestamp=true caps=\"" +
+                      video_codec->caps + "\" ! " + video_codec->parser +
+                      " ! appsink name=video-sink sync=false async=false";
+    }
+    if (audio_channels)
+        description +=
+            std::string(description.empty() ? "" : "  ") +
+            "audiotestsrc is-live=true wave=sine ! audioconvert ! audioresample ! "
+            "audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=" +
+            std::to_string(audio_channels) + " ! opusenc bitrate=" +
+            (audio_channels == 1 ? "32000" : "96000") +
+            " bitrate-type=cbr frame-size=20 inband-fec=true ! "
+            "appsink name=audio-sink sync=false async=false";
     GError *error = nullptr;
     pipeline = gst_parse_launch(description.c_str(), &error);
     if (error || !pipeline)
         return fatal(error ? error->message : "Unable to create the source.");
-    auto sink = gst_bin_get_by_name(GST_BIN(pipeline), "audio-sink");
-    GstAppSinkCallbacks callbacks{};
-    callbacks.new_sample = new_sample;
-    gst_app_sink_set_callbacks(GST_APP_SINK(sink), &callbacks, nullptr, nullptr);
-    gst_object_unref(sink);
-    pending_ready = typed_object("ready");
+    video_in = gst_bin_get_by_name(GST_BIN(pipeline), "video-in");
+    attach_sink("video-sink", video_sink);
+    attach_sink("audio-sink", audio_sink);
+    pending_ready = video_enabled ? typed_object("ready", {{"encoderBackend", "videotoolbox"},
+                                                           {"encoderLabel", "VideoToolbox"},
+                                                           {"encoder", "VTCompressionSession"},
+                                                           {"encoderReason", "prototype"}})
+                                  : typed_object("ready");
     if (!start_network())
         return;
     auto configuration = typed_object("configure");
-    json_object_set_boolean_member(configuration, "video", FALSE);
+    json_object_set_boolean_member(configuration, "video", video_enabled);
     json_object_set_int_member(configuration, "audioChannels", audio_channels);
+    if (video_enabled) {
+        json_object_set_string_member(configuration, "codec", video_codec->id.c_str());
+        json_object_set_int_member(configuration, "fps", profile.fps);
+        json_object_set_int_member(configuration, "mtu", profile.mtu);
+    }
     send_net(configuration);
 }
 
@@ -264,6 +393,9 @@ gboolean command(gpointer data) {
             send_net(typed_object("remove-peer", {{"peerId", peer_id}}));
         else
             emit("peer-closed", {{"peerId", peer_id}});
+    } else if (type == "keyframe") {
+        if (encoder)
+            encoder->request_keyframe();
     } else if (type == "check-port") {
         auto reply = typed_object("port-owned", {{"peerId", peer_id}});
         json_object_set_boolean_member(reply, "owned", FALSE);
@@ -289,7 +421,22 @@ int session() {
             },
             nullptr);
     }).detach();
+    if (const char *path = g_getenv("VIDVNC_MG2_STATS"))
+        g_timeout_add_seconds(
+            2,
+            [](gpointer path) -> gboolean {
+                if (encoder) {
+                    std::ofstream out(static_cast<const char *>(path), std::ios::app);
+                    out << "{\"pid\":" << getpid() << ",\"t\":" << g_get_real_time() / 1000
+                        << ",\"overflows\":" << overflows.exchange(0)
+                        << ",\"encoder\":" << encoder->take_stats() << "}" << std::endl;
+                }
+                return G_SOURCE_CONTINUE;
+            },
+            const_cast<char *>(path));
     g_main_loop_run(loop);
+    if (encoder)
+        encoder->stop();
     if (net_pid)
         kill(net_pid, SIGKILL);
     if (pipeline)
@@ -316,6 +463,14 @@ int main(int argc, char **argv) {
     }
     if (argc == 2 && std::string(argv[1]) == "--session")
         return session();
+    // Screen Recording: report the current state, asking (once) if it is not granted.
+    if (argc == 2 && std::string(argv[1]) == "--request-capture") {
+        const bool before = CGPreflightScreenCaptureAccess();
+        const bool after = before || CGRequestScreenCaptureAccess();
+        std::cout << "{\"preflight\":" << (before ? "true" : "false")
+                  << ",\"request\":" << (after ? "true" : "false") << "}" << std::endl;
+        return after ? 0 : 1;
+    }
     std::cerr << "Expected --session." << std::endl;
     return 2;
 }

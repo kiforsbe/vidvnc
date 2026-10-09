@@ -1,7 +1,7 @@
-# MG1 prototype only (throwaway): media-net.cpp, unmodified, built with Clang against
-# GStreamer.framework, with a stand-in worker. See mac-worker.cpp.
+# MG1/MG2 prototype only (throwaway): media-net.cpp, unmodified, built with Clang against
+# GStreamer.framework, with a stand-in worker. See mac-worker.mm.
 cmake_minimum_required(VERSION 3.24)
-project(vidvnc_mg1 CXX)
+project(vidvnc_mg1 CXX OBJCXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -33,11 +33,13 @@ foreach(file ${SHARED_HEADERS} "${SRC}/media-net.cpp")
 endforeach()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/shim/sandbox.hpp" "${STAGE}/sandbox.hpp" COPYONLY)
 
-add_executable(media-worker mac-worker.cpp "${STAGE}/media-net.cpp")
+add_executable(media-worker mac-worker.mm screen-encoder.mm "${STAGE}/media-net.cpp")
 target_include_directories(media-worker PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/shim" "${STAGE}" "${GSTREAMER_FRAMEWORK}/Headers")
-target_compile_options(media-worker PRIVATE -F "${GSTREAMER_FRAMEWORK_DIR}")
+target_compile_options(media-worker PRIVATE -F "${GSTREAMER_FRAMEWORK_DIR}" $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 target_link_directories(media-worker PRIVATE "${GST_LIB}")
 target_link_libraries(media-worker PRIVATE gstreamer-1.0 gobject-2.0 glib-2.0 json-glib-1.0
-  gstapp-1.0 gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0 gstrtp-1.0)
+  gstapp-1.0 gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0 gstrtp-1.0
+  "-framework ScreenCaptureKit" "-framework VideoToolbox" "-framework CoreMedia"
+  "-framework CoreVideo" "-framework CoreGraphics" "-framework Foundation")
 set_target_properties(media-worker PROPERTIES BUILD_RPATH "${GST_LIB}")
