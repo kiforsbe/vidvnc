@@ -41,6 +41,11 @@ extern char **environ;
 // Private libsystem call (used by launchd and TCC tooling): the process macOS holds responsible.
 extern "C" pid_t responsibility_get_pid_responsible_for_pid(pid_t);
 #include <libproc.h>
+#include <sys/proc_info.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
 
 namespace {
 
@@ -417,6 +422,44 @@ gboolean command(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+
+// MG4 mitigation: SBPL cannot keep media-net's inbound sockets on loopback, so the worker audits
+// them. Every socket media-net holds must be bound to 127.0.0.1 or ::1 (unbound counts too, as
+// 0.0.0.0); anything else ends the source. Returns "" or what was found.
+std::string audit_net_sockets(pid_t pid) {
+    const int bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nullptr, 0);
+    if (bytes <= 0)
+        return "";
+    std::vector<proc_fdinfo> fds(bytes / sizeof(proc_fdinfo));
+    const int got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, fds.data(), bytes);
+    for (int i = 0; i < got / static_cast<int>(sizeof(proc_fdinfo)); ++i) {
+        if (fds[i].proc_fdtype != PROX_FDTYPE_SOCKET)
+            continue;
+        socket_fdinfo info{};
+        if (proc_pidfdinfo(pid, fds[i].proc_fd, PROC_PIDFDSOCKETINFO, &info, sizeof(info)) !=
+            sizeof(info))
+            continue;
+        const auto &socket = info.psi;
+        if (socket.soi_family != AF_INET && socket.soi_family != AF_INET6)
+            continue;
+        const auto &in = socket.soi_proto.pri_in;
+        char text[INET6_ADDRSTRLEN] = {};
+        bool loopback = false;
+        if (in.insi_vflag & INI_IPV4) {
+            const auto address = in.insi_laddr.ina_46.i46a_addr4;
+            loopback = ntohl(address.s_addr) >> 24 == 127;
+            inet_ntop(AF_INET, &address, text, sizeof(text));
+        } else {
+            loopback = IN6_IS_ADDR_LOOPBACK(&in.insi_laddr.ina_6);
+            inet_ntop(AF_INET6, &in.insi_laddr.ina_6, text, sizeof(text));
+        }
+        if (!loopback)
+            return std::string("fd ") + std::to_string(fds[i].proc_fd) + " bound to " + text + ":" +
+                   std::to_string(ntohs(static_cast<uint16_t>(in.insi_lport)));
+    }
+    return "";
+}
+
 int session() {
     loop = g_main_loop_new(nullptr, FALSE);
     std::thread([] {
@@ -444,6 +487,19 @@ int session() {
                 return G_SOURCE_CONTINUE;
             },
             const_cast<char *>(path));
+    g_timeout_add(
+        1000,
+        [](gpointer) -> gboolean {
+            if (!net_pid || !net_ready)
+                return G_SOURCE_CONTINUE;
+            const auto found = audit_net_sockets(net_pid);
+            if (!found.empty()) {
+                fatal("media-net holds a non-loopback socket: " + found);
+                return G_SOURCE_REMOVE;
+            }
+            return G_SOURCE_CONTINUE;
+        },
+        nullptr);
     g_main_loop_run(loop);
     if (encoder)
         encoder->stop();
@@ -522,6 +578,23 @@ int main(int argc, char **argv) {
                 return 2;
             handles[i] = shim_handle(static_cast<int>(value));
         }
+        // MG4 fault injection: VIDVNC_MG4_EVIL=1 makes media-net bind a UDP socket to the LAN
+        // address after 3 seconds, as a compromised media-net could under the profile.
+        if (getenv("VIDVNC_MG4_EVIL"))
+            std::thread([] {
+                sleep(3);
+                ifaddrs *list = nullptr;
+                if (getifaddrs(&list) != 0)
+                    return;
+                for (auto row = list; row; row = row->ifa_next)
+                    if (row->ifa_addr && row->ifa_addr->sa_family == AF_INET &&
+                        !(row->ifa_flags & IFF_LOOPBACK) && (row->ifa_flags & IFF_UP)) {
+                        const int s = socket(AF_INET, SOCK_DGRAM, 0);
+                        bind(s, row->ifa_addr, sizeof(sockaddr_in)); // kept open on purpose
+                        break;
+                    }
+                freeifaddrs(list);
+            }).detach();
         return network_main(handles[0], handles[1], handles[2], handles[3]);
     }
     if (argc == 2 && std::string(argv[1]) == "--session")
