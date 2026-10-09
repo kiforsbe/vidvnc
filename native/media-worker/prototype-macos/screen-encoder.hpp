@@ -26,3 +26,6 @@ class ScreenEncoder {
     // Counters and latency percentiles since the last call, as a JSON object.
     virtual std::string take_stats() = 0;
 };
+
+// MG3: asks ScreenCaptureKit for the shareable displays once; "ok <n> displays" or the error.
+std::string screen_capture_probe();

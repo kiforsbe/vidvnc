@@ -16,7 +16,9 @@
 #include <sys/wait.h>
 #include <mach-o/dyld.h>
 #include <CoreGraphics/CoreGraphics.h>
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -444,6 +446,54 @@ int session() {
     return failed ? 1 : 0;
 }
 
+
+// MG3: the permissions a host-spawned worker gets. Asks for Screen Recording and Accessibility
+// (each prompt names the responsible app), then posts a 40-point mouse move and a Shift tap
+// with CGEventPost, reads the cursor back to see whether the move landed, and puts it back.
+int mg3_probe() {
+    const bool capture_before = CGPreflightScreenCaptureAccess();
+    const bool capture_request = capture_before || CGRequestScreenCaptureAccess();
+    const std::string capture = screen_capture_probe();
+    const bool post_before = CGPreflightPostEventAccess();
+    const bool post_request = post_before || CGRequestPostEventAccess();
+    const auto location = [] {
+        auto event = CGEventCreate(nullptr);
+        const auto point = CGEventGetLocation(event);
+        CFRelease(event);
+        return point;
+    };
+    const auto move = [](CGPoint point) {
+        auto event = CGEventCreateMouseEvent(nullptr, kCGEventMouseMoved, point, kCGMouseButtonLeft);
+        CGEventPost(kCGHIDEventTap, event);
+        CFRelease(event);
+        usleep(200000);
+    };
+    const auto start = location();
+    const auto bounds = CGDisplayBounds(CGMainDisplayID());
+    const CGPoint target{std::min(start.x + 40, bounds.origin.x + bounds.size.width - 2),
+                         std::min(start.y + 40, bounds.origin.y + bounds.size.height - 2)};
+    move(target);
+    const auto landed = location();
+    const bool moved = std::abs(landed.x - target.x) < 2 && std::abs(landed.y - target.y) < 2;
+    move(start);
+    for (const bool down : {true, false}) {
+        auto key = CGEventCreateKeyboardEvent(nullptr, 56 /* kVK_Shift */, down);
+        CGEventPost(kCGHIDEventTap, key);
+        CFRelease(key);
+    }
+    auto result = typed_object("mg3", {{"executable", executable_path()},
+                                       {"screenCaptureKit", capture}});
+    json_object_set_int_member(result, "pid", getpid());
+    json_object_set_int_member(result, "ppid", getppid());
+    json_object_set_boolean_member(result, "capturePreflight", capture_before);
+    json_object_set_boolean_member(result, "captureRequest", capture_request);
+    json_object_set_boolean_member(result, "postPreflight", post_before);
+    json_object_set_boolean_member(result, "postRequest", post_request);
+    json_object_set_boolean_member(result, "mouseMoveLanded", moved);
+    write_object(result);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -463,6 +513,8 @@ int main(int argc, char **argv) {
     }
     if (argc == 2 && std::string(argv[1]) == "--session")
         return session();
+    if (argc == 2 && std::string(argv[1]) == "--mg3")
+        return mg3_probe();
     // Screen Recording: report the current state, asking (once) if it is not granted.
     if (argc == 2 && std::string(argv[1]) == "--request-capture") {
         const bool before = CGPreflightScreenCaptureAccess();

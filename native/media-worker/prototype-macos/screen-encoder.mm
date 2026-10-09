@@ -340,3 +340,16 @@ class Impl : public ScreenEncoder {
 @end
 
 std::unique_ptr<ScreenEncoder> ScreenEncoder::create() { return std::make_unique<Impl>(); }
+
+std::string screen_capture_probe() {
+    __block std::string result = "timed out";
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content,
+                                                                   NSError *error) {
+      result = error ? std::string("error: ") + error.localizedDescription.UTF8String
+                     : "ok " + std::to_string(content.displays.count) + " displays";
+      dispatch_semaphore_signal(done);
+    }];
+    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+    return result;
+}
