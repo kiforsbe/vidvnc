@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- MG4 candidate 2: App Sandbox with only the network entitlements, no inherit. The read-only
+     exceptions stand in for GStreamer living inside the app bundle in a real build. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key><true/>
+  <key>com.apple.security.network.client</key><true/>
+  <key>com.apple.security.network.server</key><true/>
+  <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+  <array>
+    <string>/Library/Frameworks/GStreamer.framework/</string>
+    <string>/.cache/gstreamer-1.0/</string>
+  </array>
+</dict>
+</plist>

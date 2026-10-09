@@ -43,3 +43,20 @@ target_link_libraries(media-worker PRIVATE gstreamer-1.0 gobject-2.0 glib-2.0 js
   "-framework ScreenCaptureKit" "-framework VideoToolbox" "-framework CoreMedia"
   "-framework CoreVideo" "-framework CoreGraphics" "-framework Foundation")
 set_target_properties(media-worker PROPERTIES BUILD_RPATH "${GST_LIB}")
+
+# MG4: the macOS sandbox-probe, and a copy signed into its own App Sandbox (candidate 2).
+add_executable(mg4-probe mg4-probe.mm)
+target_include_directories(mg4-probe PRIVATE "${GSTREAMER_FRAMEWORK}/Headers")
+target_compile_options(mg4-probe PRIVATE -fobjc-arc -Wno-deprecated-declarations)
+# App Sandbox needs a bundle identifier: an Info.plist embedded in the executable.
+target_link_options(mg4-probe PRIVATE -Wl,-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/mg4-probe-Info.plist)
+target_link_directories(mg4-probe PRIVATE "${GST_LIB}")
+target_link_libraries(mg4-probe PRIVATE gstreamer-1.0 gobject-2.0 glib-2.0 gstwebrtc-1.0 gstsdp-1.0
+  "-framework ScreenCaptureKit" "-framework CoreGraphics" "-framework ApplicationServices"
+  "-framework Foundation")
+set_target_properties(mg4-probe PROPERTIES BUILD_RPATH "${GST_LIB}")
+add_custom_command(TARGET mg4-probe POST_BUILD
+  COMMAND cp "$<TARGET_FILE:mg4-probe>" "$<TARGET_FILE_DIR:mg4-probe>/mg4-probe-appsandbox"
+  COMMAND codesign --force --sign - -i com.kiforsbe.vidvnc.mg4-probe
+          --entitlements "${CMAKE_CURRENT_SOURCE_DIR}/mg4-appsandbox.entitlements"
+          "$<TARGET_FILE_DIR:mg4-probe>/mg4-probe-appsandbox")

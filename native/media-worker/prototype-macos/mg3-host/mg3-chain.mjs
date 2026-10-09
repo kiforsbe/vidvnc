@@ -1,6 +1,15 @@
 // MG3 prototype only: the Node.js step of app -> node -> media-worker. Runs the worker's probe
 // and reports it with the process ancestry, as JSON.
 import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+
+// MG4+: when the prototype's host-chain.mjs exists, run that instead, without rebuilding (and
+// re-signing) the app, which would cost its privacy grants.
+const external = '/Users/kiforsbe/source/vidvnc/native/media-worker/prototype-macos/host-chain.mjs';
+if (existsSync(external)) {
+  await import(external);
+  process.exit(0);
+}
 
 const ancestry = [];
 const seen = new Set();
