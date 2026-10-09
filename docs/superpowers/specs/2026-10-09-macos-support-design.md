@@ -10,6 +10,7 @@ work. A dated implementation plan in `docs/superpowers/plans/` follows this spec
 
 - [Problem and goals](#problem-and-goals)
 - [Scope and non-goals](#scope-and-non-goals)
+- [Decision register](#decision-register)
 - [What is Windows-specific today](#what-is-windows-specific-today)
 - [Architecture on macOS](#architecture-on-macos)
 - [Decisions](#decisions)
@@ -18,7 +19,7 @@ work. A dated implementation plan in `docs/superpowers/plans/` follows this spec
 - [Security analysis](#security-analysis)
 - [Prototype gates](#prototype-gates)
 - [Documentation changes](#documentation-changes)
-- [Risks and open questions](#risks-and-open-questions)
+- [Risks](#risks)
 - [References](#references)
 
 ## Problem and goals
@@ -61,6 +62,49 @@ Not in scope:
 - Fast user switching and more than one console user.
 - Moonlight compatibility, the hub, and adaptive quality, which stay on their own
   roadmap entries.
+
+## Decision register
+
+Every open decision in this design, when it must be made, and the proposal. Decisions for
+the owner have a `Q` number; design decisions, explained under [Decisions](#decisions),
+have a `D` number and are confirmed or overturned by a [prototype gate](#prototype-gates).
+Update the Status column as each one is settled, and record the reason next to the
+decision it changes.
+
+### Owner decisions
+
+In the order they are needed.
+
+| ID  | Decision                                                                                                                                         | Needed                                             | Proposal                                                                                                    | Status |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------ |
+| Q7  | Apply for Apple's managed `com.apple.developer.persistent-content-capture` entitlement ([D5](#d5-permissions-and-onboarding))                    | Now: Apple's review takes weeks                    | Apply now. If refused, the periodic capture re-approval is a documented known limitation                    | Open   |
+| Q6  | Lowest supported macOS ([older versions](#older-macos-versions-on-apple-silicon))                                                                | Before the host app is built                       | macOS 27 only. If 13.5 might ever be wanted, say so now, so the host uses `ObservableObject` from the start | Open   |
+| Q2  | Confirm each new network before the server binds to it, since macOS has no Private profile ([D6](#d6-lan-eligibility-without-a-network-profile)) | Before the server's LAN eligibility work           | Yes for the app, one prompt the first time it sees a network; no for the CLI                                | Open   |
+| Q4  | Should the CLI disclaim TCC responsibility, so its grants are its own rather than Terminal's?                                                    | After MG3                                          | Not at first; accept and document Terminal's grants                                                         | Open   |
+| Q1  | Pursue a Mac App Store edition ([channel B](#channel-b-mac-app-store-gated))                                                                     | After MG7, including App Review's answer           | Default no. Ship Developer ID first, but keep the app sandbox-clean                                         | Open   |
+| Q8  | A view-only App Store edition, if App Review refuses input injection                                                                             | After MG7, only if Q1 is yes                       | Not proposed                                                                                                | Open   |
+| Q9  | App Store licensing: the bundled LGPL libraries and App Store terms, possibly a custom EULA                                                      | Before any App Store submission, only if Q1 is yes | Licensing review                                                                                            | Open   |
+| Q10 | Share settings between an App Store app and the CLI through an App Group                                                                         | Only if Q1 is yes                                  | No; each keeps its own settings                                                                             | Open   |
+| Q5  | Should the macOS CLI bundle Node.js, unlike Windows?                                                                                             | Before packaging                                   | No; keep Node.js a declared prerequisite, as on Windows                                                     | Open   |
+| Q11 | Where the signing and notarization credentials live                                                                                              | Before packaging                                   | The owner's login keychain and a `notarytool` keychain profile; no CI signing at first, nothing in the repo | Open   |
+| Q12 | Does the AGPL section 7 permission in [LICENSING.md](../../../LICENSING.md) need to name Apple frameworks?                                       | Before the first macOS release                     | Probably not, as they are system libraries; the owner confirms                                              | Open   |
+| Q13 | Version number of the first release with macOS support                                                                                           | At release                                         | A minor version: it adds the `videotoolbox` encoder setting value                                           | Open   |
+| Q3  | Map Control to Command for viewers on Windows and iPhone ([D4](#d4-input))                                                                       | After the first macOS release                      | A per-device setting, later; off by default                                                                 | Open   |
+
+### Design decisions
+
+| ID  | Decision                                                                       | Confirmed by                                             | Proposal                                                                                                                                                     | Status   |
+| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| D1  | [How the worker captures and encodes](#d1-capture-and-encode-natively)         | MG2: latency and CPU against the Windows baseline        | ScreenCaptureKit into VideoToolbox directly; GStreamer for Opus and WebRTC. Fallback: GStreamer `vtenc`                                                      | Proposed |
+| D2  | [Pipes to media-net](#d2-pipes-and-media-net)                                  | MG1                                                      | POSIX pipes; record formats unchanged                                                                                                                        | Proposed |
+| D3  | [Sandbox for media-net and the relay](#d3-sandbox-for-media-net-and-the-relay) | MG4: the macOS `sandbox-probe`                           | Developer ID: a launcher-applied profile. App Store: XPC services. If none passes, no release without the split unless the owner accepts the risk in writing | Proposed |
+| D4  | [Input](#d4-input)                                                             | MG3                                                      | `CGEventPost`, a macOS key table behind the existing allow-list                                                                                              | Proposed |
+| D5  | [Permissions and onboarding](#d5-permissions-and-onboarding)                   | MG6: Remote Desktop category, Local Network, re-approval | Ask only after an owner action that needs it, never at launch; a Permissions page with live state                                                            | Proposed |
+| D6  | [LAN eligibility](#d6-lan-eligibility-without-a-network-profile)               | Spec review, before the server work                      | Physical Ethernet and Wi-Fi with private addresses, read through the worker's `--adapters` mode; VPNs and bridges excluded                                   | Proposed |
+| D7  | [Self-signed TLS](#d7-tls-without-powershell)                                  | Spec review, before the server work                      | A portable JavaScript `self-signed` strategy, key file `0600`; Keychain later                                                                                | Proposed |
+| D8  | [Host app](#d8-host-app)                                                       | Spec review                                              | Swift 6, SwiftUI and AppKit; owner-protocol contract first, then a design preview, then the UI                                                               | Proposed |
+| D9  | [Bundle layout and runtime](#d9-bundle-layout-and-runtime)                     | MG5 (Node.js entitlements) and MG8 (notarization)        | Node.js bundled in the app, renamed, with only `allow-jit`                                                                                                   | Proposed |
+| D10 | [Distribution format](#channel-a-developer-id-committed)                       | Before packaging                                         | A signed, notarized DMG for the app; a signed, notarized `.pkg` for the CLI                                                                                  | Proposed |
 
 ## What is Windows-specific today
 
@@ -251,7 +295,7 @@ and release on loss. Only the last step differs.
   origins.
 - Modifiers are passed by position: a viewer's Control is the Mac's Control. A host setting
   to swap Control and Command for viewers on Windows or iPhone is left to a later change
-  ([open question Q3](#risks-and-open-questions)).
+  ([Q3](#decision-register)).
 - Posting events needs the user's Accessibility approval (the `PostEvent` privilege). The
   worker checks `CGPreflightPostEventAccess` at `start` and reports `input-unavailable`
   rather than silently dropping input; the host shows it.
@@ -271,7 +315,7 @@ and release on loss. Only the last step differs.
   Nothing is requested at app launch; each prompt follows an owner action that needs it.
 - The grants belong to the responsible app, VidVNC.app, so prompts name VidVNC. For the CLI
   started from Terminal the responsible app is the terminal, which then needs the grants.
-  That is documented, not worked around, at first ([Q4](#risks-and-open-questions)).
+  That is documented, not worked around, at first ([Q4](#decision-register)).
 - Since macOS 15, ScreenCaptureKit users are asked again periodically to keep allowing
   capture. Apple's managed `com.apple.developer.persistent-content-capture` entitlement
   removes this for remote-desktop products, but Apple describes it as for headless "VNC"
@@ -289,7 +333,7 @@ or Wi-Fi port (from SystemConfiguration, through the worker's new read-only `--a
 mode, so it works inside an App Sandbox), is up, and has a private, unique-local or
 link-local address. VPN, bridge, `utun` and Thunderbolt-bridge interfaces are ineligible.
 `VIDVNC_HOST` can still only narrow. Remote access keeps its separate opt-in. Whether the
-owner must also confirm each new network the first time is [Q2](#risks-and-open-questions).
+owner must also confirm each new network the first time is [Q2](#decision-register).
 
 ### D7. TLS without PowerShell
 
@@ -495,20 +539,16 @@ already system libraries), the security analysis, the roadmap and the changelog.
 the `videotoolbox` encoder value is a settings change, so the release that ships it is a
 minor version.
 
-## Risks and open questions
+## Risks
 
-| ID  | Question or risk                                                                                                  | Proposed answer                                               |
-| --- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Q1  | Is a Mac App Store edition worth having if App Review refuses input injection?                                    | Owner decides after MG7; default no                           |
-| Q2  | Should the owner confirm each new network before the server binds to it, since macOS has no Private profile?      | Yes for the app (one prompt per network), no for the CLI      |
-| Q3  | Should viewers on Windows and iPhone get Control mapped to Command?                                               | A per-device setting, later; off by default                   |
-| Q4  | Should the CLI disclaim TCC responsibility so its grants are its own rather than Terminal's?                      | Not at first; revisit after MG3                               |
-| Q5  | Should the CLI bundle Node.js on macOS, unlike Windows?                                                           | No; keep Node.js a declared prerequisite for parity           |
-| Q6  | Will the minimum ever go below macOS 27? If 13.5 is possible, the host must use `ObservableObject` from the start | Owner decides before the host is built; default 27 only       |
-| R1  | `sandbox_init` profiles are deprecated API; Apple may remove them                                                 | MG4 also measures option 2; keep the launcher swappable       |
-| R2  | The persistent-content-capture entitlement may be refused                                                         | Known limitation: periodic re-approval                        |
-| R3  | ScreenCaptureKit and macOS 27 privacy behaviour may change in point releases                                      | Permissions page reads state live; acceptance on each release |
-| R4  | The owner has one Mac; multi-display, Retina mix and hotplug coverage are limited                                 | Record what was and was not tested, as on Windows             |
+Open questions are in the [decision register](#decision-register).
+
+| ID  | Risk                                                                              | Proposed answer                                               |
+| --- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| R1  | `sandbox_init` profiles are deprecated API; Apple may remove them                 | MG4 also measures option 2; keep the launcher swappable       |
+| R2  | The persistent-content-capture entitlement may be refused                         | Known limitation: periodic re-approval                        |
+| R3  | ScreenCaptureKit and macOS 27 privacy behaviour may change in point releases      | Permissions page reads state live; acceptance on each release |
+| R4  | The owner has one Mac; multi-display, Retina mix and hotplug coverage are limited | Record what was and was not tested, as on Windows             |
 
 ## References
 
