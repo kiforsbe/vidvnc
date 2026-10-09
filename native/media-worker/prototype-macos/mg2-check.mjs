@@ -174,8 +174,11 @@ try {
         const H = meta.height;
         // ScreenCaptureKit keeps the aspect ratio: the screen is letterboxed into W x H.
         const scale = Math.min(W / screen.width, H / screen.height);
-        const ox = (W - screen.width * scale) / 2;
-        const oy = (H - screen.height * scale) / 2;
+        // The page's top-left corner on screen, in points (full screen is not guaranteed).
+        const left = screenX + (outerWidth - innerWidth) / 2;
+        const top = screenY + (outerHeight - innerHeight);
+        const ox = (W - screen.width * scale) / 2 + left * scale;
+        const oy = (H - screen.height * scale) / 2 + top * scale;
         const stripW = Math.ceil((BITS + 2) * BLOCK * scale) + 2;
         const stripH = Math.ceil(BLOCK * scale) + 2;
         probe.canvas.width = stripW;
