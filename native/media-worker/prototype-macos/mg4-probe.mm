@@ -470,6 +470,34 @@ std::string profile_text(const std::string &gstreamer, const std::string &execut
     return text.str();
 }
 
+// MG5: the relay's profile. As media-net's, minus GStreamer, but with the network open: the
+// relay serves LAN clients on its public port and reaches the workers on loopback, and SBPL
+// cannot narrow either. `extra` adds a read-only subpath (GStreamer, for the probe's own run).
+std::string relay_profile_text(const std::string &executable, const std::string &extra) {
+    std::ostringstream text;
+    text << "(version 1)\n(deny default)\n"
+         << "(allow file-read* (literal \"/\") (subpath \"/System\") (subpath \"/usr/lib\")"
+            " (subpath \"/usr/share\") (subpath \"/private/preboot\") (subpath \"/private/var/db/dyld\")"
+            " (subpath \"/private/var/db/timezone\") (literal \"/private/etc/localtime\")"
+            " (literal \"/dev/urandom\") (literal \"/dev/random\") (literal \"/dev/null\")"
+            " (literal \""
+         << executable << "\"))\n"
+         << "(allow file-read-metadata)\n"
+         << "(allow file-write-data (literal \"/dev/null\"))\n"
+         << "(allow file-map-executable (subpath \"/System\") (subpath \"/usr/lib\")"
+            " (subpath \"/private/preboot\") (literal \""
+         << executable << "\"))\n"
+         << "(allow process-exec (literal \"" << executable << "\"))\n"
+         << "(allow sysctl-read)\n(allow system-socket)\n"
+         << "(allow network-bind network-inbound (local udp \"*:*\"))\n"
+         << "(allow network-outbound (remote udp \"*:*\"))\n"
+         << "(allow process-info* (target self))\n";
+    if (!extra.empty())
+        text << "(allow file-read* file-map-executable (subpath \"" << extra << "\"))\n"
+             << "(allow file-read* (subpath \"" << getenv("HOME") << "/.cache/gstreamer-1.0\"))\n";
+    return text.str();
+}
+
 struct Run {
     std::string name;
     std::vector<std::string> argv;
@@ -500,6 +528,8 @@ int run_all() {
     const std::string self_profile = work + "/self.sb";
     std::ofstream(exec_profile) << profile_text(gstreamer, self, true);
     std::ofstream(self_profile) << profile_text(gstreamer, self, false);
+    const std::string relay_profile = work + "/relay-probe.sb";
+    std::ofstream(relay_profile) << relay_profile_text(self, gstreamer);
 
     // UDP echo on loopback.
     const int echo = socket(AF_INET, SOCK_DGRAM, 0);
@@ -546,7 +576,7 @@ int run_all() {
 
     int failed_candidates = 0;
     for (const std::string candidate : {"control", "1a-launcher-profile", "1b-self-applied-profile",
-                                        "2-app-sandbox-helper"}) {
+                                        "2-app-sandbox-helper", "relay-profile"}) {
         auto start = CGEventGetLocation(CGEventCreate(nullptr));
         const double tx = start.x + 60, ty = start.y + 60;
         std::vector<std::string> args;
@@ -563,6 +593,9 @@ int run_all() {
             args = {self};
             args.insert(args.end(), child_args.begin(), child_args.end());
             args.insert(args.end(), {"--self-sandbox", self_profile});
+        } else if (candidate == "relay-profile") {
+            args = {self, "--launch", relay_profile, "--", self};
+            args.insert(args.end(), child_args.begin(), child_args.end());
         } else {
             args = {helper};
             args.insert(args.end(), child_args.begin(), child_args.end());
@@ -613,7 +646,7 @@ int run_all() {
         CFRelease(back);
         usleep(200000);
         const bool child_failed = spawned != 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0;
-        if (candidate != "control" && (child_failed || landed))
+        if (candidate != "control" && candidate != "relay-profile" && (child_failed || landed))
             ++failed_candidates;
     }
     std::cout << "\nRESULT: " << failed_candidates << " of 3 sandbox candidates failed" << std::endl;
@@ -641,6 +674,10 @@ int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--is-sandboxed") {
         std::cout << (sandbox_check(std::stoi(argv[2]), nullptr, 0) ? "sandboxed" : "not sandboxed")
                   << std::endl;
+        return 0;
+    }
+    if ((argc == 3 || argc == 4) && std::string(argv[1]) == "--print-relay-profile") {
+        std::cout << relay_profile_text(argv[2], argc == 4 ? argv[3] : "");
         return 0;
     }
     // The launcher profile for another program (for media-net under the stand-in worker).
