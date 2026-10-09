@@ -4,7 +4,8 @@
 the `macos-server` and `macos-cli` targets in [targets.json](../../../packaging/targets.json):
 a native macOS host app, a macOS build of the server and media worker, and how both are
 signed and distributed. The native macOS viewer (`macos-client`) is a separate piece of
-work. A dated implementation plan in `docs/superpowers/plans/` follows this spec.
+work. The implementation plan is
+[2026-10-09-macos-support.md](../plans/2026-10-09-macos-support.md).
 
 ## Contents
 

@@ -244,10 +244,16 @@ Remaining for Windows: clean-machine acceptance, trusted signing, upgrade and un
 checks, published releases with license notices and source for the bundled LGPL
 libraries, and the native viewer package.
 
-Build the macOS media worker and native host against the same contracts, using Apple
-capture, encoding and input APIs with explicit permission onboarding. Add native
-viewers and their separate packages; consider universal Mac binaries once targets are
-decided. Protocol contracts contain no Windows-specific manifest or UI assumptions.
+macOS host support has an accepted [design](superpowers/specs/2026-10-09-macos-support-design.md)
+and [implementation plan](superpowers/plans/2026-10-09-macos-support.md); nothing is built yet.
+It targets macOS 27 on Apple Silicon only, with the same packages as Windows: the VidVNC app
+(native Swift host, the server and the media worker, with the command-line server inside)
+and a standalone command-line server ZIP, both with Node.js bundled, signed with the owner's
+Developer ID and notarized. The worker uses ScreenCaptureKit, VideoToolbox and `CGEventPost`,
+and media-net and the relay run sandboxed as on Windows. A Mac App Store edition is not
+planned: App Review has rejected sandboxed apps that post input events. The native macOS
+viewer and its package come later. Protocol contracts contain no Windows-specific manifest
+or UI assumptions.
 
 Acceptance: install and run on a clean machine with only the declared prerequisites;
 the command-line server runs from any folder; signing (and notarization on macOS);
@@ -362,3 +368,6 @@ unauthenticated network administration endpoint is added for UI convenience.
    upgrade and uninstall checks, and the first published release.
 5. New Windows host UI starts with a design preview in [docs/design](design) before it
    is built.
+6. Start macOS support: the Apple account and Mac setup and the prototype gates (phase 0) on
+   the owner's Mac, and the portable server work (phase 1) in parallel. See the
+   [macOS plan](superpowers/plans/2026-10-09-macos-support.md).
