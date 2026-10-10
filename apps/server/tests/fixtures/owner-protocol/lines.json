@@ -1,0 +1,452 @@
+{
+  "ready": [
+    {
+      "type": "ready",
+      "urls": ["http://192.168.1.10:4382/"],
+      "tls": {
+        "mode": "off",
+        "active": false,
+        "port": null,
+        "strategy": null,
+        "enrolmentStatus": null,
+        "fingerprint": null,
+        "expiry": null,
+        "expired": false,
+        "needsRenewal": false,
+        "httpViewerEnabled": true,
+        "viewerReady": true,
+        "localHttpUrls": ["http://192.168.1.10:4382/"],
+        "viewerUrls": ["http://192.168.1.10:4382/"],
+        "reason": null
+      },
+      "password": "DHXY-8VCK",
+      "width": 1920,
+      "height": 1080,
+      "displays": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Display 1",
+          "primary": true,
+          "persistent": true,
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "rotation": 0
+        }
+      ],
+      "policy": {
+        "schemaVersion": 1,
+        "revision": 1,
+        "profiles": [
+          {
+            "id": "balanced",
+            "name": "Balanced",
+            "description": "Everyday desktop use",
+            "enabled": true,
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "bitrateKbps": 4000,
+            "bitrateMode": "cbr",
+            "quality": "balanced",
+            "frameDelivery": "fixed"
+          }
+        ],
+        "defaultProfileId": "auto",
+        "displayDefaults": {},
+        "displaySharing": {
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": true,
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": true
+        },
+        "allowAudio": true,
+        "videoCodecs": ["av1", "h265", "h264"],
+        "encoderBackend": "auto",
+        "clientMode": "profiles",
+        "allowedOptions": {
+          "resolutions": [
+            {
+              "width": 960,
+              "height": 540
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 1920,
+              "height": 1080
+            },
+            {
+              "width": 2560,
+              "height": 1440
+            }
+          ],
+          "frameRates": [15, 30],
+          "bitratesKbps": [1000, 2000, 4000, 6000]
+        }
+      },
+      "access": {
+        "revision": 0,
+        "defaultControl": "approval",
+        "connectionMode": "session-key",
+        "maxSessions": 4,
+        "shortCodeTtlSeconds": 300,
+        "shortCodeMaxFailures": 20,
+        "shortCodePerSourceMaxFailures": 5,
+        "sessionPasswordMaxFailures": 20,
+        "defaultCodeAlphabet": "letters-digits",
+        "localSessionNetworks": "auto",
+        "publicName": "VidVNC host",
+        "remoteAccess": false,
+        "publicHostnames": [],
+        "publicPort": null,
+        "mediaPort": null
+      },
+      "clients": {
+        "pending": [
+          {
+            "id": "7e7abb04-592d-4b0a-9a0c-9f55e779ba27",
+            "deviceName": "Tablet",
+            "username": "owner",
+            "client": "Safari on iOS",
+            "network": "Local network",
+            "requestedAt": 1791661594000
+          }
+        ],
+        "approved": [
+          {
+            "id": "64fc7b66-e4f2-4c9c-b2bc-00147231bec6",
+            "deviceName": "Phone",
+            "username": "owner",
+            "client": "Safari on iOS",
+            "network": "Local network",
+            "connected": false,
+            "permission": "default",
+            "lastConnectedAt": 1791661594000
+          }
+        ]
+      },
+      "codecs": ["h264"],
+      "backends": [
+        {
+          "id": "nvenc",
+          "label": "NVIDIA NVENC",
+          "codecs": ["h264"]
+        }
+      ],
+      "versions": {
+        "server": "0.10.0",
+        "node": "24.0.0",
+        "gstreamer": "1.28.6"
+      }
+    },
+    {
+      "type": "ready",
+      "sharingNotice": "Remote access needs the name or address internet devices use for this PC. Add it under Settings, Remote access, then switch to remote access. Sharing started on the local network only.",
+      "urls": ["http://192.168.1.10:4382/"],
+      "tls": {
+        "mode": "off",
+        "active": false,
+        "port": null,
+        "strategy": null,
+        "enrolmentStatus": null,
+        "fingerprint": null,
+        "expiry": null,
+        "expired": false,
+        "needsRenewal": false,
+        "httpViewerEnabled": true,
+        "viewerReady": true,
+        "localHttpUrls": ["http://192.168.1.10:4382/"],
+        "viewerUrls": ["http://192.168.1.10:4382/"],
+        "reason": null
+      },
+      "password": "DHXY-8VCK",
+      "width": 1920,
+      "height": 1080,
+      "displays": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Display 1",
+          "primary": true,
+          "persistent": true,
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "rotation": 0
+        }
+      ],
+      "policy": {
+        "schemaVersion": 1,
+        "revision": 1,
+        "profiles": [
+          {
+            "id": "balanced",
+            "name": "Balanced",
+            "description": "Everyday desktop use",
+            "enabled": true,
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "bitrateKbps": 4000,
+            "bitrateMode": "cbr",
+            "quality": "balanced",
+            "frameDelivery": "fixed"
+          }
+        ],
+        "defaultProfileId": "auto",
+        "displayDefaults": {},
+        "displaySharing": {
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": true,
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": true
+        },
+        "allowAudio": true,
+        "videoCodecs": ["av1", "h265", "h264"],
+        "encoderBackend": "auto",
+        "clientMode": "profiles",
+        "allowedOptions": {
+          "resolutions": [
+            {
+              "width": 960,
+              "height": 540
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 1920,
+              "height": 1080
+            },
+            {
+              "width": 2560,
+              "height": 1440
+            }
+          ],
+          "frameRates": [15, 30],
+          "bitratesKbps": [1000, 2000, 4000, 6000]
+        }
+      },
+      "access": {
+        "revision": 0,
+        "defaultControl": "approval",
+        "connectionMode": "session-key",
+        "maxSessions": 4,
+        "shortCodeTtlSeconds": 300,
+        "shortCodeMaxFailures": 20,
+        "shortCodePerSourceMaxFailures": 5,
+        "sessionPasswordMaxFailures": 20,
+        "defaultCodeAlphabet": "letters-digits",
+        "localSessionNetworks": "auto",
+        "publicName": "VidVNC host",
+        "remoteAccess": false,
+        "publicHostnames": [],
+        "publicPort": null,
+        "mediaPort": null
+      },
+      "clients": {
+        "pending": [
+          {
+            "id": "7e7abb04-592d-4b0a-9a0c-9f55e779ba27",
+            "deviceName": "Tablet",
+            "username": "owner",
+            "client": "Safari on iOS",
+            "network": "Local network",
+            "requestedAt": 1791661594000
+          }
+        ],
+        "approved": [
+          {
+            "id": "64fc7b66-e4f2-4c9c-b2bc-00147231bec6",
+            "deviceName": "Phone",
+            "username": "owner",
+            "client": "Safari on iOS",
+            "network": "Local network",
+            "connected": false,
+            "permission": "default",
+            "lastConnectedAt": 1791661594000
+          }
+        ]
+      },
+      "codecs": ["h264"],
+      "backends": [
+        {
+          "id": "nvenc",
+          "label": "NVIDIA NVENC",
+          "codecs": ["h264"]
+        }
+      ],
+      "versions": {
+        "server": "0.10.0",
+        "node": "24.0.0",
+        "gstreamer": "1.28.6"
+      }
+    }
+  ],
+  "status": [
+    {
+      "type": "status",
+      "sessions": [
+        {
+          "id": "6a95c098-c069-436e-8b41-6eeb207ee631",
+          "device": "Browser client",
+          "address": "192.168.1.20",
+          "connectedAt": 1791661594000,
+          "health": "Waiting for playback",
+          "control": "Granted",
+          "audio": false,
+          "streams": [
+            {
+              "name": "Display 1",
+              "displayId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sourceWidth": 1920,
+              "sourceHeight": 1080,
+              "profile": "Mobile",
+              "profileDescription": "Compact picture for smaller screens",
+              "targetBitrateKbps": 2000,
+              "width": 1280,
+              "height": 720,
+              "fps": 15,
+              "targetFps": 15,
+              "bitrateMode": "cbr",
+              "quality": "balanced",
+              "stability": {
+                "at": 1791661594000,
+                "stale": false,
+                "serverStale": false,
+                "generated": [
+                  {
+                    "at": 1791661594000,
+                    "captureFps": 15,
+                    "encodeFps": 15
+                  }
+                ],
+                "points": []
+              },
+              "id": "4b863678-71b8-4e35-bd16-e137a97071e0",
+              "state": "live",
+              "viewers": 1,
+              "codec": "h264",
+              "encoder": {
+                "backend": "nvenc",
+                "label": "NVIDIA NVENC",
+                "element": "nvd3d11h264enc",
+                "reason": "forced"
+              },
+              "mediaAddress": "192.168.1.20:50100",
+              "mediaDiffers": false
+            }
+          ],
+          "controlStreamId": "4b863678-71b8-4e35-bd16-e137a97071e0",
+          "selectedStreamId": "4b863678-71b8-4e35-bd16-e137a97071e0",
+          "audioViewers": 0
+        }
+      ],
+      "streamCount": 1,
+      "capabilities": {
+        "maxSessions": 4,
+        "maxStreamsPerSession": 2,
+        "primaryDisplayOnly": false,
+        "hostControl": true
+      },
+      "relay": {
+        "state": "listening",
+        "port": 4384,
+        "families": ["udp4", "udp6"],
+        "reason": null,
+        "metrics": null
+      },
+      "encoders": {
+        "available": [
+          {
+            "id": "nvenc",
+            "label": "NVIDIA NVENC",
+            "codecs": ["h264"]
+          }
+        ],
+        "setting": "auto"
+      },
+      "tls": {
+        "mode": "off",
+        "active": false,
+        "port": null,
+        "strategy": null,
+        "enrolmentStatus": null,
+        "fingerprint": null,
+        "expiry": null,
+        "expired": false,
+        "needsRenewal": false,
+        "httpViewerEnabled": true,
+        "viewerReady": true,
+        "localHttpUrls": ["http://192.168.1.10:4382/"],
+        "viewerUrls": ["http://192.168.1.10:4382/"],
+        "reason": null
+      },
+      "codes": {
+        "ephemeral": {
+          "purpose": "approved-client-setup",
+          "alphabet": "letters-digits",
+          "expiresAt": 1791661894000,
+          "failures": 0,
+          "globalLimit": 20,
+          "locked": false
+        },
+        "session": {
+          "purpose": "session",
+          "alphabet": "letters-digits",
+          "expiresAt": null,
+          "failures": 0,
+          "globalLimit": 20,
+          "locked": false
+        }
+      }
+    }
+  ],
+  "clients": [
+    {
+      "type": "clients",
+      "pending": [
+        {
+          "id": "7e7abb04-592d-4b0a-9a0c-9f55e779ba27",
+          "deviceName": "Tablet",
+          "username": "owner",
+          "client": "Safari on iOS",
+          "network": "Local network",
+          "requestedAt": 1791661594000
+        }
+      ],
+      "approved": [
+        {
+          "id": "64fc7b66-e4f2-4c9c-b2bc-00147231bec6",
+          "deviceName": "Phone",
+          "username": "owner",
+          "client": "Safari on iOS",
+          "network": "Local network",
+          "connected": false,
+          "permission": "default",
+          "lastConnectedAt": 1791661594000
+        }
+      ]
+    }
+  ],
+  "displays": [
+    {
+      "type": "displays",
+      "displays": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Display 1",
+          "primary": true,
+          "persistent": true,
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "rotation": 0,
+          "number": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,9 @@
 // Isolated owner-pipe fixture: real policy persistence/controller, no capture or sockets.
+// Its replies follow the owner protocol contract the server is held to
+// (apps/server/tests/fixtures/owner-protocol/, checked by owner-protocol.test.mjs), with an
+// extra `received` field echoing what the host sent.
 import { createInterface } from 'node:readline';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StreamPolicyStore } from '../../../server/src/stream-policy-store.mjs';
@@ -9,6 +12,13 @@ import { SessionStore } from '../../../server/src/session-store.mjs';
 import { AccessSettings } from '../../../server/src/access-settings.mjs';
 import { ConnectionKeyRegistry } from '../../../server/src/connection-keys.mjs';
 
+const contract = JSON.parse(
+  await readFile(
+    new URL('../../../server/tests/fixtures/owner-protocol/replies.json', import.meta.url),
+    'utf8',
+  ),
+);
+const diagnostics = contract['diagnostics-capability-result'][0];
 const directory = await mkdtemp(join(tmpdir(), 'vidvnc-native-policy-test-'));
 try {
   const filename = join(directory, 'policy.json');
@@ -21,8 +31,8 @@ try {
     const message = JSON.parse(line);
     if (message.type === 'diagnostics-capability-create') {
       console.log(JSON.stringify({ type: 'diagnostics-capability-result', requestId: message.requestId,
-        ok: true, token: 'A'.repeat(43), expiresAt: Date.now() + 900_000,
-        url: 'http://127.0.0.1:45999/diagnostics',
+        ok: true, token: diagnostics.token, expiresAt: Date.now() + 900_000,
+        url: diagnostics.url,
         received: { type: message.type } }));
       continue;
     }
@@ -49,7 +59,8 @@ try {
     }
     if (message.type === 'client-request-command' || message.type === 'approved-client-command' || message.type === 'ordinary-sessions-disconnect') {
       console.log(JSON.stringify({ type: 'client-command-result', requestId: message.requestId,
-        ok: true, received: { type: message.type, action: message.action, id: message.id,
+        ok: true, ...(message.type === 'ordinary-sessions-disconnect' ? { disconnected: 0 } : {}),
+        received: { type: message.type, action: message.action, id: message.id,
           permission: message.permission } }));
       continue;
     }

@@ -26,3 +26,9 @@ The regression originally failed with COM error `0x800F1000` while attaching
 the shared summary to Sessions. Clearing the page before finding each control's
 parent did not release ownership by its detached Overview card. The fix releases
 the known card and scroll owners explicitly before clearing the page.
+
+The stand-in server, [owner-fixture.mjs](owner-fixture.mjs), answers in the shapes of the
+owner protocol contract the real server is held to
+([fixtures/owner-protocol](../../../server/tests/fixtures/owner-protocol/)), and
+`npm test` checks that on any OS
+([owner-protocol.test.mjs](../../../server/tests/owner-protocol.test.mjs)).

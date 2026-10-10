@@ -27,7 +27,6 @@ import { accessLabel } from './cli/format.mjs';
 import { runOffline } from './cli/offline.mjs';
 import { seedDisplaySharing } from './cli/policy-edits.mjs';
 import { ApprovedClientStore } from './approved-clients.mjs';
-import { CONNECTION_KEY_PURPOSES } from './connection-keys.mjs';
 import { VIDEO_CODECS, CODEC_LABELS } from './video-codecs.mjs';
 import { loadTlsSettings } from './tls/load-settings.mjs';
 import { createTlsListener } from './tls/listener.mjs';
@@ -48,6 +47,12 @@ import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { createCodeIssuer } from './code-issuance.mjs';
 import { createOwnerSecurityCommands } from './owner-security-commands.mjs';
+import {
+  createOwnerCommandHandler,
+  displaysLine,
+  readyMessage,
+  statusLines,
+} from './owner-commands.mjs';
 import { DiagnosticsCapabilities } from './diagnostics-capabilities.mjs';
 import { createDiagnosticsHttp, diagnosticsUrl } from './diagnostics-http.mjs';
 
@@ -368,7 +373,7 @@ async function serve() {
         inventory.update(rows);
         if (revision !== inventory.revision) {
           await runtime.revalidate();
-          if (desktop) console.log(JSON.stringify({ type: 'displays', displays: inventory.rows }));
+          if (desktop) console.log(JSON.stringify(displaysLine(inventory)));
         }
       } finally {
         refreshing = false;
@@ -402,343 +407,36 @@ async function serve() {
     if (desktop) {
       statusTimer = setInterval(() => {
         if (!stopping && !process.stdout.writableNeedDrain) {
-          console.log(
-            JSON.stringify({ ...runtime.status(), tls: tlsField(), codes: codeIssuer.status() }),
-          );
-          console.log(JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }));
+          for (const line of statusLines({
+            runtime,
+            tlsField,
+            codeIssuer,
+            approvedClients,
+            store,
+          }))
+            console.log(JSON.stringify(line));
         }
       }, 1000).unref();
       owner = createInterface({ input: process.stdin });
-      owner.on('line', (line) => {
-        if (line === '{"type":"stop"}') stop();
-        else if (Buffer.byteLength(line) <= 128 * 1024) {
-          try {
-            const command = JSON.parse(line);
-            if (
-              command.type === 'diagnostics-capability-create' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              const { token, expiresAt } = diagnosticsCapabilities.issue();
-              console.log(
-                JSON.stringify({
-                  type: 'diagnostics-capability-result',
-                  requestId: command.requestId,
-                  ok: true,
-                  token,
-                  expiresAt,
-                  url: privateDiagnosticsUrl,
-                }),
-              );
-            }
-            if (
-              command.type === 'connection-once-create' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              try {
-                const once = codeIssuer.oneTime(command.alphabet);
-                console.log(
-                  JSON.stringify({
-                    type: 'connection-once-result',
-                    requestId: command.requestId,
-                    ok: true,
-                    key: once.key,
-                    expiresAt: once.expiresAt,
-                    alphabet: once.alphabet,
-                  }),
-                );
-              } catch (error) {
-                console.log(
-                  JSON.stringify({
-                    type: 'connection-once-result',
-                    requestId: command.requestId,
-                    ok: false,
-                    error: error.message,
-                  }),
-                );
-              }
-            }
-            if (
-              command.type === 'client-setup-create' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              try {
-                const setup = codeIssuer.setup(command.alphabet);
-                console.log(
-                  JSON.stringify({
-                    type: 'client-setup-result',
-                    requestId: command.requestId,
-                    ok: true,
-                    key: setup.key,
-                    expiresAt: setup.expiresAt,
-                    alphabet: setup.alphabet,
-                  }),
-                );
-              } catch (error) {
-                console.log(
-                  JSON.stringify({
-                    type: 'client-setup-result',
-                    requestId: command.requestId,
-                    ok: false,
-                    error: error.message,
-                  }),
-                );
-              }
-            }
-            if (
-              command.type === 'session-password-rotate' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              try {
-                const rotated = codeIssuer.rotateSession(command.alphabet);
-                console.log(
-                  JSON.stringify({
-                    type: 'session-password-result',
-                    requestId: command.requestId,
-                    ok: true,
-                    key: rotated.key,
-                    alphabet: rotated.alphabet,
-                  }),
-                );
-              } catch (error) {
-                console.log(
-                  JSON.stringify({
-                    type: 'session-password-result',
-                    requestId: command.requestId,
-                    ok: false,
-                    error: error.message,
-                  }),
-                );
-              }
-            }
-            if (
-              command.type === 'client-request-command' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              typeof command.id === 'string' &&
-              !stopping
-            ) {
-              const operation =
-                command.action === 'approve'
-                  ? approvedClients.approve(command.id)
-                  : command.action === 'reject'
-                    ? Promise.resolve(approvedClients.reject(command.id))
-                    : Promise.reject(new Error('Invalid client request action'));
-              operation.then(
-                () => {
-                  console.log(
-                    JSON.stringify({
-                      type: 'client-command-result',
-                      requestId: command.requestId,
-                      ok: true,
-                    }),
-                  );
-                  console.log(
-                    JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }),
-                  );
-                },
-                (error) =>
-                  console.log(
-                    JSON.stringify({
-                      type: 'client-command-result',
-                      requestId: command.requestId,
-                      ok: false,
-                      error: error.message,
-                    }),
-                  ),
-              );
-            }
-            if (
-              command.type === 'approved-client-command' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              typeof command.id === 'string' &&
-              !stopping
-            ) {
-              const operation = ownerSecurity.approved(command);
-              operation.then(
-                () => {
-                  console.log(
-                    JSON.stringify({
-                      type: 'client-command-result',
-                      requestId: command.requestId,
-                      ok: true,
-                    }),
-                  );
-                  console.log(
-                    JSON.stringify({ type: 'clients', ...approvedClients.status(store.list()) }),
-                  );
-                },
-                (error) =>
-                  console.log(
-                    JSON.stringify({
-                      type: 'client-command-result',
-                      requestId: command.requestId,
-                      ok: false,
-                      error: error.message,
-                    }),
-                  ),
-              );
-            }
-            if (
-              command.type === 'ordinary-sessions-disconnect' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              ownerSecurity.disconnectOrdinary().then(
-                ({ disconnected }) =>
-                  console.log(
-                    JSON.stringify({
-                      type: 'client-command-result',
-                      requestId: command.requestId,
-                      ok: true,
-                      disconnected,
-                    }),
-                  ),
-                (error) =>
-                  console.log(
-                    JSON.stringify({
-                      type: 'client-command-result',
-                      requestId: command.requestId,
-                      ok: false,
-                      error: error.message,
-                    }),
-                  ),
-              );
-            }
-            if (
-              command.type === 'access-set' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              const previousMode = access.snapshot().connectionMode;
-              const reply = (ok, error, sessionKey) =>
-                console.log(
-                  JSON.stringify({
-                    type: 'access-result',
-                    requestId: command.requestId,
-                    ok,
-                    error,
-                    access: access.snapshot(),
-                    sessionKey,
-                  }),
-                );
-              const changes = Object.fromEntries(
-                [
-                  'defaultControl',
-                  'connectionMode',
-                  'maxSessions',
-                  'publicName',
-                  'remoteAccess',
-                  'publicHostnames',
-                  'mediaPort',
-                  // Sent by hosts from before the media relay; migrated to mediaPort.
-                  'mediaPorts',
-                  'publicPort',
-                ]
-                  .filter((key) => command[key] !== undefined)
-                  .map((key) => [key, command[key]]),
-              );
-              access.replace(changes, command.revision).then(
-                () => {
-                  let sessionKey;
-                  if (access.snapshot().connectionMode !== previousMode) {
-                    store.keys.clearPurpose(CONNECTION_KEY_PURPOSES.once);
-                    sessionKey = codeIssuer.rotateSession().key;
-                  }
-                  reply(true, undefined, sessionKey);
-                },
-                (error) => reply(false, error.message),
-              );
-            }
-            if (
-              command.type === 'session-command' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              const reply = (ok, error) =>
-                console.log(
-                  JSON.stringify({
-                    type: 'session-result',
-                    requestId: command.requestId,
-                    ok,
-                    error,
-                  }),
-                );
-              runtime.command(command).then(
-                () => reply(true),
-                (error) => reply(false, error.message),
-              );
-            }
-            // Regenerate the TLS certificate on the host's request. The two refusals below
-            // are a safety net, not the control: the host UI does not offer the action in
-            // either state (Task 14). They are here because the pipe is a protocol, and a
-            // protocol that would replace an operator's own certificate on request is one
-            // no UI change should be able to reopen. `attempt({ force: true })` refuses
-            // both again in the listener itself.
-            if (command.type === 'tls-regenerate' && !stopping) {
-              const reply = (ok, reason) =>
-                console.log(JSON.stringify({ type: 'tls-regenerate-result', ok, reason }));
-              const strategy = tlsListener.report().strategy;
-              if (tlsSettings.mode === 'off')
-                reply(false, 'HTTPS is turned off, so there is no certificate to regenerate.');
-              else if (tlsSettings.mode === 'provided' || strategy === 'provided')
-                reply(
-                  false,
-                  'This host uses a certificate supplied by its operator. VidVNC never replaces it.',
-                );
-              else
-                tlsListener.attempt({ force: true }).then(
-                  // The same sanitized field the status message carries, so a failure is
-                  // worded identically whether the host learns of it from the reply or from
-                  // the next tick. `reason === null` is the success condition: a rotation
-                  // that failed leaves the previous certificate serving, which is not the
-                  // regeneration that was asked for.
-                  () => {
-                    const after = tlsField();
-                    reply(after.reason === null, after.reason ?? undefined);
-                  },
-                  () => reply(false, 'The certificate could not be regenerated.'),
-                );
-            }
-            if (command.type === 'disconnect' && typeof command.id === 'string')
-              store.disconnect(command.id);
-            if (
-              command.type === 'policy-set' &&
-              typeof command.requestId === 'string' &&
-              command.requestId.length <= 64 &&
-              !stopping
-            ) {
-              const reply = (ok, error) =>
-                console.log(
-                  JSON.stringify({
-                    type: 'policy-result',
-                    requestId: command.requestId,
-                    ok,
-                    policy: policy.snapshot(),
-                    error,
-                  }),
-                );
-              policy.replace(command.policy, command.revision, command.disconnect).then(
-                () => reply(true),
-                (error) => reply(false, error.message),
-              );
-            }
-          } catch {
-            /* Ignore malformed owner commands, never evaluate text. */
-          }
-        }
-      });
+      owner.on(
+        'line',
+        createOwnerCommandHandler({
+          stop,
+          stopping: () => stopping,
+          diagnosticsCapabilities,
+          diagnosticsUrl: () => privateDiagnosticsUrl,
+          codeIssuer,
+          approvedClients,
+          store,
+          ownerSecurity,
+          access,
+          runtime,
+          policy,
+          tlsSettings,
+          tlsListener,
+          tlsField,
+        }),
+      );
       owner.on('close', stop);
     }
     // The relay binds before `ready`, so the first offer finds it listening. If it cannot
@@ -766,27 +464,23 @@ async function serve() {
       });
       if (desktop) {
         console.log(
-          JSON.stringify({
-            type: 'ready',
-            ...(sharingNotice ? { sharingNotice } : {}),
-            urls: tlsField().viewerUrls,
-            tls: tlsField(),
-            password: store.password,
-            width: info.width,
-            height: info.height,
-            displays: info.displays || [],
-            policy: policy.snapshot(),
-            access: access.snapshot(),
-            clients: approvedClients.status(store.list()),
-            codecs: hostCodecs,
-            backends: info.backends.map(({ id, label, codecs }) => ({ id, label, codecs })),
-            // For the host's Settings: what this server runs on.
-            versions: {
-              server: serverVersion(),
-              node: process.versions.node,
-              gstreamer: typeof info.gstreamer === 'string' ? info.gstreamer : null,
-            },
-          }),
+          JSON.stringify(
+            readyMessage({
+              sharingNotice,
+              tlsField,
+              store,
+              info,
+              policy,
+              access,
+              approvedClients,
+              hostCodecs,
+              versions: {
+                server: serverVersion(),
+                node: process.versions.node,
+                gstreamer: typeof info.gstreamer === 'string' ? info.gstreamer : null,
+              },
+            }),
+          ),
         );
       } else {
         const shown = currentAddresses();

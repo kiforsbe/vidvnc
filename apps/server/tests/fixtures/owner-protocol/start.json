@@ -1,0 +1,12 @@
+{
+  "accepted": {
+    "{\"type\":\"start\"}": "local",
+    "{\"type\":\"start\",\"sharing\":\"local\"}": "local",
+    "{\"type\":\"start\",\"sharing\":\"remote\"}": "remote"
+  },
+  "rejected": [
+    "{\"type\":\"start\",\"sharing\":\"internet\"}",
+    "{ \"type\": \"start\" }",
+    "{\"type\":\"stop\"}"
+  ]
+}

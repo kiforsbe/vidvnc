@@ -73,7 +73,7 @@ link fails closed.
   ([owner-start.mjs](../apps/server/src/owner-start.mjs)). A server launched by something
   other than its host therefore never begins listening.
 - After startup the same stdio channel carries host commands in and `status` events out,
-  which is what the host UI renders.
+  which is what the host UI renders ([Owner protocol](#owner-protocol)).
 - The CLI server is the same Node application driven from a terminal instead of the
   WinUI host.
 
@@ -105,6 +105,63 @@ sequenceDiagram
     Job--xServer: job closes, server is terminated
     Note over Relay: stdin closes, the relay exits
 ```
+
+## Owner protocol
+
+The host and the server speak JSON lines over the server's stdin and stdout, one object per
+line. This is the whole interface a native host needs; the WinUI host speaks it today, and
+the planned macOS host will speak the same protocol unchanged. The examples in
+[fixtures/owner-protocol](../apps/server/tests/fixtures/owner-protocol/) are the contract:
+[owner-protocol.test.mjs](../apps/server/tests/owner-protocol.test.mjs) checks that the
+server's real replies and lines have the same fields and JSON types as the examples, that
+every example is something the server really sends, that every command the WinUI host's
+sources name is in the contract, and that the WinUI navigation test's stand-in server
+([owner-fixture.mjs](../apps/windows-host/tests/Navigation/owner-fixture.mjs)) answers in
+the same shapes. The server side lives in
+[owner-commands.mjs](../apps/server/src/owner-commands.mjs).
+
+**Start.** The server is started with `--desktop --await-owner` and reads exactly one
+approval line first ([start.json](../apps/server/tests/fixtures/owner-protocol/start.json),
+[owner-start.mjs](../apps/server/src/owner-start.mjs)); nothing else is read until it
+arrives.
+
+**Commands** ([commands.json](../apps/server/tests/fixtures/owner-protocol/commands.json)).
+Every command but `stop`, `disconnect` and `tls-regenerate` carries a `requestId` of at most
+64 characters, which its reply echoes. A line over 128 KiB, a line that is not JSON, an
+unknown `type` or a command without a valid `requestId` is ignored without a reply. Once
+the server is stopping it answers nothing. Closing stdin stops the server like `stop`.
+
+| Command                         | What it does                                                 | Reply                                   |
+| ------------------------------- | ------------------------------------------------------------ | --------------------------------------- |
+| `stop` (exactly that line)      | Stops sharing and exits                                      | None                                    |
+| `policy-set`                    | Replaces the stream policy at `revision`                     | `policy-result`                         |
+| `access-set`                    | Changes access settings at `revision`                        | `access-result`                         |
+| `session-command`               | `grant`, `revoke` or `stop-stream` for a session's stream    | `session-result`                        |
+| `disconnect`                    | Ends the session `id`                                        | None                                    |
+| `connection-once-create`        | Issues a one-time connection code                            | `connection-once-result`                |
+| `client-setup-create`           | Issues an approved-device setup code                         | `client-setup-result`                   |
+| `session-password-rotate`       | Replaces the session password                                | `session-password-result`               |
+| `client-request-command`        | Approves or rejects a pending device                         | `client-command-result`, then `clients` |
+| `approved-client-command`       | Removes an approved device or changes its permission         | `client-command-result`, then `clients` |
+| `ordinary-sessions-disconnect`  | Ends every session that is not an approved device            | `client-command-result` with the count  |
+| `diagnostics-capability-create` | Issues a diagnostics bearer and the loopback diagnostics URL | `diagnostics-capability-result`         |
+| `tls-regenerate`                | Reissues a generated certificate; never a provided one       | `tls-regenerate-result`                 |
+
+**Replies** ([replies.json](../apps/server/tests/fixtures/owner-protocol/replies.json),
+one example per form). Each has `ok`; a failure adds `error` (`reason` for
+`tls-regenerate-result`). `access-result` and `policy-result` always carry the settings as
+they now are, so the host can redraw after a refusal, and `access-result` adds `sessionKey`
+when a change of connection method issued a new session password.
+
+**Lines the server sends on its own**
+([lines.json](../apps/server/tests/fixtures/owner-protocol/lines.json)):
+
+| Line       | When                                         | Fields the host reads                                                                                                                                                                       |
+| ---------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ready`    | Once, when the HTTP listeners are bound      | `urls`, `tls`, `password`, `width`, `height`, `displays`, `policy`, `access`, `clients`, `codecs`, `backends`, `versions`, and `sharingNotice` when remote sharing could not start as asked |
+| `status`   | Every second while there is room in the pipe | `sessions` with their `streams`, `streamCount`, `capabilities`, `relay`, `encoders`, `tls` (from [desktop-status.mjs](../apps/server/src/tls/desktop-status.mjs)) and `codes`               |
+| `clients`  | Every second, and after each device change   | `pending` and `approved` devices                                                                                                                                                            |
+| `displays` | When the display inventory changes           | `displays`, with each display's `number`                                                                                                                                                    |
 
 ## Sessions, streams and sources
 

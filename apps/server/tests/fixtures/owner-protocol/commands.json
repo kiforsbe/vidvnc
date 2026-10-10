@@ -1,0 +1,157 @@
+{
+  "diagnostics-capability-create": {
+    "command": {
+      "type": "diagnostics-capability-create",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["diagnostics-capability-result"]
+  },
+  "connection-once-create": {
+    "command": {
+      "type": "connection-once-create",
+      "alphabet": "letters-digits",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["connection-once-result"]
+  },
+  "client-setup-create": {
+    "command": {
+      "type": "client-setup-create",
+      "alphabet": "letters",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["client-setup-result"]
+  },
+  "session-password-rotate": {
+    "command": {
+      "type": "session-password-rotate",
+      "alphabet": "letters-digits",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["session-password-result"]
+  },
+  "client-request-command": {
+    "command": {
+      "type": "client-request-command",
+      "action": "approve",
+      "id": "7e7abb04-592d-4b0a-9a0c-9f55e779ba27",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["client-command-result", "clients"]
+  },
+  "approved-client-command": {
+    "command": {
+      "type": "approved-client-command",
+      "action": "permission",
+      "id": "64fc7b66-e4f2-4c9c-b2bc-00147231bec6",
+      "permission": "view-only",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["client-command-result", "clients"]
+  },
+  "access-set": {
+    "command": {
+      "type": "access-set",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "revision": 0,
+      "defaultControl": "available"
+    },
+    "replies": ["access-result"]
+  },
+  "session-command": {
+    "command": {
+      "type": "session-command",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "action": "stop-stream",
+      "sessionId": "6a95c098-c069-436e-8b41-6eeb207ee631",
+      "streamId": "4b863678-71b8-4e35-bd16-e137a97071e0"
+    },
+    "replies": ["session-result"]
+  },
+  "tls-regenerate": {
+    "command": {
+      "type": "tls-regenerate"
+    },
+    "replies": ["tls-regenerate-result"]
+  },
+  "policy-set": {
+    "command": {
+      "type": "policy-set",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "revision": 1,
+      "policy": {
+        "schemaVersion": 1,
+        "revision": 1,
+        "profiles": [
+          {
+            "id": "balanced",
+            "name": "Balanced",
+            "description": "Everyday desktop use",
+            "enabled": true,
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "bitrateKbps": 4000,
+            "bitrateMode": "cbr",
+            "quality": "balanced",
+            "frameDelivery": "fixed"
+          }
+        ],
+        "defaultProfileId": "auto",
+        "displayDefaults": {},
+        "displaySharing": {
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": true,
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": true
+        },
+        "allowAudio": true,
+        "videoCodecs": ["av1", "h265", "h264"],
+        "encoderBackend": "auto",
+        "clientMode": "profiles",
+        "allowedOptions": {
+          "resolutions": [
+            {
+              "width": 960,
+              "height": 540
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 1920,
+              "height": 1080
+            },
+            {
+              "width": 2560,
+              "height": 1440
+            }
+          ],
+          "frameRates": [15, 30],
+          "bitratesKbps": [1000, 2000, 4000, 6000]
+        }
+      },
+      "disconnect": true
+    },
+    "replies": ["policy-result"]
+  },
+  "ordinary-sessions-disconnect": {
+    "command": {
+      "type": "ordinary-sessions-disconnect",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a"
+    },
+    "replies": ["client-command-result"]
+  },
+  "disconnect": {
+    "command": {
+      "type": "disconnect",
+      "id": "6a95c098-c069-436e-8b41-6eeb207ee631"
+    },
+    "replies": []
+  },
+  "stop": {
+    "command": {
+      "type": "stop"
+    },
+    "replies": []
+  }
+}

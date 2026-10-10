@@ -1,0 +1,287 @@
+{
+  "diagnostics-capability-result": [
+    {
+      "type": "diagnostics-capability-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expiresAt": 1791662494000,
+      "url": "http://127.0.0.1:45999/diagnostics"
+    }
+  ],
+  "connection-once-result": [
+    {
+      "type": "connection-once-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "key": "5885-P6S5",
+      "expiresAt": 1791661894000,
+      "alphabet": "letters-digits"
+    },
+    {
+      "type": "connection-once-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Invalid code alphabet"
+    }
+  ],
+  "client-setup-result": [
+    {
+      "type": "client-setup-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "key": "NFSC-JGHJ",
+      "expiresAt": 1791661894000,
+      "alphabet": "letters"
+    },
+    {
+      "type": "client-setup-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Invalid code alphabet"
+    }
+  ],
+  "session-password-result": [
+    {
+      "type": "session-password-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "key": "B5A4-9CVY",
+      "alphabet": "letters-digits"
+    },
+    {
+      "type": "session-password-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Invalid code alphabet"
+    }
+  ],
+  "client-command-result": [
+    {
+      "type": "client-command-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true
+    },
+    {
+      "type": "client-command-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "disconnected": 1
+    },
+    {
+      "type": "client-command-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Unknown pending client"
+    }
+  ],
+  "access-result": [
+    {
+      "type": "access-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "access": {
+        "revision": 0,
+        "defaultControl": "approval",
+        "connectionMode": "session-key",
+        "maxSessions": 4,
+        "shortCodeTtlSeconds": 300,
+        "shortCodeMaxFailures": 20,
+        "shortCodePerSourceMaxFailures": 5,
+        "sessionPasswordMaxFailures": 20,
+        "defaultCodeAlphabet": "letters-digits",
+        "localSessionNetworks": "auto",
+        "publicName": "VidVNC host",
+        "remoteAccess": false,
+        "publicHostnames": [],
+        "publicPort": null,
+        "mediaPort": null
+      }
+    },
+    {
+      "type": "access-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "access": {
+        "revision": 0,
+        "defaultControl": "approval",
+        "connectionMode": "one-time-keys",
+        "maxSessions": 4,
+        "shortCodeTtlSeconds": 300,
+        "shortCodeMaxFailures": 20,
+        "shortCodePerSourceMaxFailures": 5,
+        "sessionPasswordMaxFailures": 20,
+        "defaultCodeAlphabet": "letters-digits",
+        "localSessionNetworks": "auto",
+        "publicName": "VidVNC host",
+        "remoteAccess": false,
+        "publicHostnames": [],
+        "publicPort": null,
+        "mediaPort": null
+      },
+      "sessionKey": "B5A4-9CVY"
+    },
+    {
+      "type": "access-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Access settings changed; reload before saving",
+      "access": {
+        "revision": 0,
+        "defaultControl": "approval",
+        "connectionMode": "session-key",
+        "maxSessions": 4,
+        "shortCodeTtlSeconds": 300,
+        "shortCodeMaxFailures": 20,
+        "shortCodePerSourceMaxFailures": 5,
+        "sessionPasswordMaxFailures": 20,
+        "defaultCodeAlphabet": "letters-digits",
+        "localSessionNetworks": "auto",
+        "publicName": "VidVNC host",
+        "remoteAccess": false,
+        "publicHostnames": [],
+        "publicPort": null,
+        "mediaPort": null
+      }
+    }
+  ],
+  "session-result": [
+    {
+      "type": "session-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true
+    },
+    {
+      "type": "session-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Device disconnected"
+    }
+  ],
+  "tls-regenerate-result": [
+    {
+      "type": "tls-regenerate-result",
+      "ok": true
+    },
+    {
+      "type": "tls-regenerate-result",
+      "ok": false,
+      "reason": "HTTPS is turned off, so there is no certificate to regenerate."
+    }
+  ],
+  "policy-result": [
+    {
+      "type": "policy-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true,
+      "policy": {
+        "schemaVersion": 1,
+        "revision": 1,
+        "profiles": [
+          {
+            "id": "balanced",
+            "name": "Balanced",
+            "description": "Everyday desktop use",
+            "enabled": true,
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "bitrateKbps": 4000,
+            "bitrateMode": "cbr",
+            "quality": "balanced",
+            "frameDelivery": "fixed"
+          }
+        ],
+        "defaultProfileId": "auto",
+        "displayDefaults": {},
+        "displaySharing": {
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": true,
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": true
+        },
+        "allowAudio": true,
+        "videoCodecs": ["av1", "h265", "h264"],
+        "encoderBackend": "auto",
+        "clientMode": "profiles",
+        "allowedOptions": {
+          "resolutions": [
+            {
+              "width": 960,
+              "height": 540
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 1920,
+              "height": 1080
+            },
+            {
+              "width": 2560,
+              "height": 1440
+            }
+          ],
+          "frameRates": [15, 30],
+          "bitratesKbps": [1000, 2000, 4000, 6000]
+        }
+      }
+    },
+    {
+      "type": "policy-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "policy": {
+        "schemaVersion": 1,
+        "revision": 1,
+        "profiles": [
+          {
+            "id": "balanced",
+            "name": "Balanced",
+            "description": "Everyday desktop use",
+            "enabled": true,
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "bitrateKbps": 4000,
+            "bitrateMode": "cbr",
+            "quality": "balanced",
+            "frameDelivery": "fixed"
+          }
+        ],
+        "defaultProfileId": "auto",
+        "displayDefaults": {},
+        "displaySharing": {
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": true,
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": true
+        },
+        "allowAudio": true,
+        "videoCodecs": ["av1", "h265", "h264"],
+        "encoderBackend": "auto",
+        "clientMode": "profiles",
+        "allowedOptions": {
+          "resolutions": [
+            {
+              "width": 960,
+              "height": 540
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 1920,
+              "height": 1080
+            },
+            {
+              "width": 2560,
+              "height": 1440
+            }
+          ],
+          "frameRates": [15, 30],
+          "bitratesKbps": [1000, 2000, 4000, 6000]
+        }
+      },
+      "error": "Configuration changed; reload before saving (revision conflict)"
+    }
+  ]
+}
