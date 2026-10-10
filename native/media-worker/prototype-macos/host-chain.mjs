@@ -5,6 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// MG_TASK (passed with `open --env MG_TASK=...`) picks another gate's script.
+if (process.env.MG_TASK) {
+  await import(path.join(here, `${process.env.MG_TASK}.mjs`));
+  process.exit(0);
+}
 const run = spawnSync(path.join(here, 'build-xcode/Release/mg4-probe'), ['--run-all'], {
   encoding: 'utf8',
   maxBuffer: 16 << 20,

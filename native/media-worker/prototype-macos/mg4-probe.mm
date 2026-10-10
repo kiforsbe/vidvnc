@@ -671,6 +671,26 @@ int main(int argc, char **argv) {
         return child(static_cast<unsigned short>(std::stoi(argv[2])), argv[3], std::stod(argv[4]),
                      std::stod(argv[5]), profile, skip_documents);
     }
+    // MG6: UDP to <host>:9 and TCP to <host>:80 from a binary built with the macOS 27 SDK.
+    if (argc == 3 && std::string(argv[1]) == "--lan-send") {
+        sockaddr_in to{};
+        to.sin_family = AF_INET;
+        inet_pton(AF_INET, argv[2], &to.sin_addr);
+        to.sin_port = htons(9);
+        const int u = socket(AF_INET, SOCK_DGRAM, 0);
+        const auto sent = sendto(u, "mg6", 3, 0, reinterpret_cast<sockaddr *>(&to), sizeof(to));
+        const std::string udp = sent >= 0 ? "sent" : err();
+        close(u);
+        to.sin_port = htons(80);
+        const int t = socket(AF_INET, SOCK_STREAM, 0);
+        const int result = connect(t, reinterpret_cast<sockaddr *>(&to), sizeof(to));
+        const std::string tcp = result == 0 ? "connected" : err();
+        close(t);
+        std::cout << "{\"test\":\"lan-native\",\"udp\":\"" << udp << "\",\"tcp\":\"" << tcp
+                  << "\",\"responsible\":\"" << pid_path(responsibility_get_pid_responsible_for_pid(getpid()))
+                  << "\"}" << std::endl;
+        return 0;
+    }
     if (argc == 3 && std::string(argv[1]) == "--is-sandboxed") {
         std::cout << (sandbox_check(std::stoi(argv[2]), nullptr, 0) ? "sandboxed" : "not sandboxed")
                   << std::endl;
