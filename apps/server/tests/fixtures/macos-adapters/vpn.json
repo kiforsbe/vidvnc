@@ -1,0 +1,28 @@
+{
+  "interfaces": [
+    {
+      "name": "en0",
+      "type": "IEEE80211",
+      "thunderbolt": false,
+      "up": true,
+      "addresses": [{ "address": "192.168.1.23", "prefixLength": 24 }],
+      "router": { "address": "192.168.1.1", "hardwareAddress": "a4:2b:b0:11:22:33" }
+    },
+    {
+      "name": "utun4",
+      "type": null,
+      "thunderbolt": false,
+      "up": true,
+      "addresses": [{ "address": "10.8.0.6", "prefixLength": 24 }],
+      "router": null
+    },
+    {
+      "name": "ppp0",
+      "type": "PPP",
+      "thunderbolt": false,
+      "up": true,
+      "addresses": [{ "address": "172.20.1.9", "prefixLength": 32 }],
+      "router": null
+    }
+  ]
+}

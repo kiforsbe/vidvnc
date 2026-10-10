@@ -1,0 +1,28 @@
+{
+  "interfaces": [
+    {
+      "name": "bridge0",
+      "type": "Bridge",
+      "thunderbolt": false,
+      "up": true,
+      "addresses": [{ "address": "169.254.10.20", "prefixLength": 16 }],
+      "router": null
+    },
+    {
+      "name": "en2",
+      "type": "Ethernet",
+      "thunderbolt": true,
+      "up": true,
+      "addresses": [{ "address": "192.168.77.2", "prefixLength": 24 }],
+      "router": null
+    },
+    {
+      "name": "en8",
+      "type": "Ethernet",
+      "thunderbolt": false,
+      "up": true,
+      "addresses": [{ "address": "10.20.30.40", "prefixLength": 16 }],
+      "router": { "address": "10.20.0.1", "hardwareAddress": "00:1b:21:aa:bb:cc" }
+    }
+  ]
+}

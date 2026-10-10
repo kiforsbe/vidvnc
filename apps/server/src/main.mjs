@@ -43,7 +43,7 @@ import {
 import { tlsDesktopStatus } from './tls/desktop-status.mjs';
 import { createServerLog } from './server-log.mjs';
 import { createLocalSessionScopeController } from './local-session-scope.mjs';
-import { detectWindowsLanAdapters } from './windows-lan-adapters.mjs';
+import { lanAdapterDetector } from './lan-adapters.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { createCodeIssuer } from './code-issuance.mjs';
 import { createOwnerSecurityCommands } from './owner-security-commands.mjs';
@@ -108,7 +108,7 @@ async function serve() {
     const serverLog = createServerLog({ desktop, directory: logDirectory });
     const localSession = createLocalSessionScopeController({
       access,
-      detect: detectWindowsLanAdapters,
+      detect: lanAdapterDetector({ executable: workerExecutable, env: workerEnvironment }),
       log: serverLog,
     });
     await localSession.refresh();

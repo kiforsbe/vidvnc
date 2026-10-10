@@ -950,6 +950,17 @@ Peer classification comes from the socket's source address, never from a header
 ([peer-network.mjs](../apps/server/src/peer-network.mjs),
 [local-session-scope.mjs](../apps/server/src/local-session-scope.mjs)).
 
+An eligible LAN is a physical Ethernet or Wi-Fi adapter that is up, on a private or IPv6
+unique-local address. The platform's provider ([lan-adapters.mjs](../apps/server/src/lan-adapters.mjs))
+reports the adapters every 15 seconds; if it fails, the standing password is loopback-only.
+On Windows the network must also be marked Private
+([windows-lan-adapters.mjs](../apps/server/src/windows-lan-adapters.mjs), PowerShell
+`Get-NetAdapter`). macOS has no network profile: its provider
+([macos-lan-adapters.mjs](../apps/server/src/macos-lan-adapters.mjs)) runs the media
+worker's read-only `--adapters` mode (in development) and counts only `enN` Ethernet and
+Wi-Fi ports, never VPN tunnels, bridges or Thunderbolt networking. Link-local addresses are
+not eligible on either platform.
+
 ### Assumptions and operating conditions
 
 The design holds under these conditions. VidVNC checks or prompts for some of them but
