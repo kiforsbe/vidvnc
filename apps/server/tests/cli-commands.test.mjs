@@ -295,6 +295,12 @@ test('codecs shows support and order, and set changes the saved order', async (t
   assert.equal(context.policy().encoderBackend, 'amf');
   assert.equal((await run('encoder-backend')).text, 'Encoder: AMD AMF');
   await assert.rejects(() => run('encoder-backend nvidia --yes'), /Unknown encoder/);
+  assert.match(
+    (await run('encoder-backend VideoToolbox --yes')).text,
+    /^Encoder is now Apple VideoToolbox\./,
+  );
+  assert.equal(context.policy().encoderBackend, 'videotoolbox');
+  await run('encoder-backend amf --yes');
   assert.equal(
     (await run('codecs set av1,h265,h264 --yes')).text,
     'Video codec order is now AV1, H.265, H.264.\nH.265 is not supported by this GPU and will be skipped.',

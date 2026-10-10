@@ -415,7 +415,7 @@ export const settingsCommands = [
   },
   {
     name: 'encoder-backend',
-    usage: 'encoder-backend [auto|nvenc|qsv|amf|mediafoundation]',
+    usage: 'encoder-backend [auto|nvenc|qsv|amf|mediafoundation|videotoolbox]',
     summary: 'Show or set which GPU encoder the host uses.',
     where: 'both',
     json: true,

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { selectEncoderBackend } from '../src/encoder-backends.mjs';
+import {
+  BACKEND_LABELS,
+  ENCODER_BACKEND_CHOICES,
+  ENCODER_BACKENDS,
+  selectEncoderBackend,
+} from '../src/encoder-backends.mjs';
 
 const backends = [
   { id: 'nvenc', onCaptureAdapter: false },
@@ -27,4 +32,16 @@ test('an installed explicit setting wins, while an unavailable one falls back to
   assert.equal(selectEncoderBackend(backends, 'nvenc'), 'nvenc');
   assert.equal(selectEncoderBackend(backends, 'qsv'), 'amf');
   assert.equal(selectEncoderBackend([], 'nvenc'), 'auto');
+});
+
+test('on macOS VideoToolbox is the one backend, chosen automatically or by name', () => {
+  const apple = [{ id: 'videotoolbox', label: 'Apple VideoToolbox', codecs: ['h264', 'h265'] }];
+  assert.equal(selectEncoderBackend(apple), 'videotoolbox');
+  assert.equal(selectEncoderBackend(apple, 'videotoolbox'), 'videotoolbox');
+  // A policy file from a Windows PC names a family this Mac does not have.
+  assert.equal(selectEncoderBackend(apple, 'nvenc'), 'videotoolbox');
+  assert.equal(BACKEND_LABELS.videotoolbox, 'Apple VideoToolbox');
+  assert.ok(ENCODER_BACKEND_CHOICES.includes('videotoolbox'));
+  // Every backend has a label, so the CLI never prints a raw id.
+  for (const id of ENCODER_BACKENDS) assert.equal(typeof BACKEND_LABELS[id], 'string');
 });

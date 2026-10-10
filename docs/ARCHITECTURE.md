@@ -675,7 +675,7 @@ sequenceDiagram
     Worker-->>Server: { codecs, backends[{id,label,onCaptureAdapter,codecs,minimums}] }
     Server-->>Host: status.encoders { available, setting }
 
-    Host->>Server: set policy.encoderBackend (auto, nvenc, qsv, amf, mediafoundation)
+    Host->>Server: set policy.encoderBackend (auto or a backend id)
     Note over Server: selectVideoCodec narrows to the forced<br/>backend's codecs when one is set
 
     Server->>Worker: start { videoCodec, encoderBackend, ... }
@@ -694,19 +694,25 @@ server defaults it to an empty list.
 
 ### Contract fields
 
-| Message      | Field                                    | Meaning                                                          |
-| ------------ | ---------------------------------------- | ---------------------------------------------------------------- |
-| probe result | `backends[].id`                          | `nvenc`, `qsv`, `amf`, `mediafoundation`                         |
-| probe result | `backends[].onCaptureAdapter`            | Element sits on the GPU that captures                            |
-| probe result | `backends[].minimums[codec]`             | Smallest input the element accepts                               |
-| `start`      | `encoderBackend`                         | Host override, or absent for automatic                           |
-| `ready`      | `encoderBackend`, `encoderLabel`         | What was actually chosen                                         |
-| `ready`      | `encoder`                                | The GStreamer element name                                       |
-| `ready`      | `encoderReason`                          | `capture-adapter`, `forced`, `forced-unavailable`, `fixed-order` |
-| `status`     | `encoders.available`, `encoders.setting` | Host-facing only; no client sees these                           |
+| Message      | Field                                    | Meaning                                                           |
+| ------------ | ---------------------------------------- | ----------------------------------------------------------------- |
+| probe result | `backends[].id`                          | `nvenc`, `qsv`, `amf`, `mediafoundation`; `videotoolbox` on macOS |
+| probe result | `backends[].onCaptureAdapter`            | Element sits on the GPU that captures                             |
+| probe result | `backends[].minimums[codec]`             | Smallest input the element accepts                                |
+| `start`      | `encoderBackend`                         | Host override, or absent for automatic                            |
+| `ready`      | `encoderBackend`, `encoderLabel`         | What was actually chosen                                          |
+| `ready`      | `encoder`                                | The GStreamer element name                                        |
+| `ready`      | `encoderReason`                          | `capture-adapter`, `forced`, `forced-unavailable`, `fixed-order`  |
+| `status`     | `encoders.available`, `encoders.setting` | Host-facing only; no client sees these                            |
 
 There is no software encoder fallback. If no family delivers H.264 the worker fails
 the probe by name, listing every element it tried.
+
+The server, the stream policy and the CLI already accept `videotoolbox` (Apple
+VideoToolbox, [encoder-backends.mjs](../apps/server/src/encoder-backends.mjs)) as the
+policy id for macOS. The worker does not report it yet: its macOS encoder is phase 3 of the
+[macOS plan](superpowers/plans/2026-10-09-macos-support.md). On Windows a saved
+`videotoolbox` setting names hardware the machine lacks, so the worker picks automatically.
 
 ## Input and control
 

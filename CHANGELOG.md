@@ -5,6 +5,16 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- `encoder-backend videotoolbox` in the command line: Apple VideoToolbox, the encoder the
+  coming macOS version of VidVNC uses. On Windows it names an encoder the PC does not have,
+  so VidVNC picks one automatically, as for any other missing encoder. VidVNC 0.10.0 and
+  earlier cannot start with a stream policy that names it; run `encoder-backend auto` before
+  going back to an older version.
+
 ## [0.10.0] - 2026-09-26
 
 ### Added

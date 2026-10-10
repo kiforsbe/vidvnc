@@ -175,7 +175,7 @@ server print above the prompt. Type `help` for the full list:
 - Displays: `displays`, `share <display> on|off`, `display-default <display> <profile>|host`,
   `default-profile auto|<profile>`, `audio on|off`
 - Encoding: `codecs [set <codec,codec,…>]`,
-  `encoder-backend [auto|nvenc|qsv|amf|mediafoundation]`
+  `encoder-backend [auto|nvenc|qsv|amf|mediafoundation|videotoolbox]`
 - Profiles: `profiles`, `profile add|edit|duplicate|remove|enable|disable|move …`
 - Client customization: `client-mode profiles|options`, `options`,
   `options add|remove size WxH|framerate N|bitrate KBPS`

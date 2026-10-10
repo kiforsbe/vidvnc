@@ -102,6 +102,6 @@ test('flags complete for the command, skipping ones already given and flag value
 
 test('the encoder backend completes to exactly the allowed values', async () => {
   const [values] = await complete(context(), 'encoder-backend ');
-  assert.deepEqual(values, ['auto', 'nvenc', 'qsv', 'amf', 'mediafoundation']);
+  assert.deepEqual(values, ['auto', 'nvenc', 'qsv', 'amf', 'mediafoundation', 'videotoolbox']);
   assert.deepEqual(await complete(context(), 'encoder-b'), [['encoder-backend '], 'encoder-b']);
 });

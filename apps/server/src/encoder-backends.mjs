@@ -3,8 +3,15 @@
 // because which GPU encodes a frame is the host's business and not the viewer's.
 //
 // The order matches the worker's own tie-break for automatic selection. It only decides which
-// backend wins when none of them sits on the adapter the frames were captured on.
-export const ENCODER_BACKENDS = Object.freeze(['nvenc', 'qsv', 'amf', 'mediafoundation']);
+// backend wins when none of them sits on the adapter the frames were captured on. The first
+// four are Windows families; `videotoolbox` is Apple's encoder and the only one on macOS.
+export const ENCODER_BACKENDS = Object.freeze([
+  'nvenc',
+  'qsv',
+  'amf',
+  'mediafoundation',
+  'videotoolbox',
+]);
 
 // `auto` is the default and means the worker picks per machine, preferring the GPU that
 // captured the frame. A forced backend that turns out to be absent falls back to automatic
@@ -21,6 +28,7 @@ export const BACKEND_LABELS = Object.freeze({
   qsv: 'Intel Quick Sync',
   amf: 'AMD AMF',
   mediafoundation: 'Media Foundation',
+  videotoolbox: 'Apple VideoToolbox',
 });
 
 // The startup probe runs in a short-lived worker, where it is safe to discover the GPU that
