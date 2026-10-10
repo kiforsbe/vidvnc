@@ -117,6 +117,19 @@ const lastJson = (text) =>
   if (!result.mediaNet.ok) result.mediaNet.stderr = run.stderr.slice(-400);
 }
 
+// 5. Privacy grants (MG5 re-check 4): Screen Recording and Accessibility as the worker sees them
+// under this app, a ScreenCaptureKit query, and a posted mouse move read back. Not part of "ok":
+// it reports whether the grants are in place, which is what an update must not change.
+{
+  const run = spawnSync(worker, ['--mg3'], { encoding: 'utf8', env: gstEnv, cwd: '/' });
+  result.privacy = lastJson(`${run.stdout}`);
+  result.version = JSON.parse(
+    execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path.join(contents, 'Info.plist')], {
+      encoding: 'utf8',
+    }),
+  ).CFBundleShortVersionString;
+}
+
 result.ok = Boolean(
   result.serverNode.ok && result.relay.ok && result.worker.ok && result.mediaNet.ok,
 );

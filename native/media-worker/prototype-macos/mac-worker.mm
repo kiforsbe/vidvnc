@@ -539,8 +539,12 @@ int mg3_probe() {
     const CGPoint target{std::min(start.x + 40, bounds.origin.x + bounds.size.width - 2),
                          std::min(start.y + 40, bounds.origin.y + bounds.size.height - 2)};
     move(target);
+    usleep(300000);
     const auto landed = location();
     const bool moved = std::abs(landed.x - target.x) < 2 && std::abs(landed.y - target.y) < 2;
+    const std::string where = "start " + std::to_string(int(start.x)) + "," + std::to_string(int(start.y)) +
+                              " target " + std::to_string(int(target.x)) + "," + std::to_string(int(target.y)) +
+                              " read " + std::to_string(int(landed.x)) + "," + std::to_string(int(landed.y));
     move(start);
     for (const bool down : {true, false}) {
         auto key = CGEventCreateKeyboardEvent(nullptr, 56 /* kVK_Shift */, down);
@@ -561,6 +565,7 @@ int mg3_probe() {
     json_object_set_boolean_member(result, "postPreflight", post_before);
     json_object_set_boolean_member(result, "postRequest", post_request);
     json_object_set_boolean_member(result, "mouseMoveLanded", moved);
+    json_object_set_string_member(result, "mouse", where.c_str());
     write_object(result);
     return 0;
 }

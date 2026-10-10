@@ -22,6 +22,10 @@ app="$here/build/VidVNC MG8.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks" "$app/Contents/Library/GStreamer"
 cp "$here/Info.plist" "$app/Contents/Info.plist"
+# VERSION=<n>: the bundle version, for the update re-check (same bundle ID, new build).
+version=${VERSION:-1}
+plutil -replace CFBundleShortVersionString -string "0.0.$version" "$app/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$version" "$app/Contents/Info.plist"
 
 xcrun swiftc -O -target arm64-apple-macos27.0 -o "$app/Contents/MacOS/VidVNC MG8" "$here/main.swift"
 cp "$node" "$app/Contents/MacOS/node"
@@ -70,4 +74,4 @@ sign $library_entitlements "$app/Contents/MacOS/sandbox-launcher"
 sign "$app"
 codesign --verify --deep --strict --verbose=1 "$app"
 du -sh "$app"
-echo "built $app (identity $identity)"
+echo "built $app (identity $identity, version 0.0.$version)"
