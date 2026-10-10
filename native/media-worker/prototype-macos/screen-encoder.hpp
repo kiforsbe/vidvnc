@@ -29,3 +29,7 @@ class ScreenEncoder {
 
 // MG3: asks ScreenCaptureKit for the shareable displays once; "ok <n> displays" or the error.
 std::string screen_capture_probe();
+
+// MG8: create a hardware VTCompressionSession for H.264 or HEVC and encode 10 synthetic NV12
+// frames; "ok <n> frames" or the error.
+std::string vt_probe(bool hevc);

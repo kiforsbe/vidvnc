@@ -28,6 +28,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <gst/sdp/sdp.h>
+#include <gst/webrtc/webrtc.h>
 #include "json-util.hpp"
 #include "media-net.hpp"
 #include "net-pipes.hpp"
@@ -563,6 +565,137 @@ int mg3_probe() {
     return 0;
 }
 
+
+// MG8: does the bundled GStreamer work here? Every element media-net and the worker use exists,
+// webrtcbin gathers on loopback, an Opus pipeline runs, and (unless `net`, as media-net would
+// run sandboxed) VideoToolbox encodes H.264 and HEVC in hardware. One JSON line; exit 0 if all ok.
+int self_check(bool net) {
+    auto result = typed_object("self-check");
+    bool ok = true;
+    std::string missing;
+    for (const char *name :
+         {"appsrc", "appsink", "tee", "queue", "identity", "capsfilter", "webrtcbin", "rtpbin",
+          "nicesrc", "nicesink", "dtlssrtpenc", "dtlssrtpdec", "srtpenc", "srtpdec", "sctpenc",
+          "sctpdec", "rtpfunnel", "rtprtxsend", "rtpstorage", "rtpulpfecenc", "rtpredenc",
+          "rtpopuspay", "rtph264pay", "rtph265pay", "h264parse", "h265parse", "audiotestsrc",
+          "audioconvert", "audioresample", "opusenc", "fakesink"}) {
+        auto factory = gst_element_factory_find(name);
+        if (!factory)
+            missing += std::string(missing.empty() ? "" : " ") + name;
+        else
+            gst_object_unref(factory);
+    }
+    ok = ok && missing.empty();
+    json_object_set_string_member(result, "missingElements", missing.c_str());
+    // webrtcbin on loopback, as media-net gathers.
+    {
+        auto pipeline = gst_pipeline_new("check");
+        auto webrtc = gst_element_factory_make("webrtcbin", nullptr);
+        std::string gathered = "no webrtcbin";
+        if (webrtc) {
+            gst_bin_add(GST_BIN(pipeline), webrtc);
+            GstWebRTCICE *ice = nullptr;
+            g_object_get(webrtc, "ice-agent", &ice, nullptr);
+            gboolean added = FALSE;
+            if (ice) {
+                g_signal_emit_by_name(ice, "add-local-ip-address", "127.0.0.1", &added);
+                gst_object_unref(ice);
+            }
+            auto caps = gst_caps_from_string(
+                "application/x-rtp,media=audio,encoding-name=OPUS,payload=96,clock-rate=48000");
+            GstWebRTCRTPTransceiver *transceiver = nullptr;
+            g_signal_emit_by_name(webrtc, "add-transceiver",
+                                  GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY, caps, &transceiver);
+            gst_caps_unref(caps);
+            if (transceiver)
+                gst_object_unref(transceiver);
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            auto promise = gst_promise_new();
+            g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
+            gst_promise_wait(promise);
+            GstWebRTCSessionDescription *offer = nullptr;
+            if (auto reply = gst_promise_get_reply(promise))
+                gst_structure_get(reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer,
+                                  nullptr);
+            gst_promise_unref(promise);
+            if (offer) {
+                auto set = gst_promise_new();
+                g_signal_emit_by_name(webrtc, "set-local-description", offer, set);
+                gst_promise_wait(set);
+                gst_promise_unref(set);
+                gst_webrtc_session_description_free(offer);
+                GstWebRTCICEGatheringState state = GST_WEBRTC_ICE_GATHERING_STATE_NEW;
+                for (int i = 0; i < 100 && state != GST_WEBRTC_ICE_GATHERING_STATE_COMPLETE; ++i) {
+                    g_usleep(100000);
+                    g_object_get(webrtc, "ice-gathering-state", &state, nullptr);
+                }
+                GstWebRTCSessionDescription *local = nullptr;
+                g_object_get(webrtc, "local-description", &local, nullptr);
+                gchar *text = local ? gst_sdp_message_as_text(local->sdp) : nullptr;
+                const std::string sdp = text ? text : "";
+                g_free(text);
+                if (local)
+                    gst_webrtc_session_description_free(local);
+                const bool candidate = sdp.find(" 127.0.0.1 ") != std::string::npos;
+                const bool fingerprint = sdp.find("a=fingerprint:") != std::string::npos;
+                gathered = std::string(added ? "" : "loopback refused, ") +
+                           (state == GST_WEBRTC_ICE_GATHERING_STATE_COMPLETE ? "complete" : "incomplete") +
+                           (candidate ? ", 127.0.0.1 candidate" : ", no loopback candidate") +
+                           (fingerprint ? ", DTLS fingerprint" : ", no fingerprint");
+                ok = ok && added && candidate && fingerprint;
+            } else {
+                gathered = "no offer";
+                ok = false;
+            }
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+        } else
+            ok = false;
+        gst_object_unref(pipeline);
+        json_object_set_string_member(result, "webrtcbin", gathered.c_str());
+    }
+    // Opus, as the audio branch encodes.
+    {
+        GError *error = nullptr;
+        auto pipeline = gst_parse_launch(
+            "audiotestsrc num-buffers=50 ! audioconvert ! audioresample ! "
+            "audio/x-raw,format=S16LE,rate=48000,channels=2 ! opusenc ! fakesink",
+            &error);
+        std::string opus = error ? error->message : "";
+        if (pipeline && !error) {
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            auto bus = gst_element_get_bus(pipeline);
+            auto message = gst_bus_timed_pop_filtered(
+                bus, 10 * GST_SECOND,
+                static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+            opus = !message ? "timed out"
+                   : GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS ? "ok"
+                                                                  : "error";
+            if (message)
+                gst_message_unref(message);
+            gst_object_unref(bus);
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(pipeline);
+        }
+        if (error)
+            g_error_free(error);
+        ok = ok && opus == "ok";
+        json_object_set_string_member(result, "opus", opus.c_str());
+    }
+    if (!net) {
+        const auto h264 = vt_probe(false), hevc = vt_probe(true);
+        ok = ok && h264.rfind("ok", 0) == 0 && hevc.rfind("ok", 0) == 0;
+        json_object_set_string_member(result, "videotoolboxH264", h264.c_str());
+        json_object_set_string_member(result, "videotoolboxHevc", hevc.c_str());
+    }
+    gchar *version = gst_version_string();
+    json_object_set_string_member(result, "gstreamer", version);
+    g_free(version);
+    json_object_set_string_member(result, "executable", executable_path().c_str());
+    json_object_set_boolean_member(result, "ok", ok);
+    write_object(result);
+    return ok ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -599,6 +732,8 @@ int main(int argc, char **argv) {
     }
     if (argc == 2 && std::string(argv[1]) == "--session")
         return session();
+    if ((argc == 2 || argc == 3) && std::string(argv[1]) == "--self-check")
+        return self_check(argc == 3 && std::string(argv[2]) == "net");
     if (argc == 2 && std::string(argv[1]) == "--mg3")
         return mg3_probe();
     // Screen Recording: report the current state, asking (once) if it is not granted.

@@ -6,6 +6,7 @@
 #include <mach/mach_time.h>
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <vector>
@@ -352,4 +353,38 @@ std::string screen_capture_probe() {
     }];
     dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
     return result;
+}
+
+std::string vt_probe(bool hevc) {
+    NSDictionary *spec = @{
+        (__bridge NSString *)kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder : @YES
+    };
+    VTCompressionSessionRef session = nullptr;
+    auto frames = std::make_shared<std::atomic<int>>(0);
+    const OSStatus status =
+        VTCompressionSessionCreate(kCFAllocatorDefault, 1280, 720,
+                                   hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+                                   (__bridge CFDictionaryRef)spec, nullptr, nullptr, nullptr,
+                                   nullptr, &session);
+    if (status != noErr)
+        return "create failed " + std::to_string(status);
+    VTSessionSetProperty(session, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
+    for (int i = 0; i < 10; ++i) {
+        CVPixelBufferRef pixels = nullptr;
+        NSDictionary *attributes = @{(__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{}};
+        CVPixelBufferCreate(kCFAllocatorDefault, 1280, 720,
+                            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                            (__bridge CFDictionaryRef)attributes, &pixels);
+        VTCompressionSessionEncodeFrameWithOutputHandler(
+            session, pixels, CMTimeMake(i, 30), kCMTimeInvalid, nullptr, nullptr,
+            ^(OSStatus result, VTEncodeInfoFlags, CMSampleBufferRef sample) {
+              if (result == noErr && sample)
+                  ++*frames;
+            });
+        CVPixelBufferRelease(pixels);
+    }
+    VTCompressionSessionCompleteFrames(session, kCMTimeInvalid);
+    VTCompressionSessionInvalidate(session);
+    CFRelease(session);
+    return *frames == 10 ? "ok 10 frames" : "encoded " + std::to_string(frames->load()) + " of 10";
 }
