@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadRuntimeManifest, packagedWorkerEnvironment } from '../runtime-manifest.mjs';
 
 function fixture(t) {
-  const root = mkdtempSync(path.join(tmpdir(), 'vidvnc runtime å '));
+  // realpath: macOS tmpdir() is under /var, a symlink to /private/var, and the loader resolves links.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'vidvnc runtime å ')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, 'bin'));
   mkdirSync(path.join(root, 'plugins'));
