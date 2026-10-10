@@ -5,7 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { createSocket } from 'node:dgram';
 import { connect } from 'node:net';
 
-const gateway = /gateway: (\S+)/.exec(execFileSync('/sbin/route', ['-n', 'get', 'default'], { encoding: 'utf8' }))?.[1];
+// MG_LAN_HOST: another LAN host instead of the default gateway.
+const gateway = process.env.MG_LAN_HOST ?? /gateway: (\S+)/.exec(execFileSync('/sbin/route', ['-n', 'get', 'default'], { encoding: 'utf8' }))?.[1];
 const udp = await new Promise((resolve) => {
   const socket = createSocket('udp4');
   socket.send(Buffer.from('mg6'), 9, gateway, (error) => {
