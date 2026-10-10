@@ -215,9 +215,16 @@ test('every platform can be told to match the certificate by its fingerprint, fo
       assert.match(textOf(instructionsFor(id, strategy).install), FALLBACK, `${id} install`);
 });
 
-test('the self-signed strategy names its certificate VidVNC, because that is what it is called', () => {
-  for (const id of IDS)
-    assert.match(textOf(instructionsFor(id, 'windows-self-signed').uninstall), /"VidVNC"/, id);
+test('the self-signed strategies name their certificate VidVNC, because that is what it is called', () => {
+  for (const strategy of ['windows-self-signed', 'self-signed'])
+    for (const id of IDS)
+      assert.match(
+        textOf(instructionsFor(id, strategy).uninstall),
+        /"VidVNC"/,
+        `${id} ${strategy}`,
+      );
+  // The macOS strategy's certificate is its own anchor too, so a reissue means installing again.
+  assert.equal(reissueNote('self-signed'), reissueNote('windows-self-signed'));
 });
 
 test('mkcert is identified as a certificate issued by mkcert, never as VidVNC, with the name hedged', () => {

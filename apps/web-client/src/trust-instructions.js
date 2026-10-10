@@ -20,16 +20,17 @@
 // names drift between versions and vendors, and the entries say so where that matters.
 const FILE = 'VidVNC-trust.crt';
 
-// How the certificate shows up in a device's lists. `windows-self-signed` makes a certificate
-// with the subject CN=VidVNC. `mkcert` hands over mkcert's own certificate authority, whose
+// How the certificate shows up in a device's lists. `windows-self-signed` (Windows) and
+// `self-signed` (macOS) make a certificate with the subject CN=VidVNC. `mkcert` hands over mkcert's own certificate authority, whose
 // name is not ours. Anything else (an operator's own certificate) could be called anything,
 // so it is identified by fingerprint alone. No platform-specific screen is claimed to show a
 // fingerprint; the text says "where your device shows one".
+const SELF_SIGNED = new Set(['windows-self-signed', 'self-signed']);
+
 function identify(strategy) {
   const fallback =
     'If you cannot tell which one it is, match it by its SHA-256 fingerprint (shown above) where your device shows one.';
-  if (strategy === 'windows-self-signed')
-    return { find: 'the certificate named "VidVNC"', match: fallback };
+  if (SELF_SIGNED.has(strategy)) return { find: 'the certificate named "VidVNC"', match: fallback };
   if (strategy === 'mkcert')
     return {
       find: 'the certificate issued by mkcert (usually named "mkcert <user>@<host>", but the name can differ)',
@@ -356,7 +357,7 @@ export function instructionsFor(id, strategy) {
 // What a reissued certificate means for a device that installed the old one, worded by the
 // strategy that made it. Returns null where nothing can be claimed accurately.
 export function reissueNote(strategy) {
-  if (strategy === 'windows-self-signed')
+  if (SELF_SIGNED.has(strategy))
     return "This host's certificate is self-signed. If the host ever creates a new one, the certificate you install now will no longer match it and this device will warn again. Remove the old certificate using the steps above, then come back to this page and install the new one.";
   if (strategy === 'mkcert')
     return "This host's certificate comes from a local certificate authority (mkcert). That authority normally stays the same when the host issues a new certificate, so you usually do not need to install anything again. If the host ever creates a new authority, remove the old one using the steps above and install the new one from this page.";

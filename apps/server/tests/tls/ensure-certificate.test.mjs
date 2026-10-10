@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
-import { ensureCertificate, DEFAULT_STRATEGIES } from '../../src/tls/ensure-certificate.mjs';
+import {
+  ensureCertificate,
+  DEFAULT_STRATEGIES,
+  defaultStrategies,
+} from '../../src/tls/ensure-certificate.mjs';
 import { anchorReport } from '../../src/tls/anchor.mjs';
 import { fingerprint as certificateFingerprint } from '../../src/tls/certificate-facts.mjs';
 import { defaultTlsSettings } from '../../src/tls/tls-settings.mjs';
@@ -67,10 +71,18 @@ const okResult = (name, overrides = {}) => ({
 });
 const failResult = (reason) => ({ ok: false, reason });
 
-test('the default strategy order is provided, then mkcert, then windows-self-signed', () => {
+test('the default strategy order is provided, then mkcert, then the platform self-signed', () => {
+  assert.deepEqual(
+    defaultStrategies('win32').map((s) => s.name),
+    ['provided', 'mkcert', 'windows-self-signed'],
+  );
+  assert.deepEqual(
+    defaultStrategies('darwin').map((s) => s.name),
+    ['provided', 'mkcert', 'self-signed'],
+  );
   assert.deepEqual(
     DEFAULT_STRATEGIES.map((s) => s.name),
-    ['provided', 'mkcert', 'windows-self-signed'],
+    defaultStrategies(process.platform).map((s) => s.name),
   );
 });
 

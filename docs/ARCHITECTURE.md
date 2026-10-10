@@ -1196,9 +1196,11 @@ that request, and a host revoke for the session ends it.
 | Viewer grant                     | `crypto.randomBytes(32)`                                                  | Session lifetime                                                                                                             |
 | Diagnostics bearer               | `crypto.randomBytes(32)`, stored as SHA-256, constant-time compare        | 15 minutes                                                                                                                   |
 | Self-signed PFX                  | Exported by `Export-PfxCertificate` with a random passphrase              | Key removed from the Windows store after export; PFX and passphrase in the per-user directory                                |
+| Self-signed key (macOS)          | P-256 from `crypto.generateKeyPairSync`, ECDSA with SHA-256               | `key.pem`, mode `0600` in a `0700` per-user directory, until the certificate is reissued                                     |
 
 All randomness comes from the operating system CSPRNG through Node's `crypto` module. No
-custom cryptography is implemented. The certificate provisioning details are in
+custom cryptography is implemented: the self-signed certificate's DER encoding is written
+by VidVNC, but keys, signatures and hashing are Node's. The certificate provisioning details are in
 [TLS and trust provisioning](#tls-and-trust-provisioning) below.
 
 ### Data protection (ASVS V8, V9)
@@ -1446,10 +1448,11 @@ exists to authenticate, so those routes remain reachable locally in the clear
 
 #### Strategy order and reissue
 
-Provisioning tries strategies in a fixed order — `provided`, then `mkcert`, then
-`windows-self-signed` — and uses the first one that is available and succeeds
+Provisioning tries strategies in a fixed order — `provided`, then `mkcert`, then the
+platform's self-signed strategy, `windows-self-signed` on Windows and `self-signed`
+elsewhere — and uses the first one that is available and succeeds
 ([ensure-certificate.mjs](../apps/server/src/tls/ensure-certificate.mjs),
-`DEFAULT_STRATEGIES`). In `provided` mode only the `provided` strategy is ever a
+`defaultStrategies`). In `provided` mode only the `provided` strategy is ever a
 candidate, so a failure there is reported rather than silently replaced by a generated
 certificate. In every other mode all three are tried in that order:
 
@@ -1458,6 +1461,7 @@ certificate. In every other mode all three are tried in that order:
 | `provided`            | Operator configured a certificate and key (or PFX) | Whatever their CA chain already is |
 | `mkcert`              | `mkcert` resolves on `PATH`                        | The mkcert local root CA           |
 | `windows-self-signed` | Always available on Windows                        | The leaf certificate itself        |
+| `self-signed`         | Every platform but Windows (macOS)                 | The leaf certificate itself        |
 
 A credential is reissued — at startup, and again on a periodic re-check — whenever any
 of these holds: it is absent or unreadable; its expiry falls inside the renewal window
@@ -1467,6 +1471,19 @@ or a laptop moving networks
 ([certificate-facts.mjs](../apps/server/src/tls/certificate-facts.mjs),
 `renewalStatus`/`checkCoverage`). Each strategy owns this check for its own credential
 type; `ensure-certificate.mjs` only selects a strategy and forwards the result unchanged.
+
+The two self-signed strategies make the same certificate as far as a device can tell:
+subject `CN=VidVNC`, every hostname and IP address as a subject alternative name (IPs as
+IP entries), two years' validity, server authentication only. `windows-self-signed`
+issues it through PowerShell and keeps a PFX with a passphrase sidecar. `self-signed`
+([self-signed.mjs](../apps/server/src/tls/strategies/self-signed.mjs)) needs no tool: it
+makes a P-256 key with `node:crypto` and writes the certificate with a minimal DER writer
+([der.mjs](../apps/server/src/tls/der.mjs)), whose output is checked by parsing it with
+`X509Certificate` and completing a TLS handshake. It keeps `cert.pem` and `key.pem` in
+`tls/self-signed` in the settings folder; the key file has mode `0600` and the settings,
+`tls` and `self-signed` folders `0700`. Moving the key into the Keychain is later
+hardening. Neither a Mac nor an iPhone has installed this certificate yet; that is part of
+the macOS acceptance tests.
 
 #### Enrolment flow
 
@@ -1518,7 +1535,7 @@ sequenceDiagram
   in use" from "no provisioning strategy worked" — check the server log for the precise
   cause.
 - **Self-signed reissue invalidates every enrolled device's trust; mkcert's local CA does
-  not.** Under `windows-self-signed` the certificate is its own trust anchor, so
+  not.** Under `windows-self-signed` and `self-signed` the certificate is its own trust anchor, so
   reissuing it — which happens automatically near expiry or when an address changes, or
   manually via "regenerate" in the host UI — means every device that enrolled must enrol
   again. Under `mkcert` the anchor is the stable local CA, so a reissued leaf is still

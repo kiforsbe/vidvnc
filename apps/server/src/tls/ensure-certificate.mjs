@@ -23,8 +23,9 @@
 //
 // ## Strategy selection
 //
-// Order is fixed: `provided`, then `mkcert`, then `windows-self-signed` (matching the
-// array below and the design doc's own strategy table). Every strategy in play is
+// Order is fixed: `provided`, then `mkcert`, then the platform's self-signed strategy:
+// `windows-self-signed` on Windows, the portable `self-signed` everywhere else (macOS
+// design, D7), matching `defaultStrategies` below and the design doc's own strategy table. Every strategy in play is
 // walked with the exact same two calls, `isAvailable(settings, deps)` then
 // `provision(settings, deps)` — no strategy gets special-cased inside that walk.
 //
@@ -53,8 +54,17 @@
 import { providedStrategy } from './strategies/provided.mjs';
 import { mkcertStrategy } from './strategies/mkcert.mjs';
 import { windowsSelfSignedStrategy } from './strategies/windows-self-signed.mjs';
+import { selfSignedStrategy } from './strategies/self-signed.mjs';
 
-export const DEFAULT_STRATEGIES = [providedStrategy, mkcertStrategy, windowsSelfSignedStrategy];
+export function defaultStrategies(platform = process.platform) {
+  return [
+    providedStrategy,
+    mkcertStrategy,
+    platform === 'win32' ? windowsSelfSignedStrategy : selfSignedStrategy,
+  ];
+}
+
+export const DEFAULT_STRATEGIES = defaultStrategies();
 
 // A single failed-or-skipped strategy's own reason, in the order it was tried. Every
 // candidate this module actually calls `isAvailable`/`provision` on gets exactly one
