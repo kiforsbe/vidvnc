@@ -170,7 +170,8 @@ passed the relay check under the profile. XPC services (option 3) were not teste
   `EHOSTUNREACH` until the owner allows the app; the router is exempt. The prompt names the
   host app, appears about 1.5 minutes after the first blocked attempt, and one approval
   covers the app's Node.js and native children. Replies to a LAN viewer that contacts the
-  Mac first go through without approval.
+  Mac first go through without approval. A Developer ID-signed, hardened-runtime app with
+  a new bundle ID behaved the same as the ad-hoc signed ones, before and after approval.
 - **Capture re-approval.** `replayd` still has a day-based re-approval policy, but the
   interval is compiled in and was not measured. It can be observed on a real install.
 
