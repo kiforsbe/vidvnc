@@ -111,8 +111,8 @@ internet clients rather than fall back to plaintext or to an unintended route.
 Clients count as **local** when they are on an eligible Private physical LAN. That decides
 the standing password and certificate enrolment.
 On macOS, which has no Private network profile, an eligible LAN is a physical Ethernet or
-Wi-Fi port on a private or unique-local address
-([architecture](../ARCHITECTURE.md#actors-and-trust-levels)).
+Wi-Fi port on a private or unique-local address, and in the app only a network the owner
+has confirmed ([architecture](../ARCHITECTURE.md#actors-and-trust-levels)).
 
 **Private** clients are not on this LAN but not the internet either:
 

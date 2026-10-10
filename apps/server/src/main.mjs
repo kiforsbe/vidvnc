@@ -44,6 +44,7 @@ import { tlsDesktopStatus } from './tls/desktop-status.mjs';
 import { createServerLog } from './server-log.mjs';
 import { createLocalSessionScopeController } from './local-session-scope.mjs';
 import { lanAdapterDetector } from './lan-adapters.mjs';
+import { KnownNetworks } from './network-confirmation.mjs';
 import { AdmissionBudget } from './admission-budget.mjs';
 import { createCodeIssuer } from './code-issuance.mjs';
 import { createOwnerSecurityCommands } from './owner-security-commands.mjs';
@@ -87,6 +88,9 @@ if (process.argv[2] === 'config') {
 async function serve() {
   try {
     const desktop = process.argv.includes('--desktop');
+    // The macOS app asks the owner about each new network before binding to it (Q2).
+    const confirmNetworks = process.argv.includes('--confirm-networks');
+    if (confirmNetworks && !desktop) throw new Error('--confirm-networks requires --desktop');
     // The desktop owner chooses local-only or remote sharing each time it starts sharing.
     let sharingMode = null;
     if (process.argv.includes('--await-owner')) {
@@ -106,9 +110,11 @@ async function serve() {
     });
     const diagnosticsCapabilities = new DiagnosticsCapabilities();
     const serverLog = createServerLog({ desktop, directory: logDirectory });
+    const knownNetworks = confirmNetworks ? await KnownNetworks.open(files.knownNetworks) : null;
+    const detectLan = lanAdapterDetector({ executable: workerExecutable, env: workerEnvironment });
     const localSession = createLocalSessionScopeController({
       access,
-      detect: lanAdapterDetector({ executable: workerExecutable, env: workerEnvironment }),
+      detect: knownNetworks ? async () => knownNetworks.apply(await detectLan()) : detectLan,
       log: serverLog,
     });
     await localSession.refresh();
@@ -413,6 +419,7 @@ async function serve() {
             codeIssuer,
             approvedClients,
             store,
+            knownNetworks,
           }))
             console.log(JSON.stringify(line));
         }
@@ -435,6 +442,14 @@ async function serve() {
           tlsSettings,
           tlsListener,
           tlsField,
+          // A decision takes effect at once: the LAN scope and its listeners follow it.
+          networks: knownNetworks && {
+            confirm: async (id, allow) => {
+              await knownNetworks.decide(id, allow);
+              await localSession.refresh();
+              await httpStack.http.reconcile();
+            },
+          },
         }),
       );
       owner.on('close', stop);

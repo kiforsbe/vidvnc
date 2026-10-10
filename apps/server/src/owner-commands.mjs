@@ -30,9 +30,23 @@ const requested = (command) =>
   typeof command.requestId === 'string' && command.requestId.length <= 64;
 
 // The two lines the server writes every second while a desktop host owns it.
-export function statusLines({ runtime, tlsField, codeIssuer, approvedClients, store }) {
+// `networks`, only when the owner confirms networks (--confirm-networks), lists the networks
+// waiting for the owner's answer.
+export function statusLines({
+  runtime,
+  tlsField,
+  codeIssuer,
+  approvedClients,
+  store,
+  knownNetworks,
+}) {
   return [
-    { ...runtime.status(), tls: tlsField(), codes: codeIssuer.status() },
+    {
+      ...runtime.status(),
+      tls: tlsField(),
+      codes: codeIssuer.status(),
+      ...(knownNetworks ? { networks: knownNetworks.pending() } : {}),
+    },
     { type: 'clients', ...approvedClients.status(store.list()) },
   ];
 }
@@ -89,6 +103,7 @@ export function createOwnerCommandHandler({
   tlsSettings,
   tlsListener,
   tlsField,
+  networks = null,
 }) {
   const clientsLine = () =>
     send(write, { type: 'clients', ...approvedClients.status(store.list()) });
@@ -258,6 +273,18 @@ export function createOwnerCommandHandler({
             },
             () => reply(false, 'The certificate could not be regenerated.'),
           );
+      }
+      // Allows or refuses a network the status line listed (--confirm-networks only).
+      if (command.type === 'network-confirm' && requested(command) && !stopping()) {
+        const reply = (ok, error) =>
+          send(write, { type: 'network-confirm-result', requestId: command.requestId, ok, error });
+        (networks
+          ? networks.confirm(command.id, command.allow)
+          : Promise.reject(new Error('Network confirmation is off'))
+        ).then(
+          () => reply(true),
+          (error) => reply(false, error.message),
+        );
       }
       if (command.type === 'disconnect' && typeof command.id === 'string')
         store.disconnect(command.id);

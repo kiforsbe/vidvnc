@@ -55,14 +55,18 @@ test('the approval line is exactly one of the contract start lines', async () =>
 });
 
 test('the server answers every contract command in the contract shapes', async (t) => {
-  // With a generated certificate, so tls-regenerate succeeds too.
-  const owner = await server(t, { tlsMode: 'auto' });
+  // With a generated certificate, so tls-regenerate succeeds too, and as the macOS app
+  // runs it, so there is a network to confirm.
+  const owner = await server(t, { tlsMode: 'auto', confirmNetworks: true });
   const { sessionId, streamId, pendingId, approvedId } = await owner.populate();
+  const networkId = owner.pendingNetwork();
+  check(owner.status()[0]);
   // The examples carry placeholder ids; the server only knows the ones it issued.
   const ids = {
     'client-request-command': { id: pendingId },
     'approved-client-command': { id: approvedId },
     'session-command': { sessionId, streamId },
+    'network-confirm': { id: networkId },
   };
   for (const [type, { command, replies: expected }] of Object.entries(commands)) {
     if (type === 'stop' || type === 'disconnect') continue;
@@ -95,6 +99,8 @@ test('failures and the optional reply fields match the contract', async (t) => {
     { type: 'session-command', requestId, action: 'revoke', sessionId: 'unknown' },
     { type: 'policy-set', requestId, revision: 99, policy: {}, disconnect: false },
     { type: 'tls-regenerate' },
+    // The command-line server never asks about networks.
+    { type: 'network-confirm', requestId, id: '6361370af95a55dd', allow: true },
   ];
   for (const command of failures) {
     const [reply] = await owner.send(command);
@@ -234,8 +240,10 @@ test('the Windows host test fixture answers in the contract shapes', async (t) =
   );
   t.after(() => child.kill());
   const output = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  // Only what the Windows host sends: network-confirm is the macOS app's.
+  const sent = hostCommandTypes(new URL('../../windows-host/', import.meta.url), '.cs');
   for (const [type, { command, replies: expected }] of Object.entries(commands)) {
-    if (type === 'stop' || type === 'disconnect') continue;
+    if (type === 'stop' || type === 'disconnect' || !sent.has(type)) continue;
     child.stdin.write(`${JSON.stringify(command)}\n`);
     // The fixture answers each command with its first reply only, plus what it received.
     const { value } = await output.next();

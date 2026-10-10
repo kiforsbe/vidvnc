@@ -131,21 +131,22 @@ Every command but `stop`, `disconnect` and `tls-regenerate` carries a `requestId
 unknown `type` or a command without a valid `requestId` is ignored without a reply. Once
 the server is stopping it answers nothing. Closing stdin stops the server like `stop`.
 
-| Command                         | What it does                                                 | Reply                                   |
-| ------------------------------- | ------------------------------------------------------------ | --------------------------------------- |
-| `stop` (exactly that line)      | Stops sharing and exits                                      | None                                    |
-| `policy-set`                    | Replaces the stream policy at `revision`                     | `policy-result`                         |
-| `access-set`                    | Changes access settings at `revision`                        | `access-result`                         |
-| `session-command`               | `grant`, `revoke` or `stop-stream` for a session's stream    | `session-result`                        |
-| `disconnect`                    | Ends the session `id`                                        | None                                    |
-| `connection-once-create`        | Issues a one-time connection code                            | `connection-once-result`                |
-| `client-setup-create`           | Issues an approved-device setup code                         | `client-setup-result`                   |
-| `session-password-rotate`       | Replaces the session password                                | `session-password-result`               |
-| `client-request-command`        | Approves or rejects a pending device                         | `client-command-result`, then `clients` |
-| `approved-client-command`       | Removes an approved device or changes its permission         | `client-command-result`, then `clients` |
-| `ordinary-sessions-disconnect`  | Ends every session that is not an approved device            | `client-command-result` with the count  |
-| `diagnostics-capability-create` | Issues a diagnostics bearer and the loopback diagnostics URL | `diagnostics-capability-result`         |
-| `tls-regenerate`                | Reissues a generated certificate; never a provided one       | `tls-regenerate-result`                 |
+| Command                         | What it does                                                                       | Reply                                   |
+| ------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------- |
+| `stop` (exactly that line)      | Stops sharing and exits                                                            | None                                    |
+| `policy-set`                    | Replaces the stream policy at `revision`                                           | `policy-result`                         |
+| `access-set`                    | Changes access settings at `revision`                                              | `access-result`                         |
+| `session-command`               | `grant`, `revoke` or `stop-stream` for a session's stream                          | `session-result`                        |
+| `disconnect`                    | Ends the session `id`                                                              | None                                    |
+| `connection-once-create`        | Issues a one-time connection code                                                  | `connection-once-result`                |
+| `client-setup-create`           | Issues an approved-device setup code                                               | `client-setup-result`                   |
+| `session-password-rotate`       | Replaces the session password                                                      | `session-password-result`               |
+| `client-request-command`        | Approves or rejects a pending device                                               | `client-command-result`, then `clients` |
+| `approved-client-command`       | Removes an approved device or changes its permission                               | `client-command-result`, then `clients` |
+| `ordinary-sessions-disconnect`  | Ends every session that is not an approved device                                  | `client-command-result` with the count  |
+| `network-confirm`               | Allows (`allow: true`) or refuses the network `id`; with `--confirm-networks` only | `network-confirm-result`                |
+| `diagnostics-capability-create` | Issues a diagnostics bearer and the loopback diagnostics URL                       | `diagnostics-capability-result`         |
+| `tls-regenerate`                | Reissues a generated certificate; never a provided one                             | `tls-regenerate-result`                 |
 
 **Replies** ([replies.json](../apps/server/tests/fixtures/owner-protocol/replies.json),
 one example per form). Each has `ok`; a failure adds `error` (`reason` for
@@ -156,12 +157,12 @@ when a change of connection method issued a new session password.
 **Lines the server sends on its own**
 ([lines.json](../apps/server/tests/fixtures/owner-protocol/lines.json)):
 
-| Line       | When                                         | Fields the host reads                                                                                                                                                                       |
-| ---------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`    | Once, when the HTTP listeners are bound      | `urls`, `tls`, `password`, `width`, `height`, `displays`, `policy`, `access`, `clients`, `codecs`, `backends`, `versions`, and `sharingNotice` when remote sharing could not start as asked |
-| `status`   | Every second while there is room in the pipe | `sessions` with their `streams`, `streamCount`, `capabilities`, `relay`, `encoders`, `tls` (from [desktop-status.mjs](../apps/server/src/tls/desktop-status.mjs)) and `codes`               |
-| `clients`  | Every second, and after each device change   | `pending` and `approved` devices                                                                                                                                                            |
-| `displays` | When the display inventory changes           | `displays`, with each display's `number`                                                                                                                                                    |
+| Line       | When                                         | Fields the host reads                                                                                                                                                                                                                          |
+| ---------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ready`    | Once, when the HTTP listeners are bound      | `urls`, `tls`, `password`, `width`, `height`, `displays`, `policy`, `access`, `clients`, `codecs`, `backends`, `versions`, and `sharingNotice` when remote sharing could not start as asked                                                    |
+| `status`   | Every second while there is room in the pipe | `sessions` with their `streams`, `streamCount`, `capabilities`, `relay`, `encoders`, `tls` (from [desktop-status.mjs](../apps/server/src/tls/desktop-status.mjs)), `codes`, and with `--confirm-networks` the `networks` waiting for an answer |
+| `clients`  | Every second, and after each device change   | `pending` and `approved` devices                                                                                                                                                                                                               |
+| `displays` | When the display inventory changes           | `displays`, with each display's `number`                                                                                                                                                                                                       |
 
 ## Sessions, streams and sources
 
@@ -961,6 +962,32 @@ worker's read-only `--adapters` mode (in development) and counts only `enN` Ethe
 Wi-Fi ports, never VPN tunnels, bridges or Thunderbolt networking. Link-local addresses are
 not eligible on either platform.
 
+In place of the Private profile, the macOS app starts the server with `--confirm-networks`
+and asks the owner about each network the first time it sees it (decision Q2 of the macOS
+design, [network-confirmation.mjs](../apps/server/src/network-confirmation.mjs)). A network
+is its subnets and its router's hardware address, because reading the Wi-Fi name needs
+Location Services. Until the owner allows it, the status line lists it under `networks` and
+its adapters count as Public; the answer, `network-confirm`, is kept in
+`known-networks.json` and applied at once. The command-line server does not ask.
+
+```mermaid
+sequenceDiagram
+    participant Host as VidVNC app (macOS)
+    participant Server as Node server
+    participant Worker as media-worker --adapters
+
+    loop every 15 seconds
+        Server->>Worker: run with a fixed argument list
+        Worker-->>Server: interfaces, addresses, router hardware address
+        Server->>Server: unknown network: Public, listed as waiting
+    end
+    Server-->>Host: status with networks waiting
+    Host->>Host: ask the owner once
+    Host->>Server: network-confirm with id and allow
+    Server->>Server: save in known-networks.json, refresh the LAN scope and listeners
+    Server-->>Host: network-confirm-result
+```
+
 ### Assumptions and operating conditions
 
 The design holds under these conditions. VidVNC checks or prompts for some of them but
@@ -1188,14 +1215,15 @@ macOS, with logs in its `logs` folder, from
 [runtime-paths.mjs](../native/media-worker/runtime-paths.mjs)) and rely on the operating
 system's per-user file permissions:
 
-| File                                       | Contents                                            | Secrets                                             |
-| ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------- |
-| `access-settings.json`                     | Mode, limits, remote access, public names and ports | None                                                |
-| `approved-clients.json`                    | Devices, usernames, labels, generation              | Hashes and scrypt verifiers only                    |
-| `stream-policy.json`, `profile-order.json` | Stream policy                                       | None                                                |
-| `tls-settings.json`                        | TLS mode, ports, provided certificate paths         | A provided PFX passphrase, if the operator sets one |
-| TLS state directory                        | Certificate, private key or PFX, passphrase sidecar | Private key (plaintext sidecar by design)           |
-| `server.log`                               | Lifecycle messages                                  | None by design                                      |
+| File                                       | Contents                                                                | Secrets                                             |
+| ------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------- |
+| `access-settings.json`                     | Mode, limits, remote access, public names and ports                     | None                                                |
+| `approved-clients.json`                    | Devices, usernames, labels, generation                                  | Hashes and scrypt verifiers only                    |
+| `stream-policy.json`, `profile-order.json` | Stream policy                                                           | None                                                |
+| `tls-settings.json`                        | TLS mode, ports, provided certificate paths                             | A provided PFX passphrase, if the operator sets one |
+| `known-networks.json` (macOS app only)     | Networks the owner allowed or refused: subnets, router hardware address | None                                                |
+| TLS state directory                        | Certificate, private key or PFX, passphrase sidecar                     | Private key (plaintext sidecar by design)           |
+| `server.log`                               | Lifecycle messages                                                      | None by design                                      |
 
 Settings are written to a temporary file and renamed, so a crash cannot leave a half-written
 file. Standing passwords, codes, bearers and grants are never written to disk. On the

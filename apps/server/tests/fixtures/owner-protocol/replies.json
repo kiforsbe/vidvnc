@@ -283,5 +283,18 @@
       },
       "error": "Configuration changed; reload before saving (revision conflict)"
     }
+  ],
+  "network-confirm-result": [
+    {
+      "type": "network-confirm-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": true
+    },
+    {
+      "type": "network-confirm-result",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "ok": false,
+      "error": "Network confirmation is off"
+    }
   ]
 }

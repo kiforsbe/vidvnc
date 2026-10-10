@@ -134,6 +134,15 @@
     },
     "replies": ["policy-result"]
   },
+  "network-confirm": {
+    "command": {
+      "type": "network-confirm",
+      "requestId": "0f3c9a62d1b84e7d9c5a2b6e8f1d4c7a",
+      "id": "6361370af95a55dd",
+      "allow": true
+    },
+    "replies": ["network-confirm-result"]
+  },
   "ordinary-sessions-disconnect": {
     "command": {
       "type": "ordinary-sessions-disconnect",

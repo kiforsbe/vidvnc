@@ -14,6 +14,10 @@ may include breaking changes.
   so VidVNC picks one automatically, as for any other missing encoder. VidVNC 0.10.0 and
   earlier cannot start with a stream policy that names it; run `encoder-backend auto` before
   going back to an older version.
+- A server started by the coming macOS VidVNC app (`--confirm-networks`) asks the owner
+  about each network the first time it sees it, and lets local devices use the standing
+  password there only after a yes. The answers are kept in `known-networks.json` in the
+  settings folder. The command line does not ask, and Windows is unchanged.
 
 ## [0.10.0] - 2026-09-26
 

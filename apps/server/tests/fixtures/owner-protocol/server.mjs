@@ -14,6 +14,7 @@ import { createCodeIssuer } from '../../../src/code-issuance.mjs';
 import { DiagnosticsCapabilities } from '../../../src/diagnostics-capabilities.mjs';
 import { DisplayInventory } from '../../../src/displays.mjs';
 import { MediaRelay } from '../../../src/media-relay.mjs';
+import { KnownNetworks } from '../../../src/network-confirmation.mjs';
 import { NativeMedia } from '../../../src/native-media.mjs';
 import {
   createOwnerCommandHandler,
@@ -58,8 +59,21 @@ const VIDEO_SDP = [
   'a=rtpmap:96 H264/90000',
 ].join('\r\n');
 
-// `tlsMode` picks the TLS settings the tls-regenerate refusals depend on.
-export async function ownerServer({ tlsMode = 'off' } = {}) {
+// One home Wi-Fi network, as the macOS LAN provider reports it.
+const WIFI = {
+  kind: 'wifi',
+  physical: true,
+  up: true,
+  profile: 'Private',
+  address: '192.168.1.23',
+  prefixLength: 24,
+  interface: 'en0',
+  router: { address: '192.168.1.1', hardwareAddress: 'a4:2b:b0:11:22:33' },
+};
+
+// `tlsMode` picks the TLS settings the tls-regenerate refusals depend on. `confirmNetworks`
+// is the macOS app's --confirm-networks, with the Wi-Fi network waiting for an answer.
+export async function ownerServer({ tlsMode = 'off', confirmNetworks = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'vidvnc-owner-protocol-'));
   const access = await AccessSettings.open(join(directory, 'access.json'));
   const admission = new AdmissionBudget();
@@ -119,6 +133,10 @@ export async function ownerServer({ tlsMode = 'off' } = {}) {
       localHttpUrls: ['http://192.168.1.10:4382/'],
       secureUrls: serving ? ['https://192.168.1.10:4383/'] : [],
     });
+  const knownNetworks = confirmNetworks
+    ? await KnownNetworks.open(join(directory, 'known-networks.json'))
+    : null;
+  knownNetworks?.apply([WIFI]);
   const lines = [];
   let stopped = false;
   const handle = createOwnerCommandHandler({
@@ -139,6 +157,11 @@ export async function ownerServer({ tlsMode = 'off' } = {}) {
     tlsSettings,
     tlsListener,
     tlsField,
+    networks: knownNetworks && {
+      confirm: async (id, allow) => {
+        await knownNetworks.decide(id, allow);
+      },
+    },
   });
 
   // Sends one command and resolves with every line written until `count` have arrived.
@@ -191,7 +214,9 @@ export async function ownerServer({ tlsMode = 'off' } = {}) {
     stopped: () => stopped,
     approvedClients,
     displays: () => displaysLine(inventory),
-    status: () => statusLines({ runtime, tlsField, codeIssuer, approvedClients, store }),
+    pendingNetwork: () => knownNetworks?.pending()[0]?.id,
+    status: () =>
+      statusLines({ runtime, tlsField, codeIssuer, approvedClients, store, knownNetworks }),
     ready: (sharingNotice) =>
       readyMessage({
         sharingNotice,

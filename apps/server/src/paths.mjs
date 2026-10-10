@@ -12,5 +12,6 @@ export function settingsFiles(directory) {
     profileOrder: join(directory, 'profile-order.json'),
     tls: join(directory, 'tls-settings.json'),
     instances: join(directory, 'instances'),
+    knownNetworks: join(directory, 'known-networks.json'),
   };
 }

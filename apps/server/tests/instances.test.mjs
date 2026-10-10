@@ -30,6 +30,7 @@ test('settings live in the per-user VidVNC data folder', () => {
     profileOrder: join('D', 'profile-order.json'),
     tls: join('D', 'tls-settings.json'),
     instances: join('D', 'instances'),
+    knownNetworks: join('D', 'known-networks.json'),
   });
 });
 

@@ -49,20 +49,52 @@ function contains(outer, inner) {
 
 const privateNetworks = PRIVATE_RANGES.map(([address, prefix]) => network(address, prefix));
 
+// Whether an adapter row could carry the standing password, apart from its network profile:
+// a physical Ethernet or Wi-Fi adapter that is up, on a private or unique-local address.
+export function eligibleAdapter(adapter) {
+  if (
+    adapter.physical !== true ||
+    adapter.up !== true ||
+    !['ethernet', 'wifi'].includes(adapter.kind)
+  )
+    return false;
+  const candidate = network(adapter.address, adapter.prefixLength);
+  return Boolean(candidate && privateNetworks.some((range) => contains(range, candidate)));
+}
+
+function formatAddress({ family, base }) {
+  if (family === 4)
+    return [24n, 16n, 8n, 0n].map((shift) => String((base >> shift) & 255n)).join('.');
+  const words = Array.from({ length: 8 }, (_, i) => (base >> BigInt(112 - i * 16)) & 0xffffn);
+  // Compress the longest run of two or more zero words (RFC 5952).
+  let best = { start: -1, length: 1 };
+  for (let start = 0; start < 8; start++) {
+    let length = 0;
+    while (start + length < 8 && words[start + length] === 0n) length++;
+    if (length > best.length) best = { start, length };
+  }
+  const text = words.map((word) => word.toString(16));
+  if (best.start < 0) return text.join(':');
+  const head = text.slice(0, best.start).join(':');
+  const tail = text.slice(best.start + best.length).join(':');
+  return `${head}::${tail}`;
+}
+
+// The subnet an address is on, as `address/prefix`, or null when it is not an address.
+export function subnetOf(address, prefixLength) {
+  const parsed = network(address, prefixLength);
+  return parsed ? `${formatAddress(parsed)}/${prefixLength}` : null;
+}
+
 function eligibleAdapters(adapters, profiles) {
   const result = [];
   for (const adapter of adapters) {
     const profile = adapter.profile ?? profiles?.get?.(adapter.interfaceIndex);
-    if (
-      adapter.physical !== true ||
-      adapter.up !== true ||
-      profile !== 'Private' ||
-      !['ethernet', 'wifi'].includes(adapter.kind)
-    )
-      continue;
-    const candidate = network(adapter.address, adapter.prefixLength);
-    if (candidate && privateNetworks.some((range) => contains(range, candidate)))
-      result.push({ address: adapter.address, network: candidate });
+    if (profile !== 'Private' || !eligibleAdapter(adapter)) continue;
+    result.push({
+      address: adapter.address,
+      network: network(adapter.address, adapter.prefixLength),
+    });
   }
   return result;
 }
