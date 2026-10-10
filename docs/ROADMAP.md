@@ -245,7 +245,9 @@ checks, published releases with license notices and source for the bundled LGPL
 libraries, and the native viewer package.
 
 macOS host support has an accepted [design](superpowers/specs/2026-10-09-macos-support-design.md)
-and [implementation plan](superpowers/plans/2026-10-09-macos-support.md); nothing is built yet.
+and [implementation plan](superpowers/plans/2026-10-09-macos-support.md). Its prototype gates
+(phase 0) have run on the owner's Mac and support the design; see the
+[gate results](investigations/MACOS-PROTOTYPE-GATES.md). Nothing of the product is built yet.
 It targets macOS 27 on Apple Silicon only, with the same packages as Windows: the VidVNC app
 (native Swift host, the server and the media worker, with the command-line server inside)
 and a standalone command-line server ZIP, both with Node.js bundled, signed with the owner's
@@ -368,6 +370,7 @@ unauthenticated network administration endpoint is added for UI convenience.
    upgrade and uninstall checks, and the first published release.
 5. New Windows host UI starts with a design preview in [docs/design](design) before it
    is built.
-6. Start macOS support: the Apple account and Mac setup and the prototype gates (phase 0) on
-   the owner's Mac, and the portable server work (phase 1) in parallel. See the
-   [macOS plan](superpowers/plans/2026-10-09-macos-support.md).
+6. Continue macOS support with the portable server work (phase 1). The prototype gates
+   (phase 0) are done except the App Store check and the Windows encoder comparison; see the
+   [macOS plan](superpowers/plans/2026-10-09-macos-support.md) and the
+   [gate results](investigations/MACOS-PROTOTYPE-GATES.md).
