@@ -360,9 +360,12 @@ Native host/client formatting remains deferred as requested.
 ## Data and configuration
 
 - `VIDVNC_HOST` / `VIDVNC_PORT`: bind address/port; default all interfaces/4382.
-- `GSTREAMER_ROOT`: SDK used for building and launching the native worker.
+- `GSTREAMER_ROOT`: SDK used for building and launching the native worker. On macOS
+  (support in development) the default is the GStreamer framework in
+  `~/Library/Frameworks`, else in `/Library/Frameworks`.
 - `VIDVNC_MEDIA_WORKER`: optional absolute executable override for another build.
-- `VIDVNC_LOG_DIR`: log directory override; Windows default `%LOCALAPPDATA%/VidVNC/logs`.
+- `VIDVNC_LOG_DIR`: log directory override; Windows default `%LOCALAPPDATA%/VidVNC/logs`,
+  macOS default `~/Library/Application Support/VidVNC/logs`.
 
 Downloaded installers are in `.deps/downloads`; npm dependencies are at root.
 None of these generated/dependency directories belongs in version control.

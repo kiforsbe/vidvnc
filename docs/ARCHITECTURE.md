@@ -1166,8 +1166,10 @@ for local peers (the anchor is public; its integrity is checked by fingerprint, 
 deliberate `off` mode.
 
 **At rest.** VidVNC keeps no recordings or screenshots. Persistent files are in the desktop
-user's profile (`%LOCALAPPDATA%\VidVNC`, or `~/Library/Application Support/VidVNC` for the
-CLI on macOS) and rely on the operating system's per-user file permissions:
+user's profile (`%LOCALAPPDATA%\VidVNC`, or `~/Library/Application Support/VidVNC` on
+macOS, with logs in its `logs` folder, from
+[runtime-paths.mjs](../native/media-worker/runtime-paths.mjs)) and rely on the operating
+system's per-user file permissions:
 
 | File                                       | Contents                                            | Secrets                                             |
 | ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------- |
@@ -1573,6 +1575,10 @@ no separate nested npm lockfiles. CMake presets coordinate native configurations
 MSBuild remains authoritative for WinUI. Keep generated files out of source control.
 GStreamer development headers and runtime DLLs must come from the same SDK install.
 Using a custom CMake SDK path requires the matching runtime `GSTREAMER_ROOT` too.
+A packaged runtime manifest (`runtime.json`) names its system: `os` is `windows` with
+`architecture` `x64`, or `macos` with `arm64`; a manifest without `os` is a Windows one.
+The server refuses a manifest for another system or architecture
+([runtime-manifest.mjs](../native/media-worker/runtime-manifest.mjs)).
 
 `npm test` is portable and uses stubbed hardware. `npm run test:hardware` explicitly
 requires Windows 25H2+, a GPU with a supported hardware encoder (NVIDIA, Intel or AMD)

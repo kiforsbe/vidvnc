@@ -95,18 +95,23 @@ test('packaged directory junctions cannot escape the bundle', (t) => {
 test('packaged worker isolates SDK discovery and executable overrides', (t) => {
   const f = fixture(t);
   const runtime = f.load();
-  const env = packagedWorkerEnvironment(runtime, 'C:\\User data\\VidVNC', {
-    Path: 'C:\\foreign-sdk\\bin',
-    SystemRoot: 'C:\\Windows',
-    GST_PLUGIN_PATH: 'foreign',
-    GST_PLUGIN_PATH_1_0: 'foreign',
-    GST_PLUGIN_SCANNER: 'foreign.exe',
-    GST_REGISTRY: 'foreign.cache',
-    NODE_OPTIONS: '--require foreign.js',
-    NODE_PATH: 'foreign',
-    GSTREAMER_ROOT: 'foreign',
-    VIDVNC_MEDIA_WORKER: 'foreign.exe',
-  });
+  const env = packagedWorkerEnvironment(
+    runtime,
+    'C:\\User data\\VidVNC',
+    {
+      Path: 'C:\\foreign-sdk\\bin',
+      SystemRoot: 'C:\\Windows',
+      GST_PLUGIN_PATH: 'foreign',
+      GST_PLUGIN_PATH_1_0: 'foreign',
+      GST_PLUGIN_SCANNER: 'foreign.exe',
+      GST_REGISTRY: 'foreign.cache',
+      NODE_OPTIONS: '--require foreign.js',
+      NODE_PATH: 'foreign',
+      GSTREAMER_ROOT: 'foreign',
+      VIDVNC_MEDIA_WORKER: 'foreign.exe',
+    },
+    'win32',
+  );
   assert.equal(env.GST_PLUGIN_PATH_1_0, runtime.plugins);
   assert.equal(env.GST_PLUGIN_SYSTEM_PATH_1_0, '');
   assert.equal(env.GST_PLUGIN_SCANNER, undefined);
@@ -120,4 +125,72 @@ test('packaged worker isolates SDK discovery and executable overrides', (t) => {
   assert.ok(env.PATH.includes(runtime.mediaBin));
   assert.ok(env.PATH.includes('System32'));
   assert.ok(env.GST_REGISTRY_1_0.includes('VidVNC'));
+});
+
+test('a manifest names its system, and one without it is a Windows manifest', (t) => {
+  const f = fixture(t);
+  assert.equal(f.load().os, 'windows');
+  assert.equal(f.load().architecture, 'x64');
+  f.value.os = 'windows';
+  assert.equal(f.load().os, 'windows');
+  f.value.os = 'macos';
+  f.value.architecture = 'arm64';
+  assert.equal(f.load().os, 'macos');
+  assert.equal(f.load().architecture, 'arm64');
+});
+
+for (const [os, architecture] of [
+  ['macos', 'x64'],
+  ['windows', 'arm64'],
+  [undefined, 'arm64'],
+  ['linux', 'x64'],
+  ['Windows', 'x64'],
+]) {
+  test(`rejects os ${os} with architecture ${architecture}`, (t) => {
+    const f = fixture(t);
+    f.value.os = os;
+    f.value.architecture = architecture;
+    assert.throws(() => f.load(), /Invalid runtime manifest (os|architecture)/);
+  });
+}
+
+test('a manifest for another system is rejected where it is loaded', (t) => {
+  const f = fixture(t);
+  const filename = path.join(f.root, 'runtime.json');
+  f.load();
+  assert.equal(loadRuntimeManifest(filename, { platform: 'win32' }).os, 'windows');
+  assert.throws(
+    () => loadRuntimeManifest(filename, { platform: 'darwin' }),
+    /windows cannot run on darwin/,
+  );
+  f.value.os = 'macos';
+  f.value.architecture = 'arm64';
+  f.load();
+  assert.equal(loadRuntimeManifest(filename, { platform: 'darwin' }).os, 'macos');
+  assert.throws(
+    () => loadRuntimeManifest(filename, { platform: 'win32' }),
+    /macos cannot run on win32/,
+  );
+});
+
+test('the packaged macOS worker gets the package libraries and the system paths only', (t) => {
+  const f = fixture(t);
+  f.value.os = 'macos';
+  f.value.architecture = 'arm64';
+  const runtime = f.load();
+  const userData = '/Users/u/Library/Application Support/VidVNC';
+  const env = packagedWorkerEnvironment(
+    runtime,
+    userData,
+    { PATH: '/opt/homebrew/bin:/usr/bin', GST_PLUGIN_PATH: 'foreign', HOME: '/Users/u' },
+    'darwin',
+  );
+  assert.equal(env.PATH, [runtime.mediaBin, '/usr/bin', '/bin'].join(path.delimiter));
+  assert.equal(env.GST_PLUGIN_PATH, undefined);
+  assert.equal(env.GST_PLUGIN_PATH_1_0, runtime.plugins);
+  assert.equal(env.HOME, '/Users/u');
+  assert.ok(env.GST_REGISTRY_1_0.startsWith(path.join(userData, 'cache')));
+  assert.equal(env.VIDVNC_NATIVE_LOG, path.join(userData, 'logs', 'native-worker.log'));
+  // Windows still needs SystemRoot and never falls back to a POSIX path.
+  assert.throws(() => packagedWorkerEnvironment(runtime, userData, {}, 'win32'), /SystemRoot/);
 });

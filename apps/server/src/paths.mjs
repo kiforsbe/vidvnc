@@ -1,16 +1,8 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-// Per-user mutable settings, shared by the CLI server and the Windows host.
-export function dataDirectory({
-  env = process.env,
-  platform = process.platform,
-  home = homedir(),
-} = {}) {
-  return platform === 'win32'
-    ? join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'VidVNC')
-    : join(home, 'Library', 'Application Support', 'VidVNC');
-}
+// Per-user mutable settings, shared by the CLI server and the hosts. One definition with the
+// media runtime's, so settings and logs always land in the same folder.
+export { dataDirectory } from '@vidvnc/media-worker/runtime-paths';
 
 export function settingsFiles(directory) {
   return {

@@ -5,11 +5,13 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    "./runtime": "./runtime.mjs"
+    "./runtime": "./runtime.mjs",
+    "./runtime-paths": "./runtime-paths.mjs"
   },
   "files": [
     "runtime.mjs",
-    "runtime-manifest.mjs"
+    "runtime-manifest.mjs",
+    "runtime-paths.mjs"
   ],
   "scripts": {
     "test:hardware": "node --test tests/*.test.mjs"
