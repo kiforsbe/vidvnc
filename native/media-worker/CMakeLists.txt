@@ -83,7 +83,7 @@ if(VIDVNC_PLATFORM STREQUAL "windows")
   target_link_libraries(media-worker PRIVATE user32 dxgi ws2_32 advapi32 iphlpapi shell32)
 else()
   target_link_libraries(media-worker PRIVATE gstbase-1.0 "-framework AppKit"
-    "-framework ApplicationServices" "-framework CoreFoundation" "-framework CoreGraphics"
+    "-framework ApplicationServices" "-framework CoreAudio" "-framework CoreFoundation" "-framework CoreGraphics"
     "-framework CoreMedia" "-framework CoreVideo" "-framework Foundation" "-framework IOKit"
     "-framework ScreenCaptureKit" "-framework SystemConfiguration" "-framework VideoToolbox")
 endif()

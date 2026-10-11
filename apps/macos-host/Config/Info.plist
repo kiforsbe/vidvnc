@@ -4,6 +4,8 @@
 <dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>VidVNC lets your other devices on this network see and control this Mac.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>VidVNC lets viewers hear this Mac's sound while you share it.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_vidvnc._tcp</string>

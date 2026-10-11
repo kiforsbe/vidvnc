@@ -1,5 +1,5 @@
 #include <cassert>
-#include "../src/platform/macos/audio-timeline.hpp"
+#include "../src/audio-timeline.hpp"
 
 int main() {
     constexpr std::int64_t ms = 1000000;
@@ -32,5 +32,14 @@ int main() {
     // After reset (a restart), the first chunk starts again without a discontinuity.
     timeline.reset();
     assert(!timeline.next(100 * ms, 480).discont);
+
+    // Opus packets by duration: 20 ms each, arriving 3 ms early and 4 ms late, keep a steady
+    // 20 ms spacing (960 samples at 48 kHz).
+    AudioTimeline opus;
+    const auto a = opus.next_duration(2000 * ms, 20 * ms);
+    const auto b = opus.next_duration(2017 * ms, 20 * ms);
+    const auto c = opus.next_duration(2044 * ms, 20 * ms);
+    assert(b.pts_ns - a.pts_ns == 20 * ms && c.pts_ns - b.pts_ns == 20 * ms);
+    assert(!b.discont && !c.discont);
     return 0;
 }

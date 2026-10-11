@@ -786,8 +786,11 @@ final class ServerHostModel: HostModel {
 
   var videoCodecs: [String] { policy?.videoCodecs ?? ["h264"] }
 
+  /// Only the codecs this Mac can encode (the server's `ready.codecs`): AV1 stays in the saved
+  /// policy for the Windows host's sake, but VideoToolbox has no AV1 encoder, so it isn't
+  /// offered here. Before sharing starts nothing is known, so only H.264 is listed.
   var availableCodecs: [String] {
-    hostCodecs.isEmpty ? VideoCodec.all : VideoCodec.all.filter { hostCodecs.contains($0) || videoCodecs.contains($0) }
+    VideoCodec.all.filter { hostCodecs.isEmpty ? $0 == "h264" : hostCodecs.contains($0) }
   }
 
   func updatePolicy(_ change: @escaping (inout StreamPolicy) -> Void) {

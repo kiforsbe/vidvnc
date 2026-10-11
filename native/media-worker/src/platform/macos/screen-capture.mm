@@ -1,16 +1,23 @@
-// vidvncscreensrc and vidvncaudiosrc: ScreenCaptureKit as GStreamer live sources (design D1),
-// and the registration of the worker's macOS elements (elements.hpp).
+// vidvncscreensrc (ScreenCaptureKit) and vidvncaudiosrc (a Core Audio system audio tap) as
+// GStreamer live sources (design D1), and the registration of the worker's macOS elements
+// (elements.hpp).
 //
-// Each source owns one SCStream. ScreenCaptureKit calls back on its own queue; the streaming
-// thread waits for the next frame or audio chunk. A screen that does not change sends no new
-// frames, so the video source repeats its last frame at the profile's rate, as desktop
-// duplication does on Windows: the encoder's rate control and forced key frames both need
-// frames to act on.
+// Each video source owns one SCStream. System audio does not use ScreenCaptureKit: with an
+// audio SCStream running in another process, stopping one video SCStream left macOS unable to
+// start the next one (startCapture never returned) and froze the audio, so switching a
+// viewer's profile failed. A process tap is independent of ScreenCaptureKit. The capture
+// callbacks run on their own queues; the streaming thread waits for the next frame or audio
+// chunk. A screen that does not change sends no new frames, so the video source repeats its
+// last frame at the profile's rate, as desktop duplication does on Windows: the encoder's
+// rate control and forced key frames both need frames to act on.
 #import <Foundation/Foundation.h>
+#import <CoreAudio/AudioHardwareTapping.h>
+#import <CoreAudio/CATapDescription.h>
+#import <CoreAudio/CoreAudio.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <gst/audio/audio.h>
-#include "audio-timeline.hpp"
+#include "../../audio-timeline.hpp"
 #include <gst/base/gstpushsrc.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -193,8 +200,6 @@ struct CaptureQueue {
         return;
     if (type == SCStreamOutputTypeScreen)
         [self screen:sample queue:queue];
-    else if (type == SCStreamOutputTypeAudio)
-        [self audio:sample queue:queue];
 }
 
 - (void)screen:(CMSampleBufferRef)sample queue:(CaptureQueue *)queue {
@@ -213,61 +218,6 @@ struct CaptureQueue {
     if (queue->latest)
         CVPixelBufferRelease(queue->latest);
     queue->latest = CVPixelBufferRetain(pixels);
-    queue->changed.notify_all();
-}
-
-- (void)audio:(CMSampleBufferRef)sample queue:(CaptureQueue *)queue {
-    const auto *format = CMAudioFormatDescriptionGetStreamBasicDescription(
-        CMSampleBufferGetFormatDescription(sample));
-    if (!format || format->mFormatID != kAudioFormatLinearPCM ||
-        !(format->mFormatFlags & kAudioFormatFlagIsFloat) || format->mBitsPerChannel != 32 ||
-        format->mChannelsPerFrame < 1)
-        return;
-    const auto frames = static_cast<size_t>(CMSampleBufferGetNumSamples(sample));
-    size_t list_size = 0;
-    CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sample, &list_size, nullptr, 0, nullptr,
-                                                            nullptr, 0, nullptr);
-    std::vector<std::uint8_t> storage(list_size);
-    auto *list = reinterpret_cast<AudioBufferList *>(storage.data());
-    CMBlockBufferRef block = nullptr;
-    if (!frames || !list_size ||
-        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sample, nullptr, list, list_size, nullptr, nullptr,
-            kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &block) != noErr)
-        return;
-    const int out_channels = queue->channels;
-    auto *buffer = gst_buffer_new_allocate(nullptr, frames * out_channels * sizeof(float), nullptr);
-    GstMapInfo map{};
-    gst_buffer_map(buffer, &map, GST_MAP_WRITE);
-    auto *out = reinterpret_cast<float *>(map.data);
-    const bool planar = format->mFormatFlags & kAudioFormatFlagIsNonInterleaved;
-    const auto in_channels = static_cast<int>(format->mChannelsPerFrame);
-    for (size_t frame = 0; frame < frames; ++frame)
-        for (int channel = 0; channel < out_channels; ++channel) {
-            const int source = channel < in_channels ? channel : in_channels - 1;
-            float value = 0;
-            if (planar && static_cast<UInt32>(source) < list->mNumberBuffers &&
-                list->mBuffers[source].mDataByteSize >= (frame + 1) * sizeof(float))
-                value = static_cast<const float *>(list->mBuffers[source].mData)[frame];
-            else if (!planar && list->mNumberBuffers > 0 &&
-                     list->mBuffers[0].mDataByteSize >=
-                         (frame * in_channels + source + 1) * sizeof(float))
-                value = static_cast<const float *>(
-                    list->mBuffers[0].mData)[frame * in_channels + source];
-            out[frame * out_channels + channel] = value;
-        }
-    gst_buffer_unmap(buffer, &map);
-    if (block)
-        CFRelease(block);
-    GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale(frames, GST_SECOND, 48000);
-    std::lock_guard<std::mutex> lock(queue->mutex);
-    // Half a second at most: an audio source that stopped being read drops its oldest sound
-    // rather than growing.
-    while (queue->audio.size() >= 50) {
-        gst_buffer_unref(queue->audio.front());
-        queue->audio.pop_front();
-    }
-    queue->audio.push_back(buffer);
     queue->changed.notify_all();
 }
 
@@ -569,8 +519,35 @@ static void vidvnc_screen_src_init(VidVncScreenSrc *self) {
 
 // ---- vidvncaudiosrc.
 
+// A system-wide stereo tap that leaves out VidVNC's own processes, read through a private
+// aggregate device. macOS asks for System Audio Recording for the app that started VidVNC
+// the first time; until it is allowed the tap delivers silence.
+struct SystemAudioTap {
+    AudioObjectID tap = kAudioObjectUnknown;
+    AudioObjectID device = kAudioObjectUnknown;
+    AudioDeviceIOProcID proc = nullptr;
+    dispatch_queue_t callbacks = nil;
+
+    void stop() {
+        if (device != kAudioObjectUnknown && proc) {
+            AudioDeviceStop(device, proc);
+            AudioDeviceDestroyIOProcID(device, proc);
+        }
+        proc = nullptr;
+        if (device != kAudioObjectUnknown)
+            AudioHardwareDestroyAggregateDevice(device);
+        device = kAudioObjectUnknown;
+        if (tap != kAudioObjectUnknown)
+            AudioHardwareDestroyProcessTap(tap);
+        tap = kAudioObjectUnknown;
+        callbacks = nil;
+    }
+};
+
 struct AudioState {
     CaptureQueue queue;
+    SystemAudioTap tap;
+    int rate = 48000;
     AudioTimeline timeline;
 };
 
@@ -586,73 +563,169 @@ G_DEFINE_TYPE(VidVncAudioSrc, vidvnc_audio_src, GST_TYPE_PUSH_SRC)
 
 static AudioState &audio(gpointer self) { return *reinterpret_cast<VidVncAudioSrc *>(self)->state; }
 
+static std::string audio_error(const char *step, OSStatus status) {
+    return std::string("System audio capture failed (") + step + ", " + std::to_string(status) +
+           ").";
+}
+
+// Copies one Core Audio buffer list into an interleaved stereo float chunk on the queue.
+static void push_audio(CaptureQueue &queue, const AudioStreamBasicDescription &format,
+                       const AudioBufferList *list) {
+    if (!list || list->mNumberBuffers == 0 || format.mBytesPerFrame == 0)
+        return;
+    const bool planar = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved;
+    const auto in_channels = static_cast<int>(format.mChannelsPerFrame);
+    const auto frames = planar ? list->mBuffers[0].mDataByteSize / sizeof(float)
+                               : list->mBuffers[0].mDataByteSize / (in_channels * sizeof(float));
+    if (!frames || in_channels < 1)
+        return;
+    const int out_channels = queue.channels;
+    auto *buffer = gst_buffer_new_allocate(nullptr, frames * out_channels * sizeof(float), nullptr);
+    GstMapInfo map{};
+    gst_buffer_map(buffer, &map, GST_MAP_WRITE);
+    auto *out = reinterpret_cast<float *>(map.data);
+    for (size_t frame = 0; frame < frames; ++frame)
+        for (int channel = 0; channel < out_channels; ++channel) {
+            const int source = channel < in_channels ? channel : in_channels - 1;
+            float value = 0;
+            if (planar && static_cast<UInt32>(source) < list->mNumberBuffers &&
+                list->mBuffers[source].mDataByteSize >= (frame + 1) * sizeof(float))
+                value = static_cast<const float *>(list->mBuffers[source].mData)[frame];
+            else if (!planar && list->mBuffers[0].mDataByteSize >=
+                                    (frame * in_channels + source + 1) * sizeof(float))
+                value = static_cast<const float *>(
+                    list->mBuffers[0].mData)[frame * in_channels + source];
+            out[frame * out_channels + channel] = value;
+        }
+    gst_buffer_unmap(buffer, &map);
+    std::lock_guard<std::mutex> lock(queue.mutex);
+    // Half a second at most: an audio source that stopped being read drops its oldest sound
+    // rather than growing.
+    while (queue.audio.size() >= 50) {
+        gst_buffer_unref(queue.audio.front());
+        queue.audio.pop_front();
+    }
+    queue.audio.push_back(buffer);
+    queue.changed.notify_all();
+}
+
+// The Core Audio process objects of VidVNC's own processes, whose sound stays out.
+static NSArray<NSNumber *> *own_audio_processes() {
+    NSMutableArray<NSNumber *> *result = [NSMutableArray array];
+    for (pid_t pid : own_processes()) {
+        AudioObjectPropertyAddress address{kAudioHardwarePropertyTranslatePIDToProcessObject,
+                                           kAudioObjectPropertyScopeGlobal,
+                                           kAudioObjectPropertyElementMain};
+        AudioObjectID object = kAudioObjectUnknown;
+        UInt32 size = sizeof(object);
+        if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, sizeof(pid), &pid, &size,
+                                       &object) == noErr &&
+            object != kAudioObjectUnknown)
+            [result addObject:@(object)];
+    }
+    return result;
+}
+
+static bool start_tap(AudioState &state, std::string &error) {
+    auto &tap = state.tap;
+    auto *description =
+        [[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:own_audio_processes()];
+    description.name = @"VidVNC system audio";
+    description.privateTap = YES;
+    description.muteBehavior = CATapUnmuted;
+    OSStatus status = AudioHardwareCreateProcessTap(description, &tap.tap);
+    if (status != noErr) {
+        error = audio_error("tap", status);
+        return false;
+    }
+    AudioObjectPropertyAddress format_address{
+        kAudioTapPropertyFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    AudioStreamBasicDescription format{};
+    UInt32 size = sizeof(format);
+    status = AudioObjectGetPropertyData(tap.tap, &format_address, 0, nullptr, &size, &format);
+    if (status != noErr || format.mFormatID != kAudioFormatLinearPCM ||
+        !(format.mFormatFlags & kAudioFormatFlagIsFloat) || format.mBitsPerChannel != 32 ||
+        format.mSampleRate < 8000) {
+        error = status != noErr ? audio_error("format", status)
+                                : "System audio capture failed: unexpected sample format.";
+        tap.stop();
+        return false;
+    }
+    state.rate = static_cast<int>(format.mSampleRate);
+    NSDictionary *aggregate = @{
+        @kAudioAggregateDeviceNameKey : @"VidVNC system audio",
+        @kAudioAggregateDeviceUIDKey : NSUUID.UUID.UUIDString,
+        @kAudioAggregateDeviceIsPrivateKey : @YES,
+        @kAudioAggregateDeviceIsStackedKey : @NO,
+        @kAudioAggregateDeviceTapAutoStartKey : @YES,
+        @kAudioAggregateDeviceTapListKey : @[ @{
+            @kAudioSubTapUIDKey : description.UUID.UUIDString,
+            @kAudioSubTapDriftCompensationKey : @YES,
+        } ],
+    };
+    status = AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)aggregate, &tap.device);
+    if (status != noErr) {
+        error = audio_error("device", status);
+        tap.stop();
+        return false;
+    }
+    tap.callbacks = dispatch_queue_create("vidvnc.audio", DISPATCH_QUEUE_SERIAL);
+    CaptureQueue *queue = &state.queue;
+    const auto stream_format = format;
+    status = AudioDeviceCreateIOProcIDWithBlock(
+        &tap.proc, tap.device, tap.callbacks,
+        ^(const AudioTimeStamp *, const AudioBufferList *input, const AudioTimeStamp *,
+          AudioBufferList *, const AudioTimeStamp *) {
+          push_audio(*queue, stream_format, input);
+        });
+    if (status == noErr)
+        status = AudioDeviceStart(tap.device, tap.proc);
+    if (status != noErr) {
+        error = audio_error("start", status);
+        tap.stop();
+        return false;
+    }
+    return true;
+}
+
 static gboolean audio_start(GstBaseSrc *source) {
     auto &state = audio(source);
-    state.timeline.reset();
-    @autoreleasepool {
+    {
+        std::lock_guard<std::mutex> lock(state.queue.mutex);
         state.queue.error.clear();
         state.queue.flushing = false;
-        std::string error;
-        auto *content = shareable_content(error);
-        SCDisplay *display = content ? find_display(content, CGMainDisplayID()) : nil;
-        if (!display) {
-            GST_ELEMENT_ERROR(
-                source, RESOURCE, NOT_FOUND,
-                ("%s", error.empty() ? "No display to capture audio with." : error.c_str()),
-                (nullptr));
-            return FALSE;
-        }
-        // ScreenCaptureKit captures the audio of the applications a filter includes. Leaving
-        // out VidVNC's own processes, and this one, keeps its sounds out of the stream.
-        const auto own = own_processes();
-        NSMutableArray<SCRunningApplication *> *excluded = [NSMutableArray array];
-        for (SCRunningApplication *application in content.applications)
-            if (own.count(application.processID))
-                [excluded addObject:application];
-        auto *filter = [[SCContentFilter alloc] initWithDisplay:display
-                                          excludingApplications:excluded
-                                               exceptingWindows:@[]];
-        auto *configuration = [[SCStreamConfiguration alloc] init];
-        configuration.capturesAudio = YES;
-        configuration.excludesCurrentProcessAudio = YES;
-        configuration.sampleRate = 48000;
-        configuration.channelCount = 2;
-        // A stream always has a picture; this one is as small and slow as it can be, and its
-        // frames are discarded.
-        configuration.width = 2;
-        configuration.height = 2;
-        configuration.minimumFrameInterval = CMTimeMake(1, 1);
-        configuration.showsCursor = NO;
-        state.queue.output = [[VidVncStreamOutput alloc] init];
-        state.queue.output.queue = &state.queue;
-        state.queue.callbacks = dispatch_queue_create("vidvnc.audio", DISPATCH_QUEUE_SERIAL);
-        auto *stream = [[SCStream alloc] initWithFilter:filter
-                                          configuration:configuration
-                                               delegate:state.queue.output];
-        NSError *failure = nil;
-        if (![stream addStreamOutput:state.queue.output
-                                type:SCStreamOutputTypeAudio
-                  sampleHandlerQueue:state.queue.callbacks
-                               error:&failure] ||
-            ![stream addStreamOutput:state.queue.output
-                                type:SCStreamOutputTypeScreen
-                  sampleHandlerQueue:state.queue.callbacks
-                               error:&failure] ||
-            !state.queue.start(stream)) {
-            const auto message = failure ? capture_error(failure) : state.queue.error;
-            GST_ELEMENT_ERROR(source, RESOURCE, OPEN_READ, ("%s", message.c_str()), (nullptr));
-            state.queue.output = nil;
+    }
+    std::string error;
+    @autoreleasepool {
+        if (!start_tap(state, error)) {
+            GST_ELEMENT_ERROR(source, RESOURCE, OPEN_READ, ("%s", error.c_str()), (nullptr));
             return FALSE;
         }
     }
+    state.timeline = AudioTimeline(state.rate);
     return TRUE;
 }
 
 static gboolean audio_stop(GstBaseSrc *source) {
+    auto &state = audio(source);
     @autoreleasepool {
-        audio(source).queue.stop();
+        state.tap.stop();
     }
+    state.queue.clear();
     return TRUE;
+}
+
+static GstCaps *audio_get_caps(GstBaseSrc *source, GstCaps *filter) {
+    auto *caps = gst_caps_new_simple("audio/x-raw", "format", G_TYPE_STRING, "F32LE", "layout",
+                                     G_TYPE_STRING, "interleaved", "rate", G_TYPE_INT,
+                                     audio(source).rate, "channels", G_TYPE_INT, 2, "channel-mask",
+                                     GST_TYPE_BITMASK, static_cast<guint64>(0x3), nullptr);
+    if (filter) {
+        auto *both = gst_caps_intersect_full(filter, caps, GST_CAPS_INTERSECT_FIRST);
+        gst_caps_unref(caps);
+        return both;
+    }
+    return caps;
 }
 
 static gboolean audio_unlock(GstBaseSrc *source) {
@@ -713,8 +786,8 @@ static void audio_finalize(GObject *object) {
 
 static GstStaticPadTemplate audio_template = GST_STATIC_PAD_TEMPLATE(
     "src", GST_PAD_SRC, GST_PAD_ALWAYS,
-    GST_STATIC_CAPS("audio/x-raw, format=F32LE, layout=interleaved, rate=48000, channels=2, "
-                    "channel-mask=(bitmask)0x3"));
+    GST_STATIC_CAPS("audio/x-raw, format=F32LE, layout=interleaved, rate=[ 8000, 192000 ], "
+                    "channels=2, channel-mask=(bitmask)0x3"));
 
 static void vidvnc_audio_src_class_init(VidVncAudioSrcClass *klass) {
     auto *element = GST_ELEMENT_CLASS(klass);
@@ -722,9 +795,11 @@ static void vidvnc_audio_src_class_init(VidVncAudioSrcClass *klass) {
     G_OBJECT_CLASS(klass)->finalize = audio_finalize;
     gst_element_class_add_static_pad_template(element, &audio_template);
     gst_element_class_set_static_metadata(element, "VidVNC system audio capture", "Source/Audio",
-                                          "System audio through ScreenCaptureKit", "VidVNC");
+                                          "System audio through a Core Audio process tap",
+                                          "VidVNC");
     base->start = audio_start;
     base->stop = audio_stop;
+    base->get_caps = audio_get_caps;
     base->unlock = audio_unlock;
     base->unlock_stop = audio_unlock_stop;
     GST_PUSH_SRC_CLASS(klass)->create = audio_create;

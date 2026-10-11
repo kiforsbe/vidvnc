@@ -1,11 +1,12 @@
 #pragma once
-// Timestamps for vidvncaudiosrc. ScreenCaptureKit hands over system audio in bursts of a few
-// chunks at irregular times, so stamping each chunk with the time it is read (basesrc's
-// do-timestamp) gives a jittery, overlapping timeline, which the Opus encoder and the
-// receiver's jitter buffer turn into crackles. Instead each chunk follows on from the last by
-// its own length in samples, and the timeline is set again from the clock only when it has
-// drifted further than a burst can explain (a pause in capture, dropped chunks), with the
-// chunk marked as a discontinuity. Free of GStreamer headers so it is tested alone.
+// Timestamps for audio that arrives in bursts: macOS system audio in vidvncaudiosrc, and Opus
+// packets reaching media-net over the frame pipe. Stamping each chunk with the time it
+// arrives (appsrc's or basesrc's do-timestamp) gives a jittery, overlapping timeline; for
+// Opus that becomes jittery RTP timestamps, which the viewer's jitter buffer stretches and
+// conceals into crackles. Instead each chunk follows on from the last by its own length, and
+// the timeline is set again from the clock only when it has drifted further than a burst can
+// explain (a pause, dropped chunks), with the chunk marked as a discontinuity. Free of
+// GStreamer headers so it is tested alone.
 #include <cstdint>
 
 class AudioTimeline {
@@ -23,7 +24,18 @@ class AudioTimeline {
 
     // `now_ns`: the running time when the chunk of `frames` samples was read.
     Stamp next(std::int64_t now_ns, std::int64_t frames) {
-        const auto duration = frames * 1000000000 / rate_;
+        return advance(now_ns, frames, frames * 1000000000 / rate_);
+    }
+
+    // The same for a chunk known by its duration, such as an encoded Opus packet.
+    Stamp next_duration(std::int64_t now_ns, std::int64_t duration_ns) {
+        return advance(now_ns, duration_ns * rate_ / 1000000000, duration_ns);
+    }
+
+    void reset() { started_ = false; }
+
+  private:
+    Stamp advance(std::int64_t now_ns, std::int64_t frames, std::int64_t duration) {
         bool discont = false;
         if (!started_ || next_ns_ - now_ns > drift_ns_ || now_ns - next_ns_ > drift_ns_) {
             // The chunk ended about now, so it started one chunk length ago.
@@ -40,9 +52,6 @@ class AudioTimeline {
         return stamp;
     }
 
-    void reset() { started_ = false; }
-
-  private:
     std::int64_t rate_;
     std::int64_t drift_ns_;
     bool started_ = false;
