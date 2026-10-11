@@ -30,13 +30,14 @@ const jsonFile = (file, fields) => ({
   },
 });
 
-// pattern captures (text before)(version)(text after).
+// pattern captures (text before)(version)(text after). A global pattern reads and writes
+// every match, as for the per-configuration settings of an Xcode project.
 const textFile = (file, label, pattern, { format = (v) => v, parse = (v) => v } = {}) => ({
   file,
   read(text) {
-    const match = pattern.exec(text);
-    if (!match) throw new Error(`${file}: ${label} is missing`);
-    return [{ label, version: parse(match[2]) }];
+    const matches = pattern.global ? [...text.matchAll(pattern)] : [pattern.exec(text)];
+    if (!matches[0]) throw new Error(`${file}: ${label} is missing`);
+    return matches.map((match) => ({ label, version: parse(match[2]) }));
   },
   write: (text, version) =>
     text.replace(pattern, (_, before, current, after) => before + format(version) + after),
@@ -67,6 +68,11 @@ const TARGETS = [
     { format: msixVersion, parse: (v) => (/^\d+\.\d+\.\d+\.0$/.test(v) ? v.slice(0, -2) : v) },
   ),
   textFile('CMakeLists.txt', 'project VERSION', /^(project\(VidVNC VERSION )([^\s)]+)([\s)])/m),
+  textFile(
+    'apps/macos-host/VidVNC.xcodeproj/project.pbxproj',
+    'MARKETING_VERSION',
+    /(MARKETING_VERSION = )([^;]*)(;)/g,
+  ),
   { file: 'CHANGELOG.md', read: () => [], write: addChangelogSection },
 ];
 

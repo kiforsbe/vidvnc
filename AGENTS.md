@@ -129,7 +129,8 @@ Only cut a release when the owner asks for one. The owner decides the version nu
    The first command updates every declared version: the root and workspace
    `package.json` files and their `@vidvnc/*` dependencies, `package-lock.json`,
    `apps/windows-host/VidVnc.Host.csproj`, `apps/windows-host/app.manifest` (as
-   `0.9.2.0`), and `CMakeLists.txt` ([tools/version.mjs](tools/version.mjs)). The second,
+   `0.9.2.0`), `CMakeLists.txt` and every `MARKETING_VERSION` in
+   `apps/macos-host/VidVNC.xcodeproj/project.pbxproj` ([tools/version.mjs](tools/version.mjs)). The second,
    with no argument, lists them and must end with `Version: 0.9.2`. Also search for the old
    version string to catch anything the tool doesn't own:
 
