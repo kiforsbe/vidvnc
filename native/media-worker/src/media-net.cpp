@@ -1,19 +1,21 @@
 // media-net: the sandboxed network half of a media source (docs/superpowers/specs/2026-09-26-
-// r4-media-relay-and-privilege-split-design.md, Part B). `media-worker.exe --network` runs it,
-// started by the worker under the tier T1 sandbox (sandbox.hpp): restricted token, low
-// integrity, job, alternate desktop. It holds everything that talks to viewers - webrtcbin,
-// payloaders, data channels and the loopback ICE sockets - and nothing that can capture the
-// screen or inject input. Encoded frames arrive from the worker on the frames pipe; data-channel
-// input goes back on the input pipe, and the worker's broker decides what, if anything, to do
-// with it.
+// r4-media-relay-and-privilege-split-design.md, Part B). `media-worker --network` runs it,
+// started by the worker under the media-net sandbox (on Windows tier T1, sandbox.hpp:
+// restricted token, low integrity, job, alternate desktop). It holds everything that talks to
+// viewers - webrtcbin, payloaders, data channels and the loopback ICE sockets - and nothing
+// that can capture the screen or inject input. Encoded frames arrive from the worker on the
+// frames pipe; data-channel input goes back on the input pipe, and the worker's broker decides
+// what, if anything, to do with it.
 //
-// It starts impersonating a same-access token (set by the worker on its suspended main thread),
-// loads every plugin and library it needs, then calls RevertToSelf before it opens a socket or
-// reads anything from a peer. Nothing new is loaded after that.
+// It loads every plugin and library it needs first, then drops what it no longer needs (on
+// Windows it starts impersonating a same-access token and calls RevertToSelf) before it opens
+// a socket or reads anything from a peer. Nothing new is loaded after that. The steps that
+// differ by platform are in platform/platform.hpp.
+#ifdef _WIN32
+// As before the platform split: platform.hpp and net-pipes.hpp include <windows.h> on Windows.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
-#include <winsock2.h>
+#endif
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/webrtc/webrtc.h>
@@ -21,6 +23,7 @@
 #include <gst/video/video-event.h>
 #include <json-glib/json-glib.h>
 #include <atomic>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -34,10 +37,11 @@
 #include "transport-telemetry.hpp"
 #include "video-codec.hpp"
 #include "media-net.hpp"
+#include "platform/platform.hpp"
 
 namespace {
 
-HANDLE control_out = nullptr, input_out = nullptr;
+net_pipes::Native control_out, input_out;
 // Diagnostics: frames pushed per kind, and the last push result that was not OK.
 std::atomic<unsigned> pushed_video{0}, pushed_audio{0};
 std::atomic<int> last_push_failure{GST_FLOW_OK};
@@ -714,7 +718,7 @@ gboolean command(gpointer data) {
 
 // Frame records from the worker, pushed straight into the appsrc from this thread (appsrc is
 // thread-safe). A malformed record ends the stream.
-void read_frames(HANDLE frames) {
+void read_frames(net_pipes::Native frames) {
     unsigned char header_bytes[net_records::frame_header_size];
     std::vector<unsigned char> payload;
     while (net_pipes::read_exact(frames, header_bytes, sizeof(header_bytes))) {
@@ -794,10 +798,11 @@ bool preload() {
 
 } // namespace
 
-int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HANDLE input) {
+int network_main(net_pipes::Native control_in, net_pipes::Native control_out_handle,
+                 net_pipes::Native frames, net_pipes::Native input) {
     control_out = control_out_handle;
     input_out = input;
-    // Nothing goes to stderr (it is the NUL device): GLib messages and GStreamer's own debug
+    // Nothing goes to stderr (it is the null device): GLib messages and GStreamer's own debug
     // output are sent to the worker's log instead.
     g_log_set_default_handler(
         [](const gchar *domain, GLogLevelFlags level, const gchar *message, gpointer) {
@@ -810,29 +815,19 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
     g_set_print_handler([](const gchar *text) { log_line(std::string("PRINT ") + text); });
     g_set_printerr_handler([](const gchar *text) { log_line(std::string("PRINTERR ") + text); });
     gst_debug_remove_log_function(gst_debug_log_default);
-    // Still impersonating the same-access token: start Winsock and load every plugin now.
-    WSADATA winsock;
-    const bool sockets = WSAStartup(MAKEWORD(2, 2), &winsock) == 0;
+    // Still able to load: start sockets and load every plugin now.
+    const bool sockets = platform::network_before_load();
     const bool loaded = preload();
-    // Drop to the restricted primary token before any socket or peer data. If that fails,
-    // nothing else may run.
-    if (!RevertToSelf())
+    // Drop what is no longer needed before any socket or peer data. If that fails, nothing
+    // else may run.
+    if (!platform::network_drop_privileges())
         return 3;
-    HANDLE thread_token = nullptr;
-    if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &thread_token)) {
-        CloseHandle(thread_token);
-        return 3;
-    }
     if (!sockets || !loaded) {
-        emit("fatal", {{"reason", !sockets ? "Winsock did not start in the network process."
+        emit("fatal", {{"reason", !sockets ? "Sockets did not start in the network process."
                                            : "A network plugin did not load."}});
         return 1;
     }
-    // Gate P4: code generated at run time is refused from here on.
-    PROCESS_MITIGATION_DYNAMIC_CODE_POLICY acg{};
-    acg.ProhibitDynamicCode = 1;
-    const bool code_guard =
-        SetProcessMitigationPolicy(ProcessDynamicCodePolicy, &acg, sizeof(acg)) != FALSE;
+    const bool code_guard = platform::network_code_guard();
 
     loop = g_main_loop_new(nullptr, FALSE);
     std::thread([control_in] {
@@ -888,7 +883,7 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
     // It cannot report while the stuck step itself holds the control pipe.
     std::thread([] {
         for (;;) {
-            Sleep(2000);
+            std::this_thread::sleep_for(std::chrono::seconds(2));
             const int phase = main_phase;
             const auto since = main_phase_since.load();
             const auto now = g_get_monotonic_time() / 1000;
@@ -905,10 +900,11 @@ int network_main(HANDLE control_in, HANDLE control_out_handle, HANDLE frames, HA
             net_pipes::write_all(control_out, line.data(), line.size());
         }
     }).detach();
-    emit("net-ready", {{"tier", "T1"}, {"codeGuard", code_guard ? "on" : "off"}});
+    emit("net-ready",
+         {{"tier", platform::network_tier()}, {"codeGuard", code_guard ? "on" : "off"}});
     g_main_loop_run(loop);
     // No orderly teardown: setting webrtcbin to NULL can hang, and the worker, which owns this
     // process, has already given up on it. Exit at once; the job reclaims everything.
     log_line("LOOP EXIT");
-    ExitProcess(pipes_broken ? 4 : 0);
+    platform::end_network_process(pipes_broken ? 4 : 0);
 }

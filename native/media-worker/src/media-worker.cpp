@@ -1,9 +1,11 @@
+// The media worker: capture, encode and the input broker for one source, and the owner
+// protocol to the server. Everything that differs between Windows and macOS is behind
+// platform/platform.hpp; this file and media-net.cpp are the same on both.
+#ifdef _WIN32
+// As before the platform split: platform.hpp and net-pipes.hpp include <windows.h> on Windows.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
-#include <winsock2.h>
-#include <iphlpapi.h>
-#include <shellapi.h>
+#endif
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/video/video-event.h>
@@ -16,6 +18,9 @@
 #include <map>
 #include <cmath>
 #include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <algorithm>
 #include <filesystem>
@@ -33,24 +38,18 @@
 #include "media-net.hpp"
 #include "net-pipes.hpp"
 #include "net-records.hpp"
-#include "sandbox.hpp"
 #include "rate-control.hpp"
 #include "encoder-backend.hpp"
-#include "encoder-properties.hpp"
 #include "encoder-selection.hpp"
-#include <dxgi.h>
+#include "platform/platform.hpp"
 #include "telemetry.hpp"
 static MediaTelemetry telemetry;
 static std::optional<CaptureDisplay> capture_display;
-static DesktopRect virtual_desktop() {
-    return {GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
-            GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN)};
-}
 static bool capture_display_current() {
     if (!capture_display)
         return true;
     try {
-        for (const auto &display : enumerate_displays()) {
+        for (const auto &display : platform::enumerate_displays()) {
             const auto &expected = *capture_display;
             if (display.id == expected.id)
                 return display.handle == expected.handle && display.rotation == expected.rotation &&
@@ -151,12 +150,12 @@ static const char *selection_reason_name(SelectionReason reason) {
 static bool host_control_required = false;
 static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
-static std::set<WORD> held_keys;
+static std::set<unsigned short> held_keys;
 static std::set<int> held_buttons;
 
 // One viewer, as the input broker sees it. Its WebRTC connection - webrtcbin, payloaders,
 // the data channel - lives in the sandboxed media-net process (media-net.cpp); this side keeps
-// only what decides whether its input reaches SendInput.
+// only what decides whether its input reaches the platform's input sink.
 struct Peer {
     std::string id;
     bool answered = false, removing = false, notify_closed = false;
@@ -173,6 +172,7 @@ static std::map<std::string, std::unique_ptr<Peer>> peers;
 static gint64 now_ms() { return g_get_monotonic_time() / 1000; }
 static void remove_peer(const std::string &id, bool notify);
 static std::ofstream error_log;
+std::ostream *worker_log() { return error_log.is_open() ? &error_log : nullptr; }
 static std::atomic<bool> shutdown_started{false};
 // Losing the server's pipe must also stop a worker whose GStreamer thread is
 // blocked. Attempt orderly cleanup first; the deadline kills only this process.
@@ -180,8 +180,8 @@ static void begin_shutdown() {
     if (shutdown_started.exchange(true))
         return;
     std::thread([] {
-        Sleep(5000);
-        TerminateProcess(GetCurrentProcess(), 2);
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        platform::exit_now(2);
     }).detach();
     g_main_context_invoke(
         nullptr,
@@ -239,29 +239,16 @@ static void attach_recovery(GstElement *pipe) {
     gst_object_unref(pad);
     gst_object_unref(encoder);
 }
-static bool inject(INPUT &input) { return SendInput(1, &input, sizeof(input)) == 1; }
-static void key_input(WORD vk, bool down) {
-    INPUT input{};
-    input.type = INPUT_KEYBOARD;
-    UINT scan = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
-    input.ki.wScan = static_cast<WORD>(scan & 0xFF);
-    input.ki.dwFlags = KEYEVENTF_SCANCODE | (down ? 0 : KEYEVENTF_KEYUP) |
-                       ((scan & 0xFF00) ? KEYEVENTF_EXTENDEDKEY : 0);
-    if (inject(input)) {
+static void key_input(unsigned short code, bool down) {
+    if (platform::post_key(code, down)) {
         if (down)
-            held_keys.insert(vk);
+            held_keys.insert(code);
         else
-            held_keys.erase(vk);
+            held_keys.erase(code);
     }
 }
 static void button_input(int button, bool down) {
-    static const DWORD downs[] = {MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_MIDDLEDOWN,
-                                  MOUSEEVENTF_RIGHTDOWN};
-    static const DWORD ups[] = {MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTUP};
-    INPUT input{};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = down ? downs[button] : ups[button];
-    if (inject(input)) {
+    if (platform::post_button(button, down)) {
         if (down)
             held_buttons.insert(button);
         else
@@ -281,7 +268,7 @@ static void fatal(const char *message);
 // The sandboxed network process for this source, and the pipes to it (net-pipes.hpp). The
 // worker trusts nothing it reads from them.
 struct NetProcess {
-    sandbox::Launched launched;
+    platform::NetLaunch launched;
     net_pipes::Pipe control_to, control_from, frames, input;
     std::unique_ptr<net_pipes::QueuedWriter> control, frame_writer;
     bool ready = false;
@@ -301,17 +288,13 @@ static void fail_from_thread(const char *message) {
         [](gpointer text) -> gboolean {
             if (shutdown_started)
                 return G_SOURCE_REMOVE;
-            // Say how media-net ended: a crash code (for example 0xC0000005) points at the
-            // cause, where "stopped" alone does not.
-            if (net && net->launched.process && error_log.is_open()) {
-                DWORD code = STILL_ACTIVE;
-                WaitForSingleObject(net->launched.process.get(), 500);
-                GetExitCodeProcess(net->launched.process.get(), &code);
-                char hex[16];
-                snprintf(hex, sizeof(hex), "0x%08lX", static_cast<unsigned long>(code));
-                error_log << "NET " << static_cast<const char *>(text)
-                          << " exit=" << (code == STILL_ACTIVE ? std::string("still running") : hex)
-                          << std::endl;
+            // Say how media-net ended: a crash code points at the cause, where "stopped"
+            // alone does not.
+            if (net && error_log.is_open()) {
+                const auto how = platform::network_exit(net->launched);
+                if (!how.empty())
+                    error_log << "NET " << static_cast<const char *>(text) << " exit=" << how
+                              << std::endl;
             }
             fatal(static_cast<const char *>(text));
             return G_SOURCE_REMOVE;
@@ -427,27 +410,14 @@ static gboolean input_message(gpointer data) {
                 revoke_peer(*peer, false);
             else if (type == "move") {
                 double x = number_member(object, "x"), y = number_member(object, "y");
-                if (valid_point(x, y)) {
-                    INPUT input{};
-                    input.type = INPUT_MOUSE;
-                    const auto bounds = capture_display
-                                            ? capture_display->bounds
-                                            : DesktopRect{0, 0, GetSystemMetrics(SM_CXSCREEN),
-                                                          GetSystemMetrics(SM_CYSCREEN)};
-                    if (auto point = desktop_point(x, y, bounds, virtual_desktop())) {
-                        input.mi.dx = point->x;
-                        input.mi.dy = point->y;
-                        input.mi.dwFlags =
-                            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-                        inject(input);
-                    }
-                }
+                if (valid_point(x, y))
+                    platform::post_move(x, y, capture_display);
             } else if (type == "key") {
-                WORD vk = key_code(string_member(object, "code"));
+                const auto code = key_code(string_member(object, "code"));
                 auto down = json_object_get_member(object, "down");
-                if (vk && down && JSON_NODE_HOLDS_VALUE(down) &&
+                if (code && down && JSON_NODE_HOLDS_VALUE(down) &&
                     json_node_get_value_type(down) == G_TYPE_BOOLEAN)
-                    key_input(vk, json_node_get_boolean(down));
+                    key_input(*code, json_node_get_boolean(down));
             } else if (type == "button") {
                 double button = number_member(object, "button");
                 auto down = json_object_get_member(object, "down");
@@ -457,13 +427,8 @@ static gboolean input_message(gpointer data) {
                     button_input(static_cast<int>(button), json_node_get_boolean(down));
             } else if (type == "wheel") {
                 double delta = number_member(object, "delta");
-                if (std::isfinite(delta) && std::abs(delta) <= 1200) {
-                    INPUT input{};
-                    input.type = INPUT_MOUSE;
-                    input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-                    input.mi.mouseData = static_cast<DWORD>(static_cast<LONG>(delta));
-                    inject(input);
-                }
+                if (std::isfinite(delta) && std::abs(delta) <= 1200)
+                    platform::post_wheel(delta);
             }
         }
     }
@@ -477,7 +442,7 @@ static gboolean input_message(gpointer data) {
 }
 // Input records from media-net. A malformed record means media-net is broken or hostile: the
 // source ends.
-static void read_input(HANDLE handle) {
+static void read_input(net_pipes::Native handle) {
     unsigned char header[4];
     while (net_pipes::read_exact(handle, header, sizeof(header))) {
         const auto sizes = net_records::decode_input_header(header);
@@ -504,334 +469,15 @@ static void read_input(HANDLE handle) {
 }
 
 static std::string pipeline_description(int frames = -1) {
-    const auto target =
-        capture_display ? "monitor-handle=" +
-                              std::to_string(reinterpret_cast<uintptr_t>(capture_display->handle))
-                        : "monitor-index=-1";
-    const bool h264 = video_codec->id == "h264";
-    const auto element = encoder_element(*encoder_backend, video_codec->id);
-    const auto encoder = encoder_properties(*encoder_backend, element, video_codec->id,
-                                            rate_control(video_codec->id, profile));
-    if (error_log.is_open())
-        for (const auto &name : encoder.skipped)
-            error_log << "ENCODER " << element << " has no property " << name << std::endl;
-    return "d3d11screencapturesrc name=capture " + target +
-           " show-cursor=true num-buffers=" + std::to_string(frames) +
-           " ! d3d11convert ! "
-           "video/x-raw(memory:D3D11Memory),format=NV12,width=" +
-           std::to_string(profile.width) + ",height=" + std::to_string(profile.height) +
-           ",framerate=" + std::to_string(profile.fps) + "/1 ! " + element + " name=encoder " +
-           encoder.text + " ! " + video_codec->caps +
-           std::string(h264 && profile.fps == 15 && profile.width <= 1280 && profile.height <= 720
-                           ? ",level=(string)3.1"
-                           : "") +
-           " ! " + video_codec->parser;
+    return platform::video_pipeline(
+        {capture_display, profile, *video_codec, *encoder_backend, frames});
 }
-static std::string audio_source_description() {
-    return "wasapisrc name=audio-capture loopback=true low-latency=true ! audioconvert ! "
-           "audioresample ! audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=" +
-           std::to_string(audio_channels) + " ! opusenc name=audio-encoder bitrate=" +
-           std::string(audio_channels == 1 ? "32000" : "96000") +
-           " bitrate-type=cbr frame-size=20 inband-fec=true ! "
-           "appsink name=audio-sink sync=false async=false";
-}
-
-struct AdapterInfo {
-    UINT index;
-    std::int64_t luid;
-};
-
-// Packed the same way GStreamer packs its `adapter-luid` properties, so the two compare.
-static std::int64_t luid_to_int64(const LUID &luid) {
-    LARGE_INTEGER value;
-    value.LowPart = luid.LowPart;
-    value.HighPart = luid.HighPart;
-    return value.QuadPart;
-}
-
-static std::vector<AdapterInfo> enumerate_adapters() {
-    std::vector<AdapterInfo> adapters;
-    IDXGIFactory1 *factory = nullptr;
-    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory))))
-        return adapters;
-    IDXGIAdapter1 *adapter = nullptr;
-    for (UINT index = 0; factory->EnumAdapters1(index, &adapter) != DXGI_ERROR_NOT_FOUND; ++index) {
-        DXGI_ADAPTER_DESC1 desc{};
-        if (SUCCEEDED(adapter->GetDesc1(&desc)))
-            adapters.push_back({index, luid_to_int64(desc.AdapterLuid)});
-        adapter->Release();
-        adapter = nullptr;
-    }
-    factory->Release();
-    return adapters;
-}
-
-// Desktop duplication captures on the GPU that drives the monitor, and d3d11screencapturesrc
-// does not report which that is: it exposes only an `adapter` index meant for Windows Graphics
-// Capture. Match the monitor handle against DXGI's outputs instead. An unknown adapter is not a
-// failure; ranking simply falls back to the fixed backend order.
-static bool capture_adapter_luid(std::int64_t &out) {
-    HMONITOR monitor = capture_display ? reinterpret_cast<HMONITOR>(capture_display->handle)
-                                       : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    if (!monitor)
-        return false;
-    IDXGIFactory1 *factory = nullptr;
-    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory))))
-        return false;
-    bool found = false;
-    IDXGIAdapter1 *adapter = nullptr;
-    for (UINT i = 0; !found && factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
-        IDXGIOutput *output = nullptr;
-        for (UINT j = 0; !found && adapter->EnumOutputs(j, &output) != DXGI_ERROR_NOT_FOUND; ++j) {
-            DXGI_OUTPUT_DESC desc{};
-            DXGI_ADAPTER_DESC1 adapter_desc{};
-            if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor &&
-                SUCCEEDED(adapter->GetDesc1(&adapter_desc))) {
-                out = luid_to_int64(adapter_desc.AdapterLuid);
-                found = true;
-            }
-            output->Release();
-            output = nullptr;
-        }
-        adapter->Release();
-        adapter = nullptr;
-    }
-    factory->Release();
-    return found;
-}
-
-static bool element_adapter_luid(const std::string &name, std::int64_t &out,
-                                 bool probe_nvenc = false) {
-    // Instantiating a D3D11-mode NVENC element creates D3D11/CUDA state even while it is in
-    // NULL.  That was introduced for adapter affinity in the multi-backend work, but it means
-    // the later real nvd3d11h265enc can fail to open its NVENC session once a WebRTC peer is
-    // attached.  The NVIDIA-only worker never created this throwaway element.  Keep selection
-    // side-effect free for that family; an explicit `nvenc` choice still selects it directly.
-    if (!probe_nvenc && name.rfind("nvd3d11", 0) == 0)
-        return false;
-    auto *element = gst_element_factory_make(name.c_str(), nullptr);
-    if (!element)
-        return false;
-    bool found = false;
-    if (g_object_class_find_property(G_OBJECT_GET_CLASS(element), "adapter-luid")) {
-        gint64 value = 0;
-        g_object_get(element, "adapter-luid", &value, nullptr);
-        out = value;
-        found = true;
-    }
-    gst_object_unref(element);
-    return found;
-}
-
-// A registered element factory is not evidence that the hardware, driver and element agree.
-// Drive ten real frames of D3D11 memory through the encoder on its own adapter and see. This is
-// what "available" means everywhere else in the worker.
-static bool backend_encodes(const EncoderBackend &backend, const VideoCodec &codec,
-                            const std::vector<AdapterInfo> &adapters) {
-    const auto element = encoder_element(backend, codec.id);
-    if (element.empty())
-        return false;
-    StreamProfile trial{640, 480, 30, 2000, 1200};
-    trial.bitrate_mode = BitrateMode::Cbr;
-    const auto properties =
-        encoder_properties(backend, element, codec.id, rate_control(codec.id, trial));
-    std::string source = "d3d11testsrc num-buffers=10";
-    std::int64_t luid = 0;
-    if (element_adapter_luid(element, luid))
-        for (const auto &adapter : adapters)
-            if (adapter.luid == luid)
-                source += " adapter=" + std::to_string(adapter.index);
-    const auto description = source +
-                             " ! video/x-raw(memory:D3D11Memory),format=NV12,width=640,"
-                             "height=480,framerate=30/1 ! " +
-                             element + " " + properties.text + " ! " + codec.parser + " ! fakesink";
-    GError *error = nullptr;
-    auto *pipe = gst_parse_launch(description.c_str(), &error);
-    if (error || !pipe) {
-        if (error_log.is_open())
-            error_log << "BACKEND " << backend.id << " " << codec.id
-                      << " unavailable: " << (error ? error->message : "no pipeline") << std::endl;
-        if (error)
-            g_error_free(error);
-        if (pipe)
-            gst_object_unref(pipe);
-        return false;
-    }
-    gst_element_set_state(pipe, GST_STATE_PLAYING);
-    auto *bus = gst_element_get_bus(pipe);
-    auto *message = gst_bus_timed_pop_filtered(
-        bus, 10 * GST_SECOND, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
-    const bool ok = message && GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS;
-    if (message && !ok && error_log.is_open()) {
-        GError *failure = nullptr;
-        gchar *debug = nullptr;
-        gst_message_parse_error(message, &failure, &debug);
-        error_log << "BACKEND " << backend.id << " " << codec.id
-                  << " self-test failed: " << (failure ? failure->message : "unknown") << std::endl;
-        if (failure)
-            g_error_free(failure);
-        g_free(debug);
-    }
-    if (message)
-        gst_message_unref(message);
-    // NVENC frees the hardware session while the pipeline completes its NULL transition.  Do
-    // not merely request that transition and immediately create the live encoder: on NVIDIA
-    // drivers that can make the new H.265 session race the just-finished probe and fail with
-    // "Failed to open session".  v0.5 did not run this probe before each worker, so it never
-    // exposed that race.
-    gst_element_set_state(pipe, GST_STATE_NULL);
-    gst_element_get_state(pipe, nullptr, nullptr, 10 * GST_SECOND);
-    gst_object_unref(bus);
-    gst_object_unref(pipe);
-    return ok;
-}
-
-static bool backend_elements_present(const EncoderBackend &backend, const VideoCodec &codec) {
-    const auto element = encoder_element(backend, codec.id);
-    if (element.empty())
-        return false;
-    const auto parser_name = codec.parser.substr(0, codec.parser.find(' '));
-    auto *encoder_factory = gst_element_factory_find(element.c_str());
-    auto *parser_factory = gst_element_factory_find(parser_name.c_str());
-    auto *payloader_factory = gst_element_factory_find(codec.payloader.c_str());
-    const bool present = encoder_factory && parser_factory && payloader_factory;
-    if (encoder_factory)
-        gst_object_unref(encoder_factory);
-    if (parser_factory)
-        gst_object_unref(parser_factory);
-    if (payloader_factory)
-        gst_object_unref(payloader_factory);
-    return present;
-}
-
-// Memoised per backend and codec, because every self-test is a real encode. This is reserved for
-// --probe: running a temporary NVENC session in every live worker regressed the 0.5 startup path
-// and can make the immediately following live H.265 session fail to open on some drivers.
-static bool backend_supports(const EncoderBackend &backend, const VideoCodec &codec) {
-    static std::map<std::string, bool> cache;
-    const auto key = backend.id + "/" + codec.id;
-    const auto cached = cache.find(key);
-    if (cached != cache.end())
-        return cached->second;
-    static const auto adapters = enumerate_adapters();
-    bool supported = false;
-    if (backend_elements_present(backend, codec))
-        supported = backend_encodes(backend, codec, adapters);
-    cache.emplace(key, supported);
-    return supported;
-}
-
-struct BackendAvailability {
-    const EncoderBackend *backend;
-    std::vector<std::string> codecs;
-    bool on_capture_adapter;
-};
-
-// The whole matrix. Only --probe needs this; a stream asks about one codec.
-static std::vector<BackendAvailability> available_backends() {
-    std::vector<BackendAvailability> result;
-    std::int64_t capture_luid = 0;
-    const bool capture_known = capture_adapter_luid(capture_luid);
-    for (const auto &backend : encoder_backends()) {
-        BackendAvailability entry{&backend, {}, false};
-        for (const auto &codec : video_codecs()) {
-            if (!backend_supports(backend, codec))
-                continue;
-            entry.codecs.push_back(codec.id);
-            std::int64_t luid = 0;
-            const auto element = encoder_element(backend, codec.id);
-            if (capture_known && element_adapter_luid(element, luid, true) && luid == capture_luid)
-                entry.on_capture_adapter = true;
-        }
-        if (!entry.codecs.empty())
-            result.push_back(entry);
-    }
-    return result;
-}
-
-static bool backend_offers(const BackendAvailability &entry, const std::string &codec_id) {
+static bool backend_offers(const platform::BackendAvailability &entry,
+                           const std::string &codec_id) {
     return std::find(entry.codecs.begin(), entry.codecs.end(), codec_id) != entry.codecs.end();
 }
-
 static Selection encoder_selection_for(const std::string &codec_id) {
-    const auto *codec = find_video_codec(codec_id);
-    if (!codec)
-        return {false, {}, SelectionReason::FixedOrder};
-    std::vector<EncoderCandidate> candidates;
-    std::int64_t capture_luid = 0;
-    const bool capture_known = capture_adapter_luid(capture_luid);
-    for (const auto &backend : encoder_backends()) {
-        // A stream must not open disposable NVENC sessions merely to select its encoder.  The
-        // actual pipeline is the authoritative test and reports its own diagnostics on failure.
-        if (!backend_elements_present(backend, *codec))
-            continue;
-        const auto element = encoder_element(backend, codec_id);
-        std::int64_t luid = 0;
-        const bool has_adapter = element_adapter_luid(element, luid);
-        candidates.push_back({backend.id, element, has_adapter, luid});
-    }
-    return select_encoder(candidates, capture_known, capture_luid, forced_backend);
-}
-
-static void preflight() {
-    // RtlGetVersion is not affected by application compatibility manifests.
-    struct Version {
-        ULONG size, major, minor, build, platform;
-        WCHAR service[128];
-    } version{};
-    version.size = sizeof(version);
-    auto rtl = reinterpret_cast<LONG(WINAPI *)(Version *)>(
-        GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion"));
-    if (!rtl || rtl(&version) != 0 || version.build < 26200)
-        throw std::runtime_error("Windows 11 25H2 (build 26200) or newer is required.");
-    // Includes elements webrtcbin creates internally, so a packaged plugin set missing one fails
-    // here rather than mid-negotiation.
-    for (const char *name : {"d3d11screencapturesrc",
-                             "d3d11convert",
-                             "d3d11testsrc",
-                             "h264parse",
-                             "rtph264pay",
-                             "webrtcbin",
-                             "nicesrc",
-                             "nicesink",
-                             "dtlssrtpenc",
-                             "dtlssrtpdec",
-                             "srtpenc",
-                             "srtpdec",
-                             "sctpenc",
-                             "sctpdec",
-                             "appsrc",
-                             "appsink",
-                             "rtpbin",
-                             "rtpfunnel",
-                             "rtprtxsend",
-                             "rtpstorage",
-                             "rtpulpfecenc",
-                             "rtpredenc",
-                             "wasapisrc",
-                             "audioconvert",
-                             "audioresample",
-                             "opusenc",
-                             "rtpopuspay"}) {
-        auto factory = gst_element_factory_find(name);
-        if (!factory)
-            throw std::runtime_error(std::string("Required hardware/media plugin unavailable: ") +
-                                     name);
-        gst_object_unref(factory);
-    }
-    // H.264 is the universal fallback throughout the protocol and the one codec a host cannot
-    // disable, so ensure a complete installed path exists.  A live worker must not spend a
-    // temporary NVENC session here: it immediately opens the selected session below.
-    const auto *h264 = find_video_codec("h264");
-    for (const auto &backend : encoder_backends())
-        if (h264 && backend_elements_present(backend, *h264))
-            return;
-    std::string tried;
-    for (const auto &backend : encoder_backends())
-        tried += (tried.empty() ? "" : ", ") + encoder_element(backend, "h264");
-    throw std::runtime_error("No supported hardware H.264 encoder. Tried " + tried +
-                             ". A GPU with a working NVIDIA, Intel or AMD hardware encoder and "
-                             "a current driver is required.");
+    return platform::encoder_selection_for(codec_id, capture_display, forced_backend);
 }
 
 static void count_frame(GstElement *sink, GstBuffer *, GstPad *, gpointer data) {
@@ -1191,50 +837,20 @@ static bool start_network() {
         fatal("Unable to create the pipes to the network process.");
         return false;
     }
-    wchar_t executable[MAX_PATH] = {};
-    if (!GetModuleFileNameW(nullptr, executable, MAX_PATH)) {
-        fatal("Unable to find the media worker executable.");
-        return false;
-    }
-    const auto handle_text = [](const sandbox::Handle &handle) {
-        return std::to_wstring(reinterpret_cast<ULONG_PTR>(handle.get()));
-    };
-    const std::wstring command_line =
-        L"\"" + std::wstring(executable) + L"\" --network " + handle_text(net->control_to.child) +
-        L" " + handle_text(net->control_from.child) + L" " + handle_text(net->frames.child) + L" " +
-        handle_text(net->input.child);
-    // media-net must never rebuild the plugin registry: that would start gst-plugin-scanner,
-    // which its job forbids.
-    SetEnvironmentVariableW(L"GST_REGISTRY_UPDATE", L"no");
-    SetEnvironmentVariableW(L"GST_REGISTRY_FORK", L"no");
-    // Standard handles: without them, Windows copies the worker's handle values into media-net,
-    // where they are invalid, and strict handle checks turn the first write to stderr (a GLib
-    // warning, say) into a crash. The NUL device gives it real ones that go nowhere.
-    SECURITY_ATTRIBUTES inheritable{sizeof(inheritable), nullptr, TRUE};
-    sandbox::Handle null_device(CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
-                                            FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable,
-                                            OPEN_EXISTING, 0, nullptr));
-    if (!null_device) {
-        fatal("Unable to open the null device for the network process.");
-        return false;
-    }
-    sandbox::Options options;
-    options.std_input = options.std_output = options.std_error = null_device.get();
-    const auto launched =
-        sandbox::launch(executable, command_line,
-                        {net->control_to.child.get(), net->control_from.child.get(),
-                         net->frames.child.get(), net->input.child.get(), null_device.get()},
-                        net->launched, options);
-    null_device.reset();
+    std::string launch_error;
+    const bool launched =
+        platform::launch_network({net->control_to.child.get(), net->control_from.child.get(),
+                                  net->frames.child.get(), net->input.child.get()},
+                                 net->launched, launch_error);
     // media-net has its ends now (or never will); the worker keeps only its own.
     net->control_to.child.reset();
     net->control_from.child.reset();
     net->frames.child.reset();
     net->input.child.reset();
-    if (!launched.ok) {
+    if (!launched) {
         if (error_log.is_open())
-            error_log << "NET launch failed: " << launched.error << std::endl;
-        const auto message = "Unable to start the sandboxed network process: " + launched.error;
+            error_log << "NET launch failed: " << launch_error << std::endl;
+        const auto message = "Unable to start the sandboxed network process: " + launch_error;
         fatal(message.c_str());
         return false;
     }
@@ -1268,32 +884,14 @@ static bool start_network() {
     return true;
 }
 // Answer attestation (design, "Signaling changes", step 2): the loopback port in an answer
-// from media-net must belong to this source's own media-net, per Windows' UDP table, so a
-// compromised media-net cannot point the relay at another process's socket.
-static bool port_owned(unsigned port) {
-    if (!net || !net->launched.pid)
-        return false;
-    ULONG size = 0;
-    GetExtendedUdpTable(nullptr, &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0);
-    std::vector<unsigned char> buffer(size);
-    if (!size || GetExtendedUdpTable(buffer.data(), &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID,
-                                     0) != NO_ERROR)
-        return false;
-    const auto table = reinterpret_cast<const MIB_UDPTABLE_OWNER_PID *>(buffer.data());
-    for (DWORD i = 0; i < table->dwNumEntries; ++i) {
-        const auto &row = table->table[i];
-        if (row.dwLocalAddr == htonl(INADDR_LOOPBACK) &&
-            ntohs(static_cast<u_short>(row.dwLocalPort)) == port)
-            return row.dwOwningPid == net->launched.pid;
-    }
-    return false;
-}
+// from media-net must belong to this source's own media-net, so a compromised media-net
+// cannot point the relay at another process's socket.
+static bool port_owned(unsigned port) { return net && platform::port_owned(net->launched, port); }
 static void stop_network() {
     if (!net)
         return;
     // End media-net first, so a writer blocked on a full pipe returns, then join the writers.
-    if (net->launched.process)
-        TerminateProcess(net->launched.process.get(), 0);
+    platform::terminate_network(net->launched);
     {
         std::lock_guard<std::mutex> lock(frame_mutex);
         if (net->frame_writer)
@@ -1336,7 +934,7 @@ static bool set_display(JsonObject *object) {
         return false;
     auto requested = json_node_get_object(node);
     try {
-        for (const auto &display : enumerate_displays()) {
+        for (const auto &display : platform::enumerate_displays()) {
             if (display.id != string_member(requested, "id"))
                 continue;
             if (number_member(requested, "x") != display.bounds.x ||
@@ -1397,7 +995,7 @@ static void start_source(JsonObject *object) {
     if (video_enabled)
         description = pipeline_description() + " ! appsink name=video-sink sync=false async=false";
     if (audio_channels)
-        description += (description.empty() ? "" : "  ") + audio_source_description();
+        description += (description.empty() ? "" : "  ") + platform::audio_pipeline(audio_channels);
     if (error_log.is_open())
         error_log << "SOURCE " << description << std::endl;
     GError *error = nullptr;
@@ -1570,7 +1168,7 @@ static int session() {
     // so it reports even when the main loop is stuck.
     std::thread([] {
         for (;;) {
-            Sleep(10000);
+            std::this_thread::sleep_for(std::chrono::seconds(10));
             if (shutdown_started)
                 return;
             if (!net)
@@ -1604,84 +1202,14 @@ static int session() {
     return failed ? 1 : 0;
 }
 
-// Quotes one argument the way CommandLineToArgvW reads it back.
-static std::wstring quote_argument(const std::wstring &argument) {
-    if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos)
-        return argument;
-    std::wstring quoted = L"\"";
-    for (auto it = argument.begin();; ++it) {
-        std::size_t backslashes = 0;
-        while (it != argument.end() && *it == L'\\') {
-            ++it;
-            ++backslashes;
-        }
-        if (it == argument.end()) {
-            quoted.append(backslashes * 2, L'\\');
-            break;
-        }
-        if (*it == L'"')
-            quoted.append(backslashes * 2 + 1, L'\\');
-        else
-            quoted.append(backslashes, L'\\');
-        quoted.push_back(*it);
-    }
-    quoted.push_back(L'"');
-    return quoted;
-}
-
-// `media-worker.exe --sandbox -- <program> [arguments]`: runs the program under the tier T1
-// token that media-net uses (the user SID and most groups deny-only, restricting SIDs, no
-// privileges, low integrity) in its own job and desktop, with the mitigations and no child
-// processes. So it cannot open anything that grants access to the user alone: the profile,
-// VidVNC's settings and TLS key. It gets no initial impersonation token: the program (the media
-// relay, Node running a bundle from its command line) never drops one, so it would keep the
-// user's rights on its main thread. Its image is mapped by this process; it must need no other
-// file it cannot read. Its standard handles are this process's; the exit code is the
-// program's.
-static int run_sandboxed() {
-    int count = 0;
-    const auto arguments = CommandLineToArgvW(GetCommandLineW(), &count);
-    if (!arguments || count < 4 || std::wstring(arguments[2]) != L"--")
-        return 2;
-    const std::wstring program = arguments[3];
-    std::wstring command_line;
-    for (int i = 3; i < count; ++i)
-        command_line += (i > 3 ? L" " : L"") + quote_argument(arguments[i]);
-    LocalFree(arguments);
-    // Inheritable copies of the standard handles, for the explicit handle list.
-    HANDLE handles[3] = {};
-    const DWORD kinds[3] = {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
-    for (int i = 0; i < 3; ++i)
-        if (!DuplicateHandle(GetCurrentProcess(), GetStdHandle(kinds[i]), GetCurrentProcess(),
-                             &handles[i], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-            std::cerr << "Unable to pass the standard handles to the sandbox" << std::endl;
-            return 2;
-        }
-    sandbox::Options options;
-    options.initial_token = false; // never impersonate: see above
-    options.std_input = handles[0];
-    options.std_output = handles[1];
-    options.std_error = handles[2];
-    sandbox::Launched launched;
-    const auto result = sandbox::launch(program, command_line, {handles[0], handles[1], handles[2]},
-                                        launched, options);
-    for (auto handle : handles)
-        CloseHandle(handle);
-    if (!result.ok) {
-        std::cerr << "Unable to start the sandboxed program: " << result.error << std::endl;
-        return 2;
-    }
-    WaitForSingleObject(launched.process.get(), INFINITE);
-    DWORD code = 1;
-    GetExitCodeProcess(launched.process.get(), &code);
-    return static_cast<int>(code);
-}
-
 int main(int argc, char **argv) {
     // The sandbox launcher needs neither GStreamer nor the log.
     if (argc >= 4 && std::string(argv[1]) == "--sandbox")
-        return run_sandboxed();
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        return platform::run_sandboxed(argc, argv);
+    platform::init_process();
+    // Read-only and network-silent, so it needs no GStreamer either.
+    if (argc == 2 && std::string(argv[1]) == "--adapters")
+        return platform::list_adapters();
     g_set_print_handler([](const gchar *text) {
         std::cerr << text;
         if (error_log.is_open())
@@ -1696,13 +1224,13 @@ int main(int argc, char **argv) {
     // The sandboxed network process (media-net.cpp). It writes no files, so it never opens the
     // log, and it takes nothing from the environment but GStreamer's own settings.
     if (argc == 6 && std::string(argv[1]) == "--network") {
-        HANDLE handles[4] = {};
+        net_pipes::Native handles[4] = {};
         for (int i = 0; i < 4; ++i) {
             char *end = nullptr;
             const auto value = std::strtoull(argv[2 + i], &end, 10);
             if (!end || *end || !value)
                 return 2;
-            handles[i] = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(value));
+            handles[i] = net_pipes::from_number(value);
         }
         return network_main(handles[0], handles[1], handles[2], handles[3]);
     }
@@ -1711,7 +1239,7 @@ int main(int argc, char **argv) {
     // The server also runs this binary for a moment every few seconds (--list-displays, to
     // notice display changes); only a stream's worker is worth a line.
     if (error_log.is_open() && argc == 2 && std::string(argv[1]) == "--session")
-        error_log << "START native worker pid=" << GetCurrentProcessId() << std::endl;
+        error_log << "START native worker pid=" << platform::process_id() << std::endl;
     // media-net always gathers on 127.0.0.1 alone; the server still says so explicitly, and
     // anything else is refused rather than guessed at.
     if (const char *bind = g_getenv("VIDVNC_ICE_BIND"); bind && std::string(bind) != "loopback") {
@@ -1721,19 +1249,20 @@ int main(int argc, char **argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--list-displays") {
             auto root = json_node_new(JSON_NODE_ARRAY);
-            json_node_take_array(root, display_inventory_json(enumerate_displays()));
+            json_node_take_array(root, display_inventory_json(platform::enumerate_displays()));
             auto text = json_to_string(root, false);
             std::cout << text << std::endl;
             g_free(text);
             json_node_free(root);
             return 0;
         }
-        preflight();
+        platform::preflight();
         if (argc == 2 && std::string(argv[1]) == "--probe") {
             auto object = json_object_new();
-            json_object_set_int_member(object, "width", GetSystemMetrics(SM_CXSCREEN));
-            json_object_set_int_member(object, "height", GetSystemMetrics(SM_CYSCREEN));
-            json_object_set_string_member(object, "capture", "dxgi");
+            const auto primary = platform::primary_bounds();
+            json_object_set_int_member(object, "width", primary.width);
+            json_object_set_int_member(object, "height", primary.height);
+            json_object_set_string_member(object, "capture", platform::capture_name());
             // Shown in the host's Settings with the other component versions.
             gchar *gstreamer = gst_version_string();
             json_object_set_string_member(object, "gstreamer", gstreamer);
@@ -1743,13 +1272,13 @@ int main(int argc, char **argv) {
             auto codecs = json_array_new();
             auto backends = json_array_new();
             for (const auto &codec : video_codecs()) {
-                for (const auto &entry : available_backends())
+                for (const auto &entry : platform::available_backends(capture_display))
                     if (backend_offers(entry, codec.id)) {
                         json_array_add_string_element(codecs, codec.id.c_str());
                         break;
                     }
             }
-            for (const auto &entry : available_backends()) {
+            for (const auto &entry : platform::available_backends(capture_display)) {
                 auto backend_object = json_object_new();
                 json_object_set_string_member(backend_object, "id", entry.backend->id.c_str());
                 json_object_set_string_member(backend_object, "label",
@@ -1777,7 +1306,7 @@ int main(int argc, char **argv) {
             json_object_set_string_member(
                 object, "encoder", chosen.found ? chosen.candidate.element_name.c_str() : "");
             json_object_set_array_member(object, "displays",
-                                         display_inventory_json(enumerate_displays()));
+                                         display_inventory_json(platform::enumerate_displays()));
             auto root = json_node_new(JSON_NODE_OBJECT);
             json_node_take_object(root, object);
             auto text = json_to_string(root, false);

@@ -247,7 +247,11 @@ libraries, and the native viewer package.
 macOS host support has an accepted [design](superpowers/specs/2026-10-09-macos-support-design.md)
 and [implementation plan](superpowers/plans/2026-10-09-macos-support.md). Its prototype gates
 (phase 0) have run on the owner's Mac and support the design; see the
-[gate results](investigations/MACOS-PROTOTYPE-GATES.md). Nothing of the product is built yet.
+[gate results](investigations/MACOS-PROTOTYPE-GATES.md). The portable server work (phase 1)
+and the worker's platform layer and Apple build (phase 2) are in: the worker builds with Xcode,
+media-net runs over POSIX pipes, and `--adapters` and port attestation work on a Mac. Capture,
+encoding, audio and input (phase 3) and the sandbox (phase 4) are not, so a Mac cannot share
+its screen yet.
 It targets macOS 27 on Apple Silicon only, with the same packages as Windows: the VidVNC app
 (native Swift host, the server and the media worker, with the command-line server inside)
 and a standalone command-line server ZIP, both with Node.js bundled, signed with the owner's

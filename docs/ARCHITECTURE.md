@@ -355,8 +355,8 @@ property strings at pipeline build time. See the next section for why.
 
 ### Network process (media-net)
 
-Each source's WebRTC runs in a second process: the same `media-worker.exe`, started by the
-worker with `--network` ([media-net.cpp](../native/media-worker/src/media-net.cpp)). It is
+Each source's WebRTC runs in a second process: the same `media-worker` executable, started by
+the worker with `--network` ([media-net.cpp](../native/media-worker/src/media-net.cpp)). It is
 Part B of the [R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md),
 so that a flaw in the WebRTC stack (libnice, OpenSSL's DTLS, libsrtp, usrsctp) exploited by a
 viewer lands in a process that cannot capture the screen, inject input, read the user's
@@ -378,6 +378,19 @@ It starts impersonating a same-access token, starts Winsock and loads every plug
 library it needs, then calls `RevertToSelf` before it opens a socket or reads anything from a
 viewer; it then turns on Arbitrary Code Guard (gate P4). Win32k lockdown is not used: it can
 only be set at creation, and GLib needs `user32`.
+
+The worker and media-net are platform-neutral; everything that differs between Windows and
+macOS is behind one interface, [platform.hpp](../native/media-worker/src/platform/platform.hpp):
+the process, display inventory, the video and audio pipelines and encoder probing, the input
+sink, media-net's launch and port attestation, and media-net's own sandbox steps. The Windows
+implementation is in [platform/windows/](../native/media-worker/src/platform/windows/) (the
+code described here). The macOS one, in [platform/macos/](../native/media-worker/src/platform/macos/),
+has POSIX pipes, port attestation and `--adapters`; capture, encode, audio and input (phase
+3 of the [macOS plan](superpowers/plans/2026-10-09-macos-support.md)) and the launcher's
+sandbox profile (phase 4) fail by name until they land, and the worker never starts media-net
+or the relay without its sandbox. On macOS, media-net reports tier `none` and has no
+code guard; it is reached only by the check in
+[media-net-posix.test.mjs](../native/media-worker/tests/media-net-posix.test.mjs) until then.
 
 ```mermaid
 sequenceDiagram
@@ -414,7 +427,10 @@ control in each direction (JSON lines: `configure`, `add-peer`, `remove-peer`,
 (worker to media-net: a 32-byte header and the payload, with a caps record whenever caps
 change) and input (media-net to worker: peer id and data-channel text, at most 64 and 1,024
 bytes). The record formats are in [net-records.hpp](../native/media-worker/src/net-records.hpp).
-Anonymous pipes have no name, so nothing else can open them. All pipe I/O runs on dedicated
+Anonymous pipes have no name, so nothing else can open them. On macOS they are `pipe(2)`
+pairs (design D2): every end is close-on-exec, the launcher maps exactly the four child ends
+into media-net as descriptors 3 to 6, and the write ends never raise `SIGPIPE`, which the
+worker also ignores, so a closed pipe is an error to handle. All pipe I/O runs on dedicated
 threads; the worker's main loop only queues, so a stalled media-net can delay video but never
 the owner pipe, input release or shutdown. The frame queue holds at most 32 MiB; on overflow
 it is emptied, video skips to the next keyframe and one is requested.
@@ -426,8 +442,9 @@ the allow-lists and the rate limit — so a compromised media-net can act as the
 currently holds control, but cannot grant control or inject input when nobody holds it. A
 source whose `start` does not carry `hostControl` is refused. Before registering a stream
 with the relay, the server asks the worker to attest the answer's loopback port
-(`check-port`): the worker confirms with `GetExtendedUdpTable` that `127.0.0.1:<port>` is
-owned by its own media-net, so a compromised media-net cannot point the relay at another
+(`check-port`): the worker confirms that `127.0.0.1:<port>` is owned by its own media-net
+(`GetExtendedUdpTable` on Windows; on macOS `proc_pidinfo` and `proc_pidfdinfo` over
+media-net's own descriptors, [udp-ports.hpp](../native/media-worker/src/platform/macos/udp-ports.hpp)), so a compromised media-net cannot point the relay at another
 program's socket. media-net's standard handles are the `NUL` device, and its GLib and
 GStreamer messages go to the worker's log. Viewers that arrive before
 media-net is ready wait in the worker, in order. media-net writes no files: its log lines go
@@ -746,7 +763,9 @@ trusts nothing on the channel:
   clears the current owner rather than guessing.
 - Coordinates are normalised 0..1 and rejected unless finite and in range; button and key
   codes are mapped through explicit allow-lists, never passed through
-  ([input-policy.hpp](../native/media-worker/src/input-policy.hpp)).
+  ([input-policy.hpp](../native/media-worker/src/input-policy.hpp)). Keys are one list of
+  browser `code` values with a Windows virtual-key table and a macOS `kVK_*` table behind
+  it, and a test checks that both cover exactly that list.
 - If the capture display changes underneath a session, the worker releases any held keys
   and buttons and fails the session rather than replaying input against different
   geometry.
@@ -971,8 +990,12 @@ On Windows the network must also be marked Private
 ([windows-lan-adapters.mjs](../apps/server/src/windows-lan-adapters.mjs), PowerShell
 `Get-NetAdapter`). macOS has no network profile: its provider
 ([macos-lan-adapters.mjs](../apps/server/src/macos-lan-adapters.mjs)) runs the media
-worker's read-only `--adapters` mode (in development) and counts only `enN` Ethernet and
-Wi-Fi ports, never VPN tunnels, bridges or Thunderbolt networking. Link-local addresses are
+worker's read-only `--adapters` mode and counts only `enN` Ethernet and Wi-Fi ports, never
+VPN tunnels, bridges or Thunderbolt networking. That mode
+([adapters.mm](../native/media-worker/src/platform/macos/adapters.mm)) reads interface types
+from SystemConfiguration, state and addresses from `getifaddrs`, Thunderbolt ports from
+IOKit, and each router and the hardware address configd resolved for it from the dynamic
+store; it sends nothing on any network. Link-local addresses are
 not eligible on either platform.
 
 In place of the Private profile, the macOS app starts the server with `--confirm-networks`
@@ -1577,6 +1600,7 @@ apps/
   macos-client/   Planned native Apple viewer (ownership guide only)
 native/
   media-worker/   C++ capture/encode/input broker and the sandboxed media-net; src/ + tests/ + CMakeLists.txt
+                  (src/platform/windows/ and src/platform/macos/ hold what differs by platform)
 tests/system/     Cross-application lifecycle and real media smoke checks
 tools/            Root orchestration and formatting; tools/tests/ owns its tests
   debug/          Cross-process debug target definitions and implementation contract
@@ -1655,7 +1679,17 @@ A packaged runtime manifest (`runtime.json`) names its system: `os` is `windows`
 The server refuses a manifest for another system or architecture
 ([runtime-manifest.mjs](../native/media-worker/runtime-manifest.mjs)).
 
-`npm test` is portable and uses stubbed hardware. `npm run test:hardware` explicitly
+The macOS worker builds with Apple clang through CMake's Xcode generator (presets
+`macos-arm64`, `macos-arm64-debug` and `macos-arm64-release`, run by `build-native.sh`),
+against the GStreamer framework the user installed: `~/Library/Frameworks`, else
+`/Library/Frameworks`, or `GSTREAMER_ROOT`. Every checkout uses that one copy; nothing is
+linked into `.deps`. Its CTest suite is the portable unit tests plus port attestation
+(`udp-ports`), and the input-policy test also checks the macOS key table against the SDK's
+`kVK_*` names.
+
+`npm test` is portable and uses stubbed hardware. On a Mac with the worker built it also runs
+[media-net-posix.test.mjs](../native/media-worker/tests/media-net-posix.test.mjs), the real
+media-net over POSIX pipes. `npm run test:hardware` explicitly
 requires Windows 25H2+, a GPU with a supported hardware encoder (NVIDIA, Intel or AMD)
 and an interactive desktop. CTest registers the native unit suites; assert-based checks
 remain enabled in Release.

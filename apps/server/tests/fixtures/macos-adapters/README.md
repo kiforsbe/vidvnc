@@ -2,9 +2,10 @@
 
 Example output of the media worker's `--adapters` mode, in the format
 [macos-lan-adapters.mjs](../../../src/macos-lan-adapters.mjs) documents. They are written
-by hand to that format, from the interfaces a MacBook typically has, because the worker's
-macOS mode does not exist yet (task 2.6 of the macOS plan). Replace them with recordings
-from a real Mac when it does.
+by hand to that format, from the interfaces a MacBook typically has. The worker's macOS mode
+([adapters.mm](../../../../../native/media-worker/src/platform/macos/adapters.mm)) produces
+the same shape on a real Mac; recordings are not kept here, because they would hold a real
+network's addresses.
 
 - `home.json`: Wi-Fi on a home network with IPv4 and a unique-local IPv6 address, an
   unplugged Ethernet adapter, and the Apple Wireless Direct Link and low-latency WLAN
