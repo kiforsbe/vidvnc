@@ -60,49 +60,65 @@ func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
   context.setShouldAntialias(false)
   context.setAllowsAntialiasing(false)
 
-  let s = CGFloat(n), u = s / 16
-  let stroke = max(1, (s / 16).rounded(.down))
-  // Odd strokes are centred on half pixels, even ones on whole pixels.
-  let shift: CGFloat = Int(stroke) % 2 == 1 ? 0.5 : 0
-  func g(_ v: CGFloat) -> CGFloat { (v * u).rounded(.down) + shift }
-
-  context.setLineWidth(stroke)
-  context.setLineCap(.square)
-  context.setStrokeColor(color(ink))
+  // Everything is whole-pixel rectangles, so nothing depends on how a path rasterizes.
+  let u = Double(n) / 16
+  let k = max(1, n / 16)  // stroke width
+  func r(_ v: Double) -> Int { Int(v.rounded()) }
   context.setFillColor(color(ink))
-
-  // Monitor: screen edge to edge, neck and foot.
-  let left = stroke / 2, right = s - stroke / 2
-  let top = g(1), bottom = g(11)
-  let neck = g(7.5)
-  let foot = g(14)
-  let footHalf = (3 * u).rounded()
-  let radius = max(1, u)
-  context.addPath(
-    CGPath(
-      roundedRect: CGRect(x: left, y: top, width: right - left, height: bottom - top),
-      cornerWidth: radius, cornerHeight: radius, transform: nil))
-  context.move(to: CGPoint(x: neck, y: bottom))
-  context.addLine(to: CGPoint(x: neck, y: foot))
-  context.move(to: CGPoint(x: neck - footHalf, y: foot))
-  context.addLine(to: CGPoint(x: neck + footHalf, y: foot))
-  if state.arrow {
-    // Share-screen arrow: a shaft and a 45° head, so the stair steps stay even.
-    let tip = g(3.5), base = g(8.5), head = (2 * u).rounded()
-    context.move(to: CGPoint(x: neck, y: base))
-    context.addLine(to: CGPoint(x: neck, y: tip))
-    context.move(to: CGPoint(x: neck - head, y: tip + head))
-    context.addLine(to: CGPoint(x: neck, y: tip))
-    context.addLine(to: CGPoint(x: neck + head, y: tip + head))
+  func fill(_ x: Int, _ y: Int, _ w: Int, _ h: Int) {
+    context.fill(CGRect(x: x, y: y, width: w, height: h))
   }
-  context.strokePath()
+
+  // Monitor frame. Its outer width has the same parity as the stroke, so (width − stroke)
+  // is even and every vertical stroke on the axis has one exact centre: the stand's stem,
+  // the arrow's stem and the arrowhead all share it. When the canvas width has the wrong
+  // parity the frame is one pixel narrower and the right-hand column stays empty, as in
+  // many of Windows' own 16 px glyphs.
+  let width = (n - k) % 2 == 0 ? n : n - 1
+  let stemX = (width - k) / 2
+  let top = r(u), bottom = r(12 * u)  // outer rows [top, bottom)
+  fill(0, top, width, k)
+  fill(0, bottom - k, width, k)
+  fill(0, top, k, bottom - top)
+  fill(width - k, top, k, bottom - top)
+  // Rounded corners: notch the outer corners and fill the inner ones, one stroke square each.
+  context.setBlendMode(.clear)
+  for (x, y) in [(0, top), (width - k, top), (0, bottom - k), (width - k, bottom - k)] {
+    fill(x, y, k, k)
+  }
+  context.setBlendMode(.normal)
+  for (x, y) in [(k, top + k), (width - 2 * k, top + k), (k, bottom - 2 * k), (width - 2 * k, bottom - 2 * k)] {
+    fill(x, y, k, k)
+  }
+
+  // Stand: stem under the frame, then the foot, centred on the same axis.
+  let footY = min(r(14 * u), n - k)
+  fill(stemX, bottom, k, footY - bottom)
+  let footHalf = r(3 * u)
+  fill(stemX - footHalf, footY, 2 * footHalf + k, k)
+
+  if state.arrow {
+    // Share-screen arrow: a stem and a 45° head stepped one pixel at a time, centred in the
+    // screen's interior with equal space above and below (any odd pixel goes below).
+    let interiorTop = top + k, interiorBottom = bottom - k
+    let length = r(5 * u)
+    let tip = interiorTop + (interiorBottom - interiorTop - length) / 2
+    fill(stemX, tip, k, length)
+    let head = r(2 * u)
+    for j in 1...head {
+      fill(stemX - j, tip + j, k, k)
+      fill(stemX + j, tip + j, k, k)
+    }
+  }
+
+  try! checkSymmetry(context, size: n, width: width, what: "\(state.name) \(n) px")
 
   guard let pattern = badges[state.badge] else { return context.makeImage()! }
 
   // Badge in the lower-right corner: a 7×7 pixel pattern scaled by whole pixels (one per
   // stroke width), with a transparent gap of one stroke cut around it, like the check on
   // Windows' Safely Remove Hardware icon.
-  let k = Int(stroke), size = 7 * k, origin = n - size
+  let size = 7 * k, origin = n - size
   var cells: [(Int, Int, Character)] = []
   for (row, line) in pattern.enumerated() {
     for (column, mark) in line.enumerated() where mark != "." {
@@ -126,6 +142,26 @@ func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
     context.fill(CGRect(x: x, y: y, width: k, height: k))
   }
   return context.makeImage()!
+}
+
+struct AsymmetryError: Error, CustomStringConvertible {
+  var description: String
+}
+
+/// Fails unless the glyph's ink is mirror-symmetric about the frame's vertical centre, pixel
+/// for pixel, and nothing is drawn right of the frame. Runs before any badge is added.
+func checkSymmetry(_ context: CGContext, size n: Int, width: Int, what: String) throws {
+  let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
+  let stride = context.bytesPerRow
+  func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[y * stride + x * 4 + 3] }
+  for y in 0..<n {
+    for x in 0..<n {
+      let mirrored = x < width ? alpha(width - 1 - x, y) : 0
+      if alpha(x, y) != mirrored {
+        throw AsymmetryError(description: "\(what): ink at (\(x), \(y)) has no mirror image")
+      }
+    }
+  }
 }
 
 /// 7×7 badge patterns: `#` is the glyph's ink, `a` amber, `r` red, `w` white.
