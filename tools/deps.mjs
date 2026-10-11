@@ -217,16 +217,18 @@ async function ensureCMake({ directory, log }) {
     directory: path.join(directory, '.deps/downloads'),
     log,
   });
-  // Windows' own tar (bsdtar) extracts ZIP files.
-  const staging = `${target}.${randomUUID()}.tmp`;
-  mkdirSync(staging, { recursive: true });
-  try {
-    const result = run('tar', ['-xf', archive, '-C', staging], { stdio: 'inherit' });
-    if (result.status !== 0) throw new Error(`Extracting ${archive} failed (${result.status})`);
+  // Windows' own tar (bsdtar) extracts ZIP files. Straight into place, without the archive's
+  // top folder: renaming a just-extracted folder fails while Windows Defender scans it. A
+  // half-extracted folder is removed, and one that survives a crash fails the version check
+  // above, so the next run replaces it.
+  rmSync(target, { recursive: true, force: true });
+  mkdirSync(target, { recursive: true });
+  const result = run('tar', ['-xf', archive, '--strip-components', '1', '-C', target], {
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) {
     rmSync(target, { recursive: true, force: true });
-    renameSync(path.join(staging, cmake.archive.file.replace(/\.zip$/, '')), target);
-  } finally {
-    rmSync(staging, { recursive: true, force: true });
+    throw new Error(`Extracting ${archive} failed (${result.status})`);
   }
   log(`CMake: ${cmake.version} installed in ${target}.`);
 }
