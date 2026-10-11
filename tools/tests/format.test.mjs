@@ -21,7 +21,8 @@ test('formatting scope excludes native host and generated/dependency directories
     'native',
   );
   assert.ok(native.some((file) => file.endsWith('media-worker.cpp')));
-  assert.ok(native.every((file) => /\.(cpp|hpp|h|c)$/.test(file)));
+  assert.ok(native.some((file) => file.endsWith('.mm')));
+  assert.ok(native.every((file) => /\.(cpp|hpp|h|c|mm)$/.test(file)));
 });
 
 test('pinned formatters format source consistently without reordering native includes', async () => {

@@ -15,7 +15,7 @@ export const excluded = new Set([
   '.git',
 ]);
 const extensions = {
-  native: new Set(['.cpp', '.hpp', '.h', '.c']),
+  native: new Set(['.cpp', '.hpp', '.h', '.c', '.mm']),
   web: new Set(['.mjs', '.js', '.json', '.html', '.css']),
 };
 

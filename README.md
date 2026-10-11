@@ -345,6 +345,21 @@ Visual Studio, or at `.deps/cmake/bin`, which wins when present; `npm run deps` 
 checksum-verified portable CMake 3.31.6 there ([tools/deps.json](tools/deps.json)). It is
 ignored, not a checked-in dependency.
 Native output: `out/native/windows-x64/Release`. No automatic downloads at build/start.
+
+On macOS (support in development: the worker builds and its unit tests run, but it cannot
+capture yet), install Xcode, CMake 3.25 or newer and the GStreamer 1.28.6 framework's
+runtime and development packages for your user ("Install for me only"). `npm run deps`
+checks all three and prints the package links when one is missing; it links nothing into
+`.deps`, because every checkout uses the one installed framework. Then:
+
+```sh
+npm run deps
+./build-native.sh
+npm test
+```
+
+`build-native.sh [Debug|Release]` formats the native sources, builds with CMake's Xcode
+generator (preset `macos-arm64`) and runs CTest. Native output: `out/native/macos-arm64/Release`.
 The media worker listens only on `127.0.0.1` and needs no firewall exception. The media
 relay runs in Node.js, so Windows Firewall must allow that `node.exe` to receive on the
 media port. Firewall permissions are executable-path-specific, so a different Node.js
@@ -367,7 +382,8 @@ globally.
 | `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                   |
 | `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them    |
 
-For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`.
+For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`; on macOS
+configure `macos-arm64`, build/test `macos-arm64-release`.
 Direct CMake builds do not run the development formatter hook; `npm run build:native` does.
 `npm start` and the server workspace's start command format JS/web sources first.
 Direct `node apps/server/src/main.mjs` bypasses formatting for runtime launches.

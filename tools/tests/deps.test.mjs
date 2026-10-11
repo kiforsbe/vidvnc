@@ -10,6 +10,8 @@ import {
   cmakeVersion,
   downloadVerified,
   gstreamerInstallArgs,
+  macosGStreamerPackages,
+  macosProblems,
   parseInstalls,
   registeredGStreamer,
 } from '../deps.mjs';
@@ -107,4 +109,16 @@ test('the pins name a download for every dependency the command installs', () =>
   assert.ok(cmake.archive.file.includes(cmake.version));
   assert.equal(cmakeVersion('cmake version 3.31.6\n\nCMake suite maintained'), '3.31.6');
   assert.equal(cmakeVersion('nonsense'), null);
+});
+
+test('on macOS the framework packages are the pinned version, and missing tools are named', () => {
+  assert.deepEqual(macosGStreamerPackages('1.28.6'), [
+    'https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-1.28.6-universal.pkg',
+    'https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-devel-1.28.6-universal.pkg',
+  ]);
+  const missing = macosProblems({ execute: () => ({ status: 1 }) });
+  assert.ok(missing.some((problem) => problem.startsWith('Xcode:')));
+  assert.ok(missing.some((problem) => problem.startsWith('CMake:')));
+  const present = macosProblems({ execute: () => ({ status: 0 }) });
+  assert.ok(!present.some((problem) => /^(Xcode|CMake):/.test(problem)));
 });

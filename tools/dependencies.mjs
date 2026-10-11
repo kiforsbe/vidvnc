@@ -2,14 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { defaultGStreamerRoot } from '../native/media-worker/runtime-paths.mjs';
 import { buildWorker, workerIsStale, workerPath } from './debug/host-build.mjs';
 
 // Brings what a test run depends on up to date before it starts, so a test never runs against
 // yesterday's packages or worker and fails in a way that looks like a code bug:
 //   - npm packages are reinstalled (`npm ci`) when node_modules does not match
 //     package-lock.json;
-//   - the development media worker is rebuilt (build-native.cmd, which also runs its C++ unit
-//     tests) when it is older than native/ sources;
+//   - the development media worker is rebuilt (build-native.cmd, or build-native.sh on macOS,
+//     which also run its C++ unit tests) when it is older than native/ sources;
 //   - the GStreamer SDK is checked against the version packaging pins. A test run never
 //     downloads it; a mismatch stops the run and points to `npm run deps` (tools/deps.mjs).
 
@@ -68,15 +69,28 @@ export function ensureJsDependencies({ directory = root, log = console.log } = {
   return true;
 }
 
+// Where the GStreamer SDK is: GSTREAMER_ROOT, else the checkout's .deps/gstreamer link on
+// Windows, and on macOS the user's (else the Mac's) installed framework.
+export function defaultSdk(directory = root, platform = process.platform) {
+  if (process.env.GSTREAMER_ROOT) return process.env.GSTREAMER_ROOT;
+  return platform === 'darwin'
+    ? defaultGStreamerRoot({ root: directory, platform })
+    : path.join(directory, '.deps/gstreamer');
+}
+
 // The pinned GStreamer version (packaging/windows/inputs.json) against the SDK's own
 // pkg-config file. Returns a message to act on, or null.
 export function gstreamerProblem({
   directory = root,
-  sdk = process.env.GSTREAMER_ROOT || path.join(directory, '.deps/gstreamer'),
+  platform = process.platform,
+  sdk = defaultSdk(directory, platform),
 } = {}) {
   const pinned = readJson(path.join(directory, 'packaging/windows/inputs.json')).gstreamer;
   const pc = path.join(sdk, 'lib/pkgconfig/gstreamer-1.0.pc');
-  const install = `Run npm run deps to install GStreamer ${pinned.version} (${pinned.installer.file}, SHA-256 ${pinned.installer.sha256}) to ${sdk}, or set GSTREAMER_ROOT.`;
+  const install =
+    platform === 'darwin'
+      ? `Install the GStreamer ${pinned.version} framework with its development package (npm run deps says how), or set GSTREAMER_ROOT.`
+      : `Run npm run deps to install GStreamer ${pinned.version} (${pinned.installer.file}, SHA-256 ${pinned.installer.sha256}) to ${sdk}, or set GSTREAMER_ROOT.`;
   if (!existsSync(path.join(sdk, 'bin')))
     return `The GStreamer SDK was not found at ${sdk}. ${install}`;
   // An SDK without its pkg-config file cannot say its version; the build still decides.
@@ -95,7 +109,8 @@ export function ensureNativeWorker({
   log = console.log,
 } = {}) {
   if (process.env.VIDVNC_MEDIA_WORKER || process.env.VIDVNC_RUNTIME_MANIFEST) return false;
-  if (process.platform !== 'win32') throw new Error('The media worker builds on Windows only');
+  if (process.platform !== 'win32' && process.platform !== 'darwin')
+    throw new Error('The media worker builds on Windows and macOS only');
   const sdk = gstreamerProblem({ directory });
   if (sdk) throw new Error(sdk);
   if (!workerIsStale(directory, configuration)) return false;

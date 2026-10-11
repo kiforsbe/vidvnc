@@ -37,6 +37,7 @@ from the repository root:
 | ----------------------- | ------------------------------------------------------------------------------------------- |
 | `npm ci`                | Installs the pinned JavaScript dependencies                                                 |
 | `npm run deps`          | Sets up `.deps/` and the npm packages: GStreamer SDK, CMake, packaging inputs (Windows)     |
+| `./build-native.sh`     | Builds the macOS media worker with Xcode and runs its C++ unit tests                        |
 | `npm run format:check`  | Checks formatting                                                                           |
 | `npm test`              | Runs the portable tests, with hardware stubbed                                              |
 | `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop) |
@@ -51,7 +52,8 @@ Every test run first brings its dependencies up to date
 - **npm packages:** if they don't match `package-lock.json`, the run reinstalls them with
   `npm ci`.
 - **Media worker:** the hardware suite and the manual `*-check.mjs` acceptance scripts
-  rebuild it with `build-native.cmd` when it is older than `native/` sources.
+  rebuild it with `build-native.cmd` (`build-native.sh` on macOS) when it is older than
+  `native/` sources.
 - **GStreamer SDK:** checked against the version `packaging/windows/inputs.json` pins. A test
   run never downloads it; a mismatch stops the run and points to `npm run deps`.
 

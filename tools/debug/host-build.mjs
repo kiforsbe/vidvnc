@@ -18,8 +18,10 @@ export function isStale(inputs, output, skip = []) {
   return false;
 }
 
-export function workerPath(root, configuration) {
-  return path.join(root, 'out/native/windows-x64', configuration, 'media-worker.exe');
+export function workerPath(root, configuration, platform = process.platform) {
+  return platform === 'darwin'
+    ? path.join(root, 'out/native/macos-arm64', configuration, 'media-worker')
+    : path.join(root, 'out/native/windows-x64', configuration, 'media-worker.exe');
 }
 
 export function workerIsStale(root, configuration) {
@@ -52,7 +54,13 @@ export function hostProject(root) {
 }
 
 export function buildWorker(root, configuration) {
-  run(root, process.env.ComSpec || 'cmd.exe', ['/d', '/c', `.\\build-native.cmd ${configuration}`]);
+  if (process.platform === 'darwin') run(root, path.join(root, 'build-native.sh'), [configuration]);
+  else
+    run(root, process.env.ComSpec || 'cmd.exe', [
+      '/d',
+      '/c',
+      `.\\build-native.cmd ${configuration}`,
+    ]);
   // The staleness check compares the worker with every file under native/, but MSBuild relinks
   // it only when one of its own inputs changed: a header only another target uses (the
   // sandbox probe's sandbox.hpp, say) would leave it "stale" forever. A successful build means

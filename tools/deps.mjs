@@ -6,6 +6,8 @@
 //     official installer installs for the current user, with the development files, when
 //     there is none;
 //   - portable CMake in .deps/cmake (tools/deps.json), which build-native.cmd prefers;
+//   - on macOS, nothing in .deps: it checks the user's GStreamer framework, Xcode and CMake
+//     instead, and says what to install;
 //   - the packaging inputs in .deps/downloads and the development certificate in
 //     .deps/signing (packaging/windows/prepare.mjs).
 // Every download is checked against its pinned SHA-256 before it is used, and every step is
@@ -25,7 +27,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ensureJsDependencies, gstreamerProblem, root } from './dependencies.mjs';
+import { defaultSdk, ensureJsDependencies, gstreamerProblem, root } from './dependencies.mjs';
 
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -242,14 +244,62 @@ function preparePackaging({ directory }) {
     throw new Error(`packaging/windows/prepare.mjs failed (${result.status})`);
 }
 
+// The GStreamer framework's packages for macOS, at the version Windows pins.
+export function macosGStreamerPackages(version) {
+  const base = `https://gstreamer.freedesktop.org/data/pkg/osx/${version}`;
+  return [
+    `${base}/gstreamer-1.0-${version}-universal.pkg`,
+    `${base}/gstreamer-1.0-devel-${version}-universal.pkg`,
+  ];
+}
+
+// On macOS a checkout links nothing into .deps: the build and the server use the GStreamer
+// framework the user installed, in ~/Library/Frameworks (or /Library/Frameworks), one copy
+// for every checkout (native/media-worker/CMakeLists.txt and runtime-paths.mjs find it the
+// same way). This checks it and the build tools, and says what to install when one is missing.
+export function macosProblems({ directory = root, execute = run } = {}) {
+  const problems = [];
+  const pinned = readJson(path.join(directory, 'packaging/windows/inputs.json')).gstreamer;
+  const sdk = defaultSdk(directory, 'darwin');
+  const gstreamer = sdkProblem(directory, sdk);
+  if (gstreamer)
+    problems.push(
+      `GStreamer: ${gstreamer}. Install both packages with "Install for me only", or set GSTREAMER_ROOT:\n${macosGStreamerPackages(
+        pinned.version,
+      )
+        .map((url) => `    ${url}`)
+        .join('\n')}`,
+    );
+  const found = (command, args) => {
+    try {
+      return execute(command, args).status === 0;
+    } catch {
+      return false;
+    }
+  };
+  if (!found('xcodebuild', ['-version']))
+    problems.push('Xcode: install Xcode and run xcode-select -s /Applications/Xcode.app.');
+  if (!found('cmake', ['--version']))
+    problems.push('CMake: install CMake 3.25 or newer (brew install cmake, or from cmake.org).');
+  return problems;
+}
+
+function ensureMacosTools({ directory, log }) {
+  const problems = macosProblems({ directory });
+  if (problems.length) throw new Error(problems.join('\n'));
+  log(`GStreamer: using the installed framework at ${defaultSdk(directory, 'darwin')}.`);
+  log('Xcode and CMake: installed.');
+}
+
 export async function setUpDependencies({ directory = root, log = console.log } = {}) {
   if (!ensureJsDependencies({ directory, log })) log('npm packages: up to date.');
-  if (process.platform !== 'win32') {
-    log(
-      'The GStreamer SDK, CMake and packaging inputs are set up on Windows only for now; on macOS install the GStreamer 1.28.6 framework (README, SDK and build locations).',
-    );
+  if (process.platform === 'darwin') {
+    ensureMacosTools({ directory, log });
+    log('All dependencies are ready.');
     return;
   }
+  if (process.platform !== 'win32')
+    throw new Error('npm run deps sets up Windows and macOS checkouts only.');
   await ensureGStreamer({ directory, log });
   await ensureCMake({ directory, log });
   preparePackaging({ directory });
