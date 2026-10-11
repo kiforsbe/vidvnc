@@ -74,6 +74,11 @@ link fails closed.
   other than its host therefore never begins listening.
 - After startup the same stdio channel carries host commands in and `status` events out,
   which is what the host UI renders ([Owner protocol](#owner-protocol)).
+- A desktop server (`--desktop`) stops when its owner pipe closes, and also when its parent
+  process changes, checked every second
+  ([parent-watch.mjs](../apps/server/src/parent-watch.mjs)). That second check is defence in
+  depth for macOS, which has no job object: an orphaned process is re-parented there. On
+  Windows a process is never re-parented, so only the pipe and the job apply.
 - The CLI server is the same Node application driven from a terminal instead of the
   WinUI host.
 
@@ -524,9 +529,17 @@ profile, the relay runs from a bundle on the command line
 of Node built-ins, under 28,000 characters), under Node's permission model with no file
 access, child processes, add-ons or workers. It can therefore neither read nor write
 anything that grants access to the user alone, nor send input to the desktop; it can read
-world-readable locations such as Program Files and System32, and reach the network. The
-server starts the relay before it reports `ready`. If the port cannot
-be bound, sign-in still works, offers are refused with the reason (for example "UDP 4384 is
+world-readable locations such as Program Files and System32, and reach the network. On macOS
+the same launcher, `media-worker --sandbox -- <node> --jitless ...`, applies the relay's
+sandbox profile instead (UDP only, no fork or exec, reads limited to the system and Node.js;
+[macOS design](superpowers/specs/2026-10-09-macos-support-design.md), D3), from `/` and
+without the JIT, as gate MG5 found it needs
+([gate results](investigations/MACOS-PROTOTYPE-GATES.md)). A packaged macOS server whose
+launcher is missing does not start the relay at all, so media is unavailable with that
+reason; a development checkout without a built worker runs the relay unsandboxed and logs a
+warning ([media-relay.mjs](../apps/server/src/media-relay.mjs), `relayLaunch`). The macOS
+launcher and profile arrive with the worker port (phases 2 and 3). The server starts the
+relay before it reports `ready`. If the port cannot be bound, sign-in still works, offers are refused with the reason (for example "UDP 4384 is
 in use"), and the host shows it. If the relay exits, every stream stops and the relay is
 restarted, at most three times a minute. Changing `mediaPort` restarts it and stops live
 streams. Sessions show each stream's authenticated media address; `media-relay` in the
@@ -1358,7 +1371,7 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                                       | Local peers only; fingerprint shown on the host screen for comparison (A4)                                                                                                                                                                                                     | F3                         |
 | T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates             | The server removes every candidate from every offer; the worker sends checks to nobody                                                                                                                                                                                         | R3 fixed                   |
 | T7  | Settings files          | T      | Change policy or approved devices on disk                                    | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope                                                                                                                                                                         | —                          |
-| T8  | Owner pipe (B4, B5, B8) | T, E   | Start or command a server, relay or worker from another process              | Inherited pipes only; exact approval line; no owner route on any listener; job object; the relay exits on any invalid command                                                                                                                                                  | —                          |
+| T8  | Owner pipe (B4, B5, B8) | T, E   | Start or command a server, relay or worker from another process              | Inherited pipes only; exact approval line; no owner route on any listener; job object; desktop server stops when its parent changes; the relay exits on any invalid command                                                                                                    | —                          |
 | T9  | Browser page            | T, I   | Script injection or framing                                                  | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                                                                                                                                                                                              | —                          |
 | T10 | Owner actions           | R      | A viewer denies having connected or acted                                    | Sessions view shows each session's address live; lifecycle log                                                                                                                                                                                                                 | No persistent audit trail  |
 | T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                                       | HTTPS by default and fail closed; `off` only by explicit choice                                                                                                                                                                                                                | F3 (off mode)              |

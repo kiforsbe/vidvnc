@@ -18,7 +18,8 @@ import { waitForOwner } from './owner-start.mjs';
 import { applySharingMode } from './sharing-mode.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
 import { AccessSettings, mediaPortOf } from './access-settings.mjs';
-import { MediaRelay, sandboxedRelayLaunch } from './media-relay.mjs';
+import { MediaRelay, relayLaunch } from './media-relay.mjs';
+import { watchParent } from './parent-watch.mjs';
 import { createRelayAddresses } from './relay-addresses.mjs';
 import { dataDirectory, settingsFiles } from './paths.mjs';
 import { registerInstance } from './instances.mjs';
@@ -144,17 +145,18 @@ async function serve() {
     });
     const codeIssuer = createCodeIssuer({ access, sessionStore: store, admission });
     const peerNetwork = createPeerNetwork();
+    const relayOptions = relayLaunch({
+      executable: workerExecutable,
+      env: workerEnvironment(),
+      packaged: runtimeManifest?.mode === 'packaged',
+    });
+    if (relayOptions.warning) serverLog(relayOptions.warning);
     const relay = new MediaRelay({
       port: () => mediaPortOf(access.snapshot()),
-      // Windows: at low integrity through the worker's sandbox launcher (R4 design, phase 2).
-      ...(process.platform === 'win32'
-        ? {
-            launch: sandboxedRelayLaunch({
-              executable: workerExecutable,
-              env: workerEnvironment(),
-            }),
-          }
-        : {}),
+      // Sandboxed through the worker's launcher: at low integrity on Windows (R4 design,
+      // phase 2), under its sandbox profile on macOS (macOS design, D3).
+      launch: relayOptions.launch,
+      refused: relayOptions.refused,
       log: serverLog,
       onEvent: (event) => runtime?.relayEvent(event),
       onExit: () => runtime?.relayStopped(),
@@ -453,6 +455,8 @@ async function serve() {
         }),
       );
       owner.on('close', stop);
+      // And if the app has gone while the pipe somehow stays open (macOS design, D8).
+      watchParent(stop);
     }
     // The relay binds before `ready`, so the first offer finds it listening. If it cannot
     // bind, sign-in still works and offers are refused with the reason.

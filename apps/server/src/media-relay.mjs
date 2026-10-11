@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { permissionFlags, relayBundle } from './media-relay/bundle.mjs';
 
@@ -21,21 +22,62 @@ export const RELAY_RESTARTS = Object.freeze({ limit: 3, windowMs: 60_000 });
 // through. It runs from a bundle on the command line (media-relay/bundle.mjs), because the
 // restricted token cannot read the relay's own files, under Node's permission model with no
 // file access at all.
-export function sandboxedRelayLaunch({ executable, env, start = spawn, bundle = relayBundle() }) {
+//
+// On macOS the same launcher applies the relay's sandbox profile instead (decision D3 of the
+// macOS design: UDP only, no fork or exec, reads limited to the system and Node.js). Gate MG5
+// found that Node.js runs there only with `--jitless` (the relay's copy has no `allow-jit`
+// entitlement) and from `/`, because it reads its working directory at start-up.
+export function sandboxedRelayLaunch({
+  executable,
+  env,
+  platform = process.platform,
+  node = process.execPath,
+  start = spawn,
+  bundle = relayBundle(),
+}) {
+  const macos = platform === 'darwin';
   return () =>
     start(
       executable,
       [
         '--sandbox',
         '--',
-        process.execPath,
+        node,
+        ...(macos ? ['--jitless'] : []),
         ...permissionFlags(),
         '--input-type=module',
         '-e',
         bundle,
       ],
-      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env },
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env, ...(macos ? { cwd: '/' } : {}) },
     );
+}
+
+// How this platform starts the relay, as MediaRelay options. Windows always uses the
+// launcher. On macOS the launcher is the media worker, so a packaged server whose worker is
+// missing refuses to start the relay (media is then unavailable with the reason) rather than
+// run it unsandboxed; a development checkout without a built worker runs it unsandboxed, with
+// a warning. Other platforms are development only and run it directly.
+export function relayLaunch({
+  executable,
+  env,
+  packaged,
+  platform = process.platform,
+  exists = existsSync,
+  start,
+  bundle,
+}) {
+  const sandboxed = () => ({
+    launch: sandboxedRelayLaunch({ executable, env, platform, start, bundle }),
+  });
+  if (platform === 'win32') return sandboxed();
+  if (platform !== 'darwin') return {};
+  if (executable && exists(executable)) return sandboxed();
+  if (packaged)
+    return { refused: `the sandbox launcher (${executable}) is missing; reinstall VidVNC` };
+  return {
+    warning: `The media relay runs without a sandbox: build the media worker (${executable}).`,
+  };
 }
 
 export class MediaRelay {
@@ -49,6 +91,7 @@ export class MediaRelay {
   #pending = new Map();
   #restarts = [];
   #stopping = false;
+  #refused;
   #lastSummary = { at: -Infinity, dropped: 0 };
   state = 'stopped';
   reason = null;
@@ -64,6 +107,9 @@ export class MediaRelay {
     startTimeoutMs = 5000,
     onEvent = () => {},
     onExit = () => {},
+    // Set when this server must not start the relay at all (relayLaunch): media is then
+    // unavailable with this reason, and sign-in still works.
+    refused = null,
     launch = () =>
       spawn(process.execPath, [RELAY_SCRIPT], {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -76,6 +122,7 @@ export class MediaRelay {
     this.#allowTimeoutMs = allowTimeoutMs;
     this.#startTimeoutMs = startTimeoutMs;
     this.#launch = launch;
+    this.#refused = refused;
     this.onEvent = onEvent;
     this.onExit = onExit;
   }
@@ -102,6 +149,7 @@ export class MediaRelay {
     this.port = port;
     this.state = 'starting';
     this.reason = null;
+    if (this.#refused) return this.#unavailable(this.#refused);
     const child = this.#launch();
     this.#child = child;
     let stderr = '';

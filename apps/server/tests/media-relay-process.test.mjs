@@ -4,7 +4,7 @@ import dgram from 'node:dgram';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { runRelay } from '../src/media-relay/protocol.mjs';
-import { MediaRelay, sandboxedRelayLaunch } from '../src/media-relay.mjs';
+import { MediaRelay, relayLaunch, sandboxedRelayLaunch } from '../src/media-relay.mjs';
 import { MAX_BUNDLE_CHARS, permissionFlags, relayBundle } from '../src/media-relay/bundle.mjs';
 import { spawn } from 'node:child_process';
 import { bindingRequest } from './fixtures/stun-messages.mjs';
@@ -256,6 +256,64 @@ test('on Windows the relay starts through the worker sandbox launcher, from its 
   assert.deepEqual(args.slice(3, -3), permissionFlags());
   assert.deepEqual(options.env, { PATH: 'x' });
   assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe']);
+});
+
+test('on macOS the launcher runs the relay jitless from the root folder', () => {
+  const calls = [];
+  sandboxedRelayLaunch({
+    executable: '/Applications/VidVNC.app/Contents/MacOS/media-worker',
+    env: { PATH: 'x' },
+    platform: 'darwin',
+    start: (...args) => calls.push(args),
+    bundle: 'runRelay();',
+  })();
+  const [[, args, options]] = calls;
+  assert.deepEqual(args.slice(0, 4), ['--sandbox', '--', process.execPath, '--jitless']);
+  assert.deepEqual(args.slice(4, -3), permissionFlags());
+  assert.equal(options.cwd, '/');
+});
+
+test('each platform starts the relay its own way, and a packaged Mac never unsandboxed', async () => {
+  const calls = [];
+  const options = (platform, packaged, exists) =>
+    relayLaunch({
+      executable: '/w/media-worker',
+      env: {},
+      packaged,
+      platform,
+      exists: () => exists,
+      start: (...args) => calls.push(args),
+      bundle: 'runRelay();',
+    });
+  // Windows always goes through the launcher; it reports a missing one itself.
+  options('win32', true, false).launch();
+  assert.equal(calls.pop()[0], '/w/media-worker');
+  options('darwin', true, true).launch();
+  assert.equal(calls.pop()[1][3], '--jitless');
+  options('darwin', false, true).launch();
+  assert.equal(calls.pop()[0], '/w/media-worker');
+  const refused = options('darwin', true, false);
+  assert.equal(refused.launch, undefined);
+  assert.match(refused.refused, /sandbox launcher \(\/w\/media-worker\) is missing/);
+  const development = options('darwin', false, false);
+  assert.equal(development.launch, undefined);
+  assert.match(development.warning, /without a sandbox/);
+  assert.deepEqual(options('linux', false, false), {});
+
+  // A refused relay never starts: media is unavailable with the reason.
+  const log = [];
+  const relay = new MediaRelay({
+    port: () => 4384,
+    log: (line) => log.push(line),
+    refused: refused.refused,
+    launch: () => assert.fail('launched'),
+  });
+  await relay.start();
+  assert.equal(relay.status().state, 'unavailable');
+  assert.match(relay.status().reason, /is missing/);
+  assert.match(log[0], /Media is unavailable/);
+  await relay.stop();
+  assert.equal(relay.status().state, 'stopped');
 });
 
 test('the relay bundle is one module of Node built-ins that fits a Windows command line', () => {
