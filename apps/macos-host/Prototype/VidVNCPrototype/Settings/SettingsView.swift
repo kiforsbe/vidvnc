@@ -23,6 +23,10 @@ private struct GeneralSettings: View {
       Toggle(
         "Keep sharing when the window closes",
         isOn: bind({ model.keepSharingWhenWindowCloses }, { model.keepSharingWhenWindowCloses = $0 }))
+      Text(
+        "Closing the window always leaves VidVNC in the menu bar. Turn this off to stop sharing when you close it."
+      )
+      .font(.callout).foregroundStyle(.secondary)
       LabeledContent("Command-line tool") {
         Button("Install\u{2026}") { showingInstallNote = true }
       }

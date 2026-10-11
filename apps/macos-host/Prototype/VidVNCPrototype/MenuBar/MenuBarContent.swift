@@ -76,6 +76,7 @@ struct MenuBarContent: View {
 
   private func openMain(sheet: SheetKind?) {
     dismiss()
+    NSApp.setActivationPolicy(.regular)
     openWindow(id: "main")
     NSApp.activate()
     if let sheet { presentation.sheet = sheet }

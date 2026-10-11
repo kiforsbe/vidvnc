@@ -11,6 +11,16 @@ capture or monitor-setting changes. Replace labels on repeated invocation and
 dismiss them when inventory changes, sharing stops or the host closes. Position
 inside the monitor work area so labels do not cover its taskbar.
 
+## Closing the window
+
+Decided on 2026-10-11: closing the host window minimizes VidVNC to the notification area
+(system tray) by default, and sharing carries on. The tray icon shows the sharing state
+and offers Open VidVNC, Stop sharing and Quit; only Quit (or signing out) ends sharing
+and the server. A Settings toggle, on by default, lets people choose to stop sharing when
+the window closes instead. This matches the macOS host, which stays in the menu bar
+([prototype](../../../apps/macos-host/README.md#ui-prototype)). Not implemented yet: the
+current Windows host stops the server when its window closes.
+
 ## Session stability addition
 
 Approved layout: [session-stability-v1.png](session-stability-v1.png). Compact stream

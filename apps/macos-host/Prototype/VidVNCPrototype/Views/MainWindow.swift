@@ -31,6 +31,13 @@ struct MainWindow: View {
     }
     .frame(minWidth: 760, minHeight: 520)
     .task { await Snapshotter.run(presentation: presentation) }
+    // Closing the window leaves VidVNC in the menu bar only: no Dock icon, and sharing keeps
+    // running unless the person turned that off in Settings.
+    .onAppear { NSApp.setActivationPolicy(.regular) }
+    .onDisappear {
+      if !model.keepSharingWhenWindowCloses { model.stopSharing() }
+      NSApp.setActivationPolicy(.accessory)
+    }
     .sheet(item: $presentation.sheet) { sheet in
       switch sheet {
       case .connectDevice: ConnectDeviceSheet(model: model)

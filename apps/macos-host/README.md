@@ -28,6 +28,10 @@ Settings" only opens the Privacy & Security pane. It is a design aid, not the pr
   off, starting, remote access, someone controlling, HTTPS not ready, missing permissions,
   new network, server stopped, approval request). Overview, the sidebar footer and the
   menu bar symbol all follow it. Command-1 to Command-7 switch sections.
+- Closing the window leaves VidVNC running as a menu bar extra with no Dock icon, and
+  sharing carries on unless "Keep sharing when the window closes" is off in Settings.
+  Open VidVNC in the menu bar brings the window and the Dock icon back. Quit is in the
+  menu bar extra and the app menu.
 - Every section, sheet, Settings and the menu bar content have light and dark `#Preview`s.
 
 Open `Prototype/VidVNCPrototype.xcodeproj` in Xcode and run, or build from the command
