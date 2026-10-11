@@ -6,7 +6,8 @@
 // in the notification area:
 // - each size (16, 20, 24, 32, 40, 48, 64 px) is drawn separately, not resampled;
 // - strokes are size/16 px wide, on the pixel grid, with anti-aliasing off, so a 16 px icon
-//   is solid pixels rather than grey half-tones;
+//   is solid pixels rather than grey half-tones (only the monitor's four corner squares are
+//   faint ink, to soften them);
 // - ink is white for a dark taskbar and RGB 26,26,26 for a light one, and the app swaps
 //   between the two when the taskbar theme changes;
 // - entries are uncompressed 32-bit DIBs, the layout Windows' own icons use.
@@ -44,6 +45,10 @@ let themes: [(String, RGB)] = [
   ("dark", RGB(r: 1, g: 1, b: 1)),
   ("light", RGB(r: 26 / 255, g: 26 / 255, b: 26 / 255)),
 ]
+/// Opacity of the softened corner squares (90/255), and of the innermost pixel of a corner
+/// square at sizes where it is more than one pixel (180/255).
+let cornerAlpha: CGFloat = 90 / 255
+let cornerInnerAlpha: CGFloat = 180 / 255
 let amber = RGB(r: 252 / 255, g: 185 / 255, b: 0)
 let red = RGB(r: 232 / 255, g: 17 / 255, b: 35 / 255)
 
@@ -81,13 +86,26 @@ func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
   fill(0, bottom - k, width, k)
   fill(0, top, k, bottom - top)
   fill(width - k, top, k, bottom - top)
-  // Near-square corners, like the monitor in Windows' network icon: only the outermost
-  // stroke-sized square at each corner is left out, with no inner rounding.
-  context.setBlendMode(.clear)
-  for (x, y) in [(0, top), (width - k, top), (0, bottom - k), (width - k, bottom - k)] {
-    fill(x, y, k, k)
+  // Near-square corners, like the monitor in Windows' network icon: the outermost
+  // stroke-sized square at each corner is filled with faint ink, the only anti-aliased
+  // pixels in the glyph, which softens the corner without rounding it. Where the square is
+  // more than one pixel, its innermost pixel is darker so the corner reads as a soft curve.
+  context.setBlendMode(.copy)
+  for (cornerX, cornerY, flipX, flipY) in [
+    (0, top, false, false), (width - k, top, true, false),
+    (0, bottom - k, false, true), (width - k, bottom - k, true, true),
+  ] {
+    for i in 0..<k {
+      for j in 0..<k {
+        let innermost = k > 1 && i == k - 1 && j == k - 1
+        let alpha = innermost ? cornerInnerAlpha : cornerAlpha
+        context.setFillColor(CGColor(srgbRed: ink.r, green: ink.g, blue: ink.b, alpha: alpha))
+        fill(cornerX + (flipX ? k - 1 - i : i), cornerY + (flipY ? k - 1 - j : j), 1, 1)
+      }
+    }
   }
   context.setBlendMode(.normal)
+  context.setFillColor(color(ink))
 
   // Stand, also as in the network icon: a hollow neck of two legs on a wider foot. Their
   // widths get the frame's parity so they centre on the same axis.
