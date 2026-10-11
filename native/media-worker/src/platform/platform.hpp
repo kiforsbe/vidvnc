@@ -6,8 +6,9 @@
 //
 // Windows: platform/windows/ (DXGI and D3D11 capture, the hardware encoder families,
 // SendInput, the tier T1 sandbox in sandbox.hpp, GetExtendedUdpTable).
-// macOS: platform/macos/ (docs/superpowers/specs/2026-10-09-macos-support-design.md). Until
-// capture, encode, audio and input land there, those parts fail by name.
+// macOS: platform/macos/ (docs/superpowers/specs/2026-10-09-macos-support-design.md):
+// ScreenCaptureKit and VideoToolbox through the worker's own elements (elements.hpp),
+// CGEventPost, and the launcher sandbox (phase 4 of the macOS plan, failing by name until then).
 #include <cstdint>
 #include <optional>
 #include <ostream>
@@ -81,6 +82,11 @@ Selection encoder_selection_for(const std::string &codec_id,
                                 const std::string &forced_backend);
 
 // ---- Input. Each returns whether the event was posted; the broker tracks what is held.
+
+// Empty when posted input reaches the system; otherwise why it cannot, for the owner. macOS
+// drops posted events silently until the user approves the app that started VidVNC (gate MG3);
+// Windows always accepts them.
+std::string input_unavailable_reason();
 
 // `code` is the platform's key code from input-policy.hpp.
 bool post_key(unsigned short code, bool down);

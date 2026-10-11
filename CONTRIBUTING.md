@@ -33,15 +33,15 @@ Don't open a public issue. Follow [SECURITY.md](SECURITY.md).
 Follow [Build and run (Windows)](README.md#build-and-run-windows). These commands run
 from the repository root:
 
-| Command                 | What it does                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `npm ci`                | Installs the pinned JavaScript dependencies                                                 |
-| `npm run deps`          | Sets up `.deps/` and the npm packages: GStreamer SDK, CMake, packaging inputs (Windows)     |
-| `./build-native.sh`     | Builds the macOS media worker with Xcode and runs its C++ unit tests                        |
-| `npm run format:check`  | Checks formatting                                                                           |
-| `npm test`              | Runs the portable tests, with hardware stubbed                                              |
-| `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop) |
-| `npm run test:host`     | Runs the Windows host's runtime-contract tests                                              |
+| Command                 | What it does                                                                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm ci`                | Installs the pinned JavaScript dependencies                                                                                                                                |
+| `npm run deps`          | Sets up `.deps/` and the npm packages: GStreamer SDK, CMake, packaging inputs (Windows)                                                                                    |
+| `./build-native.sh`     | Builds the macOS media worker with Xcode and runs its C++ unit tests                                                                                                       |
+| `npm run format:check`  | Checks formatting                                                                                                                                                          |
+| `npm test`              | Runs the portable tests, with hardware stubbed                                                                                                                             |
+| `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop; or the worker checks on macOS 27 with Screen & System Audio Recording allowed) |
+| `npm run test:host`     | Runs the Windows host's runtime-contract tests                                                                                                                             |
 
 The Windows host's navigation test (pages, dialogs, the sharing indicator) is a separate
 executable; see [its README](apps/windows-host/tests/Navigation/README.md).

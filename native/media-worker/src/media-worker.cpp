@@ -129,7 +129,7 @@ static int audio_channels = 0; // 0: no audio chain; 1: mono-32k; 2: stereo-96k
 static const VideoCodec *video_codec = &video_codecs()[0];
 // Set by `choose_encoder_backend` when a stream starts, and by --self-test-codec. Selection
 // happens once per stream and never changes mid-session.
-static const EncoderBackend *encoder_backend = find_encoder_backend("nvenc");
+static const EncoderBackend *encoder_backend = find_encoder_backend(default_encoder_backend_id());
 static std::string forced_backend = "auto";
 static SelectionReason selection_reason = SelectionReason::FixedOrder;
 // Reported to the server so the host app can say which GPU is encoding and why. The host is
@@ -990,6 +990,16 @@ static void start_source(JsonObject *object) {
             error_log << "ENCODER " << chosen.candidate.element_name << " backend "
                       << chosen.candidate.backend_id << " reason "
                       << static_cast<int>(chosen.reason) << std::endl;
+    }
+    // Say so now rather than drop a viewer's input silently later (macOS, design D4). Control
+    // is still granted as usual; nothing it sends is posted.
+    if (video_enabled) {
+        const auto reason = platform::input_unavailable_reason();
+        if (!reason.empty()) {
+            if (error_log.is_open())
+                error_log << "INPUT unavailable: " << reason << std::endl;
+            emit("input-unavailable", {{"reason", reason}});
+        }
     }
     std::string description;
     if (video_enabled)

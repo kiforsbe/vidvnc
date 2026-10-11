@@ -47,7 +47,7 @@ if(VIDVNC_PLATFORM STREQUAL "windows")
 else()
   # By full path: Xcode would add the configuration to a link directory, and the framework
   # also has static archives with the same names.
-  foreach(library gstreamer-1.0 gobject-2.0 glib-2.0 json-glib-1.0 gstapp-1.0 gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0)
+  foreach(library gstreamer-1.0 gobject-2.0 glib-2.0 json-glib-1.0 gstapp-1.0 gstbase-1.0 gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0)
     add_library(${library} SHARED IMPORTED)
     set_target_properties(${library} PROPERTIES IMPORTED_LOCATION "${GSTREAMER_ROOT}/lib/lib${library}.dylib")
   endforeach()
@@ -62,15 +62,18 @@ function(configure_worker_target target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     # The framework's libraries are found through its own folder in development builds;
     # packaging rewrites this to the bundle.
-    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" BUILD_RPATH "${GSTREAMER_ROOT}/lib")
+    # The Xcode generator ignores per-language compile options, so ARC is also set as Xcode's
+    # own build setting; elements.hpp refuses to compile without it.
+    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" BUILD_RPATH "${GSTREAMER_ROOT}/lib" XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES)
   endif()
 endfunction()
 if(VIDVNC_PLATFORM STREQUAL "windows")
   set(platform_sources src/platform/windows/displays.cpp src/platform/windows/input.cpp
     src/platform/windows/media.cpp src/platform/windows/process.cpp)
 else()
-  set(platform_sources src/platform/macos/adapters.mm src/platform/macos/media.cpp
-    src/platform/macos/process.cpp)
+  set(platform_sources src/platform/macos/adapters.mm src/platform/macos/displays.mm
+    src/platform/macos/input.mm src/platform/macos/media.mm src/platform/macos/process.cpp
+    src/platform/macos/screen-capture.mm src/platform/macos/vt-encoder.mm)
 endif()
 add_executable(media-worker src/media-worker.cpp src/media-net.cpp ${platform_sources})
 configure_worker_target(media-worker)
@@ -79,8 +82,10 @@ target_link_libraries(media-worker PRIVATE gstreamer_sdk gstapp-1.0 gstvideo-1.0
 if(VIDVNC_PLATFORM STREQUAL "windows")
   target_link_libraries(media-worker PRIVATE user32 dxgi ws2_32 advapi32 iphlpapi shell32)
 else()
-  target_link_libraries(media-worker PRIVATE "-framework CoreFoundation" "-framework CoreGraphics"
-    "-framework Foundation" "-framework IOKit" "-framework SystemConfiguration")
+  target_link_libraries(media-worker PRIVATE gstbase-1.0 "-framework AppKit"
+    "-framework ApplicationServices" "-framework CoreFoundation" "-framework CoreGraphics"
+    "-framework CoreMedia" "-framework CoreVideo" "-framework Foundation" "-framework IOKit"
+    "-framework ScreenCaptureKit" "-framework SystemConfiguration" "-framework VideoToolbox")
 endif()
 if(BUILD_TESTING)
   foreach(name net-records input-policy transport-telemetry display-coordinates stream-profile peer-permission keyframe-limiter sdp-payload video-codec rate-control encoder-backend encoder-properties encoder-selection)
@@ -115,5 +120,11 @@ if(BUILD_TESTING)
     configure_worker_target(udp-ports-test)
     target_compile_options(udp-ports-test PRIVATE -UNDEBUG)
     add_test(NAME media-worker.udp-ports COMMAND udp-ports-test)
+    # VideoToolbox rate control from the same intents as encoder-properties.
+    add_executable(vt-rate-control-test tests/vt-rate-control.cpp)
+    configure_worker_target(vt-rate-control-test)
+    target_compile_options(vt-rate-control-test PRIVATE -UNDEBUG)
+    target_link_libraries(vt-rate-control-test PRIVATE gstreamer_sdk)
+    add_test(NAME media-worker.vt-rate-control COMMAND vt-rate-control-test)
   endif()
 endif()

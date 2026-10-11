@@ -7,6 +7,8 @@
 
 namespace platform {
 
+std::string input_unavailable_reason() { return {}; }
+
 static bool inject(INPUT &input) { return SendInput(1, &input, sizeof(input)) == 1; }
 
 static DesktopRect virtual_desktop() {

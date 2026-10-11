@@ -34,9 +34,16 @@ test('stop is idempotent, ignores other sessions and resolves after worker exit'
   assert.ok(child.exitCode !== null || child.signalCode !== null);
   await negotiation;
 });
-test('worker failure rejects negotiation and allows a clean retry', async () => {
-  const media = new NativeMedia({ hostControl: true });
-  await assert.rejects(media.offer('one', 'invalid'), /Invalid SDP/);
-  await assert.rejects(media.offer('two', 'invalid'), /Invalid SDP/);
-  media.stop('two');
-});
+// A session needs media-net, which on macOS waits for its sandbox (macOS plan, phase 4).
+const sessionsSkipped =
+  process.platform === 'darwin' && 'media-net needs its macOS sandbox first (macOS plan, phase 4)';
+test(
+  'worker failure rejects negotiation and allows a clean retry',
+  { skip: sessionsSkipped },
+  async () => {
+    const media = new NativeMedia({ hostControl: true });
+    await assert.rejects(media.offer('one', 'invalid'), /Invalid SDP/);
+    await assert.rejects(media.offer('two', 'invalid'), /Invalid SDP/);
+    media.stop('two');
+  },
+);

@@ -368,19 +368,19 @@ globally.
 
 ## Commands and ownership
 
-| Command                                   | Scope                                                              |
-| ----------------------------------------- | ------------------------------------------------------------------ |
-| `npm test`                                | Portable server, browser utility and tooling tests; no capture/GPU |
-| `npm test --workspace @vidvnc/server`     | Server-owned portable tests                                        |
-| `npm test --workspace @vidvnc/web-client` | Browser-owned utility tests                                        |
-| `npm run test:hardware`                   | Windows GPU worker and whole-system lifecycle checks               |
-| `npm run test:host`                       | Windows host runtime-contract tests                                |
-| `npm run build`                           | `build:native`, then `build:host`                                  |
-| `npm run build:native`                    | Native formatting, CMake Release build and module-local C++ tests  |
-| `npm run build:host`                      | Native WinUI/MSBuild project                                       |
-| `npm run package`                         | Every Windows package (see [Windows packages](#windows-packages))  |
-| `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                   |
-| `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them    |
+| Command                                   | Scope                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `npm test`                                | Portable server, browser utility and tooling tests; no capture/GPU                                     |
+| `npm test --workspace @vidvnc/server`     | Server-owned portable tests                                                                            |
+| `npm test --workspace @vidvnc/web-client` | Browser-owned utility tests                                                                            |
+| `npm run test:hardware`                   | Windows GPU worker and whole-system lifecycle checks; on macOS, the worker's capture and encode checks |
+| `npm run test:host`                       | Windows host runtime-contract tests                                                                    |
+| `npm run build`                           | `build:native`, then `build:host`                                                                      |
+| `npm run build:native`                    | Native formatting, CMake Release build and module-local C++ tests                                      |
+| `npm run build:host`                      | Native WinUI/MSBuild project                                                                           |
+| `npm run package`                         | Every Windows package (see [Windows packages](#windows-packages))                                      |
+| `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                                                       |
+| `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them                                        |
 
 For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`; on macOS
 configure `macos-arm64`, build/test `macos-arm64-release`.

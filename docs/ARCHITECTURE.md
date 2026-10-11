@@ -385,12 +385,42 @@ the process, display inventory, the video and audio pipelines and encoder probin
 sink, media-net's launch and port attestation, and media-net's own sandbox steps. The Windows
 implementation is in [platform/windows/](../native/media-worker/src/platform/windows/) (the
 code described here). The macOS one, in [platform/macos/](../native/media-worker/src/platform/macos/),
-has POSIX pipes, port attestation and `--adapters`; capture, encode, audio and input (phase
-3 of the [macOS plan](superpowers/plans/2026-10-09-macos-support.md)) and the launcher's
-sandbox profile (phase 4) fail by name until they land, and the worker never starts media-net
-or the relay without its sandbox. On macOS, media-net reports tier `none` and has no
-code guard; it is reached only by the check in
+has POSIX pipes, port attestation, `--adapters`, and capture, encode, audio and input
+([below](#capture-and-encode-on-macos)). The launcher's sandbox profile (phase 4 of the
+[macOS plan](superpowers/plans/2026-10-09-macos-support.md)) fails by name until it lands, and
+the worker never starts media-net or the relay without its sandbox, so a macOS worker cannot
+serve a viewer yet. On macOS, media-net reports tier `none` and has no code guard; it is
+reached only by the check in
 [media-net-posix.test.mjs](../native/media-worker/tests/media-net-posix.test.mjs) until then.
+
+### Capture and encode on macOS
+
+GStreamer has no ScreenCaptureKit source, and its `vtenc` does not expose VideoToolbox's
+low-latency rate control, so the macOS worker registers three GStreamer elements of its own
+([elements.hpp](../native/media-worker/src/platform/macos/elements.hpp)) and builds its
+pipelines from them, as the Windows layer builds them from `d3d11screencapturesrc` and the
+encoder families (design D1):
+
+| Element           | What it does                                                                                                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vidvncscreensrc` | One `SCStream` on the chosen display: NV12 IOSurface frames at the profile's size and rate, cursor drawn. A still screen sends no frames, so it repeats the last one at the profile's rate, as desktop duplication does. Started by the first answered viewer, like every source.                  |
+| `vidvncvtenc`     | A hardware `VTCompressionSession` with low-latency rate control, real time, no frame reordering, constrained-baseline H.264 or Main HEVC. Key frames on the GOP and on force-key-unit events. Output is Annex B with the parameter sets before each key frame, as the Windows encoders deliver it. |
+| `vidvncaudiosrc`  | ScreenCaptureKit system audio at 48 kHz stereo, leaving out this process and the ones that started it (the server, the app), into the same `audioconvert`, `opusenc` and `appsink` branch as on Windows.                                                                                           |
+
+Frames pass from source to encoder as IOSurface-backed `CVPixelBuffer`s attached to empty
+buffers (caps feature `memory:CVPixelBuffer`), so raw pixels never reach system memory. The
+encoder's rate control comes from the same intent as on Windows, mapped by
+[vt-rate-control.hpp](../native/media-worker/src/platform/macos/vt-rate-control.hpp):
+VideoToolbox refuses `ConstantBitRate` under low-latency rate control, so CBR is
+`AverageBitRate` with a one-second `DataRateLimits` at the same rate, and VBR the same
+average with the limit at the peak and the I-frame QP floor as `MinAllowedFrameQP`. The probe
+encodes 10 synthetic frames through a real session per codec before it reports
+`videotoolbox`; no Apple Silicon Mac has a hardware AV1 encoder, so AV1 is never offered, and
+there is no software fallback. Capture and audio need the Screen & System Audio Recording
+permission of the app that started VidVNC; without it the stream fails with that name.
+Displays are listed from `CGGetOnlineDisplayList` (a sleeping display stays listed), in
+global points, identified by a hash of the display UUID; mirrors are left out. A display
+that is unplugged, moved or changes mode underneath a stream fails it, as on Windows.
 
 ```mermaid
 sequenceDiagram
@@ -725,32 +755,34 @@ server defaults it to an empty list.
 
 ### Contract fields
 
-| Message      | Field                                    | Meaning                                                           |
-| ------------ | ---------------------------------------- | ----------------------------------------------------------------- |
-| probe result | `backends[].id`                          | `nvenc`, `qsv`, `amf`, `mediafoundation`; `videotoolbox` on macOS |
-| probe result | `backends[].onCaptureAdapter`            | Element sits on the GPU that captures                             |
-| probe result | `backends[].minimums[codec]`             | Smallest input the element accepts                                |
-| `start`      | `encoderBackend`                         | Host override, or absent for automatic                            |
-| `ready`      | `encoderBackend`, `encoderLabel`         | What was actually chosen                                          |
-| `ready`      | `encoder`                                | The GStreamer element name                                        |
-| `ready`      | `encoderReason`                          | `capture-adapter`, `forced`, `forced-unavailable`, `fixed-order`  |
-| `status`     | `encoders.available`, `encoders.setting` | Host-facing only; no client sees these                            |
+| Message             | Field                                    | Meaning                                                           |
+| ------------------- | ---------------------------------------- | ----------------------------------------------------------------- |
+| probe result        | `backends[].id`                          | `nvenc`, `qsv`, `amf`, `mediafoundation`; `videotoolbox` on macOS |
+| probe result        | `backends[].onCaptureAdapter`            | Element sits on the GPU that captures                             |
+| probe result        | `backends[].minimums[codec]`             | Smallest input the element accepts                                |
+| `start`             | `encoderBackend`                         | Host override, or absent for automatic                            |
+| `ready`             | `encoderBackend`, `encoderLabel`         | What was actually chosen                                          |
+| `ready`             | `encoder`                                | The GStreamer element name                                        |
+| `ready`             | `encoderReason`                          | `capture-adapter`, `forced`, `forced-unavailable`, `fixed-order`  |
+| `status`            | `encoders.available`, `encoders.setting` | Host-facing only; no client sees these                            |
+| `input-unavailable` | `reason`                                 | The worker cannot post input ([macOS](#input-and-control))        |
+| `status`            | `sessions[].streams[].inputUnavailable`  | That reason, or `null`                                            |
 
 There is no software encoder fallback. If no family delivers H.264 the worker fails
 the probe by name, listing every element it tried.
 
-The server, the stream policy and the CLI already accept `videotoolbox` (Apple
-VideoToolbox, [encoder-backends.mjs](../apps/server/src/encoder-backends.mjs)) as the
-policy id for macOS. The worker does not report it yet: its macOS encoder is phase 3 of the
-[macOS plan](superpowers/plans/2026-10-09-macos-support.md). On Windows a saved
-`videotoolbox` setting names hardware the machine lacks, so the worker picks automatically.
+`videotoolbox` (Apple VideoToolbox, [encoder-backends.mjs](../apps/server/src/encoder-backends.mjs))
+is the only backend on macOS, with the worker's own element `vidvncvtenc`
+([Capture and encode on macOS](#capture-and-encode-on-macos)). On Windows a saved
+`videotoolbox` setting names hardware the machine lacks, so the worker picks automatically,
+and on macOS a saved Windows backend does the same.
 
 ## Input and control
 
 Keyboard and mouse do **not** travel over HTTP. The browser opens a WebRTC data channel
 to the source's network process and sends `move`, `key`, `button` and `wheel` messages on
 it; media-net passes each message unchanged to the worker, whose broker turns the allowed
-ones into `SendInput` calls ([Network process](#network-process-media-net)). Input therefore takes the same path as the video and
+ones into `SendInput` calls (`CGEventPost` on macOS) ([Network process](#network-process-media-net)). Input therefore takes the same path as the video and
 inherits its latency, rather than queueing behind the signaling server.
 
 Because that channel bypasses the server, the worker enforces permission itself and
@@ -769,6 +801,19 @@ trusts nothing on the channel:
 - If the capture display changes underneath a session, the worker releases any held keys
   and buttons and fails the session rather than replaying input against different
   geometry.
+
+On macOS the input sink is `CGEventPost` at the HID level
+([input.mm](../native/media-worker/src/platform/macos/input.mm), design D4). Points map onto
+the display's bounds in global points; a move while a button is held posts a drag, and
+repeated clicks carry their click count so double-clicks work. Posting needs the owner to
+allow the app that started VidVNC in System Settings → Privacy & Security → Device Control &
+Data Access (Accessibility before macOS 27), and without that macOS drops posted events
+silently (gate MG3). So when a video source starts, the worker checks
+`CGPreflightPostEventAccess` and, if it is not allowed, sends the server
+`input-unavailable { reason }` and posts nothing it is sent. The server shows the reason as
+`inputUnavailable` on that stream in `status`, and the CLI's `sessions` prints it. Control
+can still be granted; it has no effect until the owner allows it and the stream restarts.
+Windows never sends `input-unavailable`.
 
 Granting control to a second peer revokes it from the first; only one peer holds it.
 
@@ -1684,14 +1729,16 @@ The macOS worker builds with Apple clang through CMake's Xcode generator (preset
 against the GStreamer framework the user installed: `~/Library/Frameworks`, else
 `/Library/Frameworks`, or `GSTREAMER_ROOT`. Every checkout uses that one copy; nothing is
 linked into `.deps`. Its CTest suite is the portable unit tests plus port attestation
-(`udp-ports`), and the input-policy test also checks the macOS key table against the SDK's
-`kVK_*` names.
+(`udp-ports`) and the VideoToolbox rate-control mapping (`vt-rate-control`), and the
+input-policy test also checks the macOS key table against the SDK's `kVK_*` names.
 
 `npm test` is portable and uses stubbed hardware. On a Mac with the worker built it also runs
 [media-net-posix.test.mjs](../native/media-worker/tests/media-net-posix.test.mjs), the real
-media-net over POSIX pipes. `npm run test:hardware` explicitly
-requires Windows 25H2+, a GPU with a supported hardware encoder (NVIDIA, Intel or AMD)
-and an interactive desktop. CTest registers the native unit suites; assert-based checks
+media-net over POSIX pipes. `npm run test:hardware` requires Windows 25H2+, a GPU with a
+supported hardware encoder (NVIDIA, Intel or AMD) and an interactive desktop, or macOS 27
+with Screen & System Audio Recording allowed for the terminal that runs it. On macOS it runs
+the worker's checks (probe, self-tests, H.264 and HEVC) and skips the session checks, which
+need media-net's sandbox (phase 4 of the macOS plan), and the Windows host tests. CTest registers the native unit suites; assert-based checks
 remain enabled in Release.
 The GitHub Actions workflow `Portable checks` runs formatting and portable tests on
 Windows, macOS and Linux. It runs only when started manually from the Actions tab, not

@@ -26,11 +26,13 @@ export async function testFiles(directoryUrl) {
 
 export async function discoverTests(mode) {
   if (!['portable', 'server', 'hardware'].includes(mode)) throw new Error('Unknown test suite');
-  if (mode === 'hardware' && process.platform !== 'win32')
-    throw new Error('Hardware suite requires Windows 11 25H2 and NVIDIA');
+  const mac = process.platform === 'darwin';
+  if (mode === 'hardware' && process.platform !== 'win32' && !mac)
+    throw new Error('Hardware suite requires Windows 11 25H2 or macOS 27');
+  // On macOS the suite is the worker's own checks: tests/system drives the Windows host.
   const directories =
     mode === 'hardware'
-      ? ['apps/server/tests', 'native/media-worker/tests', 'tests/system']
+      ? ['apps/server/tests', 'native/media-worker/tests', ...(mac ? [] : ['tests/system'])]
       : mode === 'server'
         ? ['apps/server/tests']
         : [

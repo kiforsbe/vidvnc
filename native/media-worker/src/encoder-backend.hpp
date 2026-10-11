@@ -43,7 +43,8 @@ struct EncoderDialect {
 };
 
 struct EncoderBackend {
-    std::string id;    // Policy/protocol identifier: "nvenc", "qsv", "amf", "mediafoundation".
+    std::string id;    // Policy/protocol identifier: "nvenc", "qsv", "amf", "mediafoundation",
+                       // "videotoolbox".
     std::string label; // Display name.
     EncoderDialect dialect;
     std::vector<CodecSupport> codecs;
@@ -124,7 +125,19 @@ inline const std::vector<EncoderBackend> &encoder_backends() {
           {},
           "",
           {{"low-latency", "true"}}},
-         {{"h264", "mfh264enc", {64, 64}}, {"h265", "mfh265enc", {64, 64}}}}};
+         {{"h264", "mfh264enc", {64, 64}}, {"h265", "mfh265enc", {64, 64}}}},
+#ifdef __APPLE__
+        // macOS has this family alone (design D1). Its element is the worker's own, registered
+        // by platform/macos/, and drives VTCompressionSession directly: rate control is set
+        // through VideoToolbox (platform/macos/vt-rate-control.hpp), not through GStreamer
+        // properties, so the dialect is empty. One GPU means no adapter affinity. The hardware
+        // has no AV1 encoder on any Apple Silicon Mac so far, so there is no AV1 row.
+        {"videotoolbox",
+         "Apple VideoToolbox",
+         {},
+         {{"h264", "vidvncvtenc", {64, 64}}, {"h265", "vidvncvtenc", {64, 64}}}},
+#endif
+    };
     return table;
 }
 
@@ -133,6 +146,16 @@ inline const EncoderBackend *find_encoder_backend(const std::string &id) {
         if (backend.id == id)
             return &backend;
     return nullptr;
+}
+
+// The backend the self-tests use when none is named: NVENC on Windows, as it always was, and
+// the only family there is on macOS.
+inline const char *default_encoder_backend_id() {
+#ifdef __APPLE__
+    return "videotoolbox";
+#else
+    return "nvenc";
+#endif
 }
 
 // Empty when this family has no encoder for the codec. Media Foundation and AV1 is the normal

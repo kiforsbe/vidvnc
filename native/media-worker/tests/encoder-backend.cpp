@@ -5,7 +5,24 @@ int main() {
     const auto &table = encoder_backends();
 
     // Order is the fixed tie-break used when no candidate sits on the capture adapter.
+#ifdef __APPLE__
+    // VideoToolbox follows the four Windows families, and only on macOS.
+    assert(table.size() == 5);
+    const auto *vt = find_encoder_backend("videotoolbox");
+    assert(vt && &table[4] == vt);
+    assert(find_encoder_backend(default_encoder_backend_id()) == vt);
+    assert(vt->label == "Apple VideoToolbox");
+    assert(encoder_element(*vt, "h264") == "vidvncvtenc");
+    assert(encoder_element(*vt, "h265") == "vidvncvtenc");
+    // No Apple Silicon Mac has a hardware AV1 encoder, and there is no software fallback.
+    assert(encoder_element(*vt, "av1").empty());
+    // Its rate control is not a GStreamer property dialect (vt-rate-control.hpp).
+    assert(vt->dialect.rc_mode_property.empty() && vt->dialect.low_latency.empty());
+#else
     assert(table.size() == 4);
+    assert(!find_encoder_backend("videotoolbox"));
+    assert(find_encoder_backend(default_encoder_backend_id()) == &table[0]);
+#endif
     assert(table[0].id == "nvenc");
     assert(table[1].id == "qsv");
     assert(table[2].id == "amf");
@@ -41,6 +58,8 @@ int main() {
 
     // A backend left half-declared must fail here rather than at pipeline parse.
     for (const auto &backend : table) {
+        if (backend.id == "videotoolbox")
+            continue;
         const auto &dialect = backend.dialect;
         assert(!backend.label.empty());
         assert(!dialect.rc_mode_property.empty());
@@ -71,7 +90,7 @@ int main() {
     assert(amf->dialect.vbr_value == "vbr");
     assert(mf->dialect.vbr_value == "pcvbr");
     for (const auto &backend : table)
-        assert(backend.dialect.cbr_value == "cbr");
+        assert(backend.id == "videotoolbox" || backend.dialect.cbr_value == "cbr");
 
     assert(nvenc->dialect.qp_floor_i_properties == std::vector<std::string>{"qp-min-i"});
     assert(nvenc->dialect.qp_floor_p_properties == std::vector<std::string>{"qp-min-p"});

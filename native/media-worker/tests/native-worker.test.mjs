@@ -71,7 +71,7 @@ test('native preflight reports real primary display and required hardware plugin
   assert.equal(result.code, 0, result.stderr);
   const info = JSON.parse(result.stdout);
   assert.ok(info.width > 0 && info.height > 0);
-  assert.equal(info.capture, 'dxgi');
+  assert.equal(info.capture, process.platform === 'darwin' ? 'screencapturekit' : 'dxgi');
   assert.ok(Array.isArray(info.codecs));
   assert.equal(info.codecs[0], 'h264');
   // `encoder` is now whichever element selection would choose here, not a constant.
@@ -117,8 +117,9 @@ test('adapter affinity resolves the capture adapter and picks an encoder on it',
     return;
   }
   // Element name prefixes per backend (encoder-backend.hpp): NVENC uses nvd3d11*, Media
-  // Foundation mf*; Quick Sync and AMF elements start with their backend id.
-  const prefix = { nvenc: 'nvd3d11', mediafoundation: 'mf' };
+  // Foundation mf*, VideoToolbox the worker's own vidvncvtenc; Quick Sync and AMF elements
+  // start with their backend id.
+  const prefix = { nvenc: 'nvd3d11', mediafoundation: 'mf', videotoolbox: 'vidvncvtenc' };
   const chosen = info.backends.find((backend) =>
     info.encoder.startsWith(prefix[backend.id] ?? backend.id),
   );
@@ -155,19 +156,26 @@ test('mobile encoder emits Level 3.1 and responds to force-key-unit', async () =
   assert.ok(value.forceEvents >= 1);
   assert.ok(value.keyframes >= 5, JSON.stringify(value));
 });
-test('native session fails a malformed peer without failing its source or starting capture', async () => {
-  // The peer is sent before `ready`, as the server does; the worker holds it until the
-  // sandboxed network process is up, which then refuses the SDP.
-  const result = await run('--session', { until: /peer-failed/ });
-  assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(
-    result.stdout
-      .trim()
-      .split(/\r?\n/)
-      .map((line) => JSON.parse(line)),
-    [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
-  );
-});
+// A session needs media-net, which on macOS waits for its sandbox (macOS plan, phase 4).
+const sessionsSkipped =
+  process.platform === 'darwin' && 'media-net needs its macOS sandbox first (macOS plan, phase 4)';
+test(
+  'native session fails a malformed peer without failing its source or starting capture',
+  { skip: sessionsSkipped },
+  async () => {
+    // The peer is sent before `ready`, as the server does; the worker holds it until the
+    // sandboxed network process is up, which then refuses the SDP.
+    const result = await run('--session', { until: /peer-failed/ });
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(
+      result.stdout
+        .trim()
+        .split(/\r?\n/)
+        .map((line) => JSON.parse(line)),
+      [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
+    );
+  },
+);
 test('an unknown ICE bind, or a session without the host lease, stops the worker', async () => {
   const invalid = await run('--session', { env: { VIDVNC_ICE_BIND: 'any' } });
   assert.equal(invalid.code, 2);
