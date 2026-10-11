@@ -1,203 +1,281 @@
-// Generates the Windows host's notification-area (tray) icons: one SVG per state and
-// taskbar theme, PNGs at 16, 20, 24 and 32 px, a multi-size .ico for each, and
-// preview.png. Run from the repository root on a Mac:
+// Generates the Windows host's notification-area (tray) icons. Run from the repository
+// root on a Mac:
 //   swift docs/design/windows-host-previz/tray/make-tray-icons.swift
 //
-// Each size is drawn on its own pixel grid with 1 px strokes on half-pixel centres, the way
-// Windows 11's own tray glyphs are, so lines stay crisp at 100%, 125%, 150% and 200%.
+// Follows the same conventions as the tray icons of kiforsbe/agenda, so both apps look alike
+// in the notification area:
+// - each size (16, 20, 24, 32, 40, 48, 64 px) is drawn separately, not resampled;
+// - strokes are size/16 px wide, on the pixel grid, with anti-aliasing off, so a 16 px icon
+//   is solid pixels rather than grey half-tones;
+// - ink is white for a dark taskbar and RGB 26,26,26 for a light one, and the app swaps
+//   between the two when the taskbar theme changes;
+// - entries are uncompressed 32-bit DIBs, the layout Windows' own icons use.
+//
+// It writes one .ico per state and theme plus preview.png here, and the two icons the
+// Windows host embeds today (apps/windows-host/Assets/VidVnc.tray-on-{dark,light}.ico,
+// the "sharing" glyph).
 
 import AppKit
 
 let out = URL(filePath: "docs/design/windows-host-previz/tray")
-let sizes = [16, 20, 24, 32]
+let hostAssets = URL(filePath: "apps/windows-host/Assets")
+let sizes = [16, 20, 24, 32, 40, 48, 64]
 
 enum Badge { case none, remote, controlling, attention, error }
 
 struct State {
   var name: String
-  var screenOn: Bool
+  var arrow: Bool
   var badge: Badge
   var label: String
 }
 
 let states = [
-  State(name: "off", screenOn: false, badge: .none, label: "Sharing off"),
-  State(name: "sharing", screenOn: true, badge: .none, label: "Sharing"),
-  State(name: "remote", screenOn: true, badge: .remote, label: "Remote access"),
-  State(name: "controlling", screenOn: true, badge: .controlling, label: "Controlling"),
-  State(name: "attention", screenOn: true, badge: .attention, label: "Needs attention"),
-  State(name: "error", screenOn: false, badge: .error, label: "Stopped"),
+  State(name: "off", arrow: false, badge: .none, label: "Sharing off"),
+  State(name: "sharing", arrow: true, badge: .none, label: "Sharing"),
+  State(name: "remote", arrow: true, badge: .remote, label: "Remote access"),
+  State(name: "controlling", arrow: true, badge: .controlling, label: "Controlling"),
+  State(name: "attention", arrow: true, badge: .attention, label: "Needs attention"),
+  State(name: "error", arrow: false, badge: .error, label: "Stopped"),
 ]
 
-// Glyph colours match the taskbar theme, like the system's own tray icons.
-let themes = [("dark", "#FFFFFF"), ("light", "#1B1B1B")]
-let amber = "#FCB900"
-let red = "#E81123"
+struct RGB { var r, g, b: CGFloat }
+let themes: [(String, RGB)] = [
+  ("dark", RGB(r: 1, g: 1, b: 1)),
+  ("light", RGB(r: 26 / 255, g: 26 / 255, b: 26 / 255)),
+]
+let amber = RGB(r: 252 / 255, g: 185 / 255, b: 0)
+let red = RGB(r: 232 / 255, g: 17 / 255, b: 35 / 255)
 
-/// Builds the SVG for one state at one pixel size. Coordinates are in pixels.
-func svg(_ state: State, size: Int, glyph: String) -> String {
-  let s = Double(size)
-  let u = s / 16  // one design unit
-  let stroke = max(1, u.rounded(.down))
-  // Odd stroke widths sit on half-pixel centres, even ones on whole pixels, so edges stay
-  // on the pixel grid.
-  let shift = stroke.truncatingRemainder(dividingBy: 2) == 1 ? 0.5 : 0
-  func px(_ v: Double) -> Double { (v * u).rounded(.down) + shift }
+func color(_ c: RGB) -> CGColor { CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
 
-  // Monitor: screen, neck and foot, leaving the lower-right corner for a badge.
-  let left = px(0.6), right = px(14.6), top = px(2), bottom = px(11)
-  let neckX = px(7.6)
-  let foot = px(14)
+/// Draws one state at one size, with y going down and no anti-aliasing.
+func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
+  let context = CGContext(
+    data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+  context.translateBy(x: 0, y: CGFloat(n))
+  context.scaleBy(x: 1, y: -1)
+  context.setShouldAntialias(false)
+  context.setAllowsAntialiasing(false)
+
+  let s = CGFloat(n), u = s / 16
+  let stroke = max(1, (s / 16).rounded(.down))
+  // Odd strokes are centred on half pixels, even ones on whole pixels.
+  let shift: CGFloat = Int(stroke) % 2 == 1 ? 0.5 : 0
+  func g(_ v: CGFloat) -> CGFloat { (v * u).rounded(.down) + shift }
+
+  context.setLineWidth(stroke)
+  context.setLineCap(.square)
+  context.setStrokeColor(color(ink))
+  context.setFillColor(color(ink))
+
+  // Monitor: screen edge to edge, neck and foot.
+  let left = stroke / 2, right = s - stroke / 2
+  let top = g(1), bottom = g(11)
+  let neck = g(7.5)
+  let foot = g(14)
   let footHalf = (3 * u).rounded()
-  var body = """
-    <rect x="\(left)" y="\(top)" width="\(right - left)" height="\(bottom - top)" rx="\(u)" fill="none" stroke="\(glyph)" stroke-width="\(stroke)"/>
-    <path d="M\(neckX) \(bottom) V\(foot) M\(neckX - footHalf) \(foot) H\(neckX + footHalf)" fill="none" stroke="\(glyph)" stroke-width="\(stroke)"/>
-    """
-  if state.screenOn {
-    // Share-screen arrow, as in Fluent's "Share screen" glyph.
-    let tipY = px(4), baseY = px(9), head = (2 * u).rounded()
-    body += """
-      <path d="M\(neckX) \(baseY) V\(tipY) M\(neckX - head) \(tipY + head) L\(neckX) \(tipY) L\(neckX + head) \(tipY + head)" fill="none" stroke="\(glyph)" stroke-width="\(stroke)" stroke-linecap="square"/>
-      """
+  let radius = max(1, u)
+  context.addPath(
+    CGPath(
+      roundedRect: CGRect(x: left, y: top, width: right - left, height: bottom - top),
+      cornerWidth: radius, cornerHeight: radius, transform: nil))
+  context.move(to: CGPoint(x: neck, y: bottom))
+  context.addLine(to: CGPoint(x: neck, y: foot))
+  context.move(to: CGPoint(x: neck - footHalf, y: foot))
+  context.addLine(to: CGPoint(x: neck + footHalf, y: foot))
+  if state.arrow {
+    // Share-screen arrow: a shaft and a 45° head, so the stair steps stay even.
+    let tip = g(3.5), base = g(8.5), head = (2 * u).rounded()
+    context.move(to: CGPoint(x: neck, y: base))
+    context.addLine(to: CGPoint(x: neck, y: tip))
+    context.move(to: CGPoint(x: neck - head, y: tip + head))
+    context.addLine(to: CGPoint(x: neck, y: tip))
+    context.addLine(to: CGPoint(x: neck + head, y: tip + head))
   }
+  context.strokePath()
 
-  // Badge in the lower-right corner, with a transparent gap cut around it.
-  let cx = s - 3 * u, cy = s - 3 * u, r = 3 * u, gap = r + max(1, u)
-  var badge = ""
-  switch state.badge {
-  case .none: break
-  case .remote:
-    badge = """
-      <circle cx="\(cx)" cy="\(cy)" r="\(r - stroke / 2)" fill="none" stroke="\(glyph)" stroke-width="\(stroke)"/>
-      \(size < 20 ? "" : "<ellipse cx=\"\(cx)\" cy=\"\(cy)\" rx=\"\(r * 0.42)\" ry=\"\(r - stroke / 2)\" fill=\"none\" stroke=\"\(glyph)\" stroke-width=\"\(stroke)\"/>")
-      <path d="M\(cx - r) \(cy) H\(cx + r)" stroke="\(glyph)" stroke-width="\(stroke)"/>
-      """
-  case .controlling:
-    // Pointer arrow, tip at the top left of the badge area.
-    let x = cx - r * 0.9, y = cy - r * 1.05, h = r * 2.1
-    badge = """
-      <path d="M\(x) \(y) L\(x) \(y + h) L\(x + h * 0.3) \(y + h * 0.72) L\(x + h * 0.55) \(y + h) L\(x + h * 0.7) \(y + h * 0.9) L\(x + h * 0.48) \(y + h * 0.62) L\(x + h * 0.82) \(y + h * 0.62) Z" fill="\(glyph)"/>
-      """
-  case .attention:
-    badge = "<circle cx=\"\(cx)\" cy=\"\(cy)\" r=\"\(r * 0.8)\" fill=\"\(amber)\"/>"
-  case .error:
-    let d = r * 0.42
-    badge = """
-      <circle cx="\(cx)" cy="\(cy)" r="\(r)" fill="\(red)"/>
-      <path d="M\(cx - d) \(cy - d) L\(cx + d) \(cy + d) M\(cx + d) \(cy - d) L\(cx - d) \(cy + d)" stroke="#FFFFFF" stroke-width="\(stroke)" stroke-linecap="round"/>
-      """
+  guard let pattern = badges[state.badge] else { return context.makeImage()! }
+
+  // Badge in the lower-right corner: a 7×7 pixel pattern scaled by whole pixels (one per
+  // stroke width), with a transparent gap of one stroke cut around it, like the check on
+  // Windows' Safely Remove Hardware icon.
+  let k = Int(stroke), size = 7 * k, origin = n - size
+  var cells: [(Int, Int, Character)] = []
+  for (row, line) in pattern.enumerated() {
+    for (column, mark) in line.enumerated() where mark != "." {
+      cells.append((origin + column * k, origin + row * k, mark))
+    }
   }
-
-  let masked: String
-  if state.badge == .none {
-    masked = body
-  } else {
-    masked = """
-      <mask id="cut"><rect width="\(size)" height="\(size)" fill="#fff"/><circle cx="\(cx)" cy="\(cy)" r="\(gap)" fill="#000"/></mask>
-      <g mask="url(#cut)">\(body)</g>
-      \(badge)
-      """
+  context.setBlendMode(.clear)
+  for (x, y, _) in cells {
+    context.fill(CGRect(x: x - k, y: y - k, width: 3 * k, height: 3 * k))
   }
-  return """
-    <svg xmlns="http://www.w3.org/2000/svg" width="\(size)" height="\(size)" viewBox="0 0 \(size) \(size)">
-    \(masked)
-    </svg>
-
-    """
+  context.setBlendMode(.normal)
+  for (x, y, mark) in cells {
+    let fill: RGB =
+      switch mark {
+      case "a": amber
+      case "r": red
+      case "w": RGB(r: 1, g: 1, b: 1)
+      default: ink
+      }
+    context.setFillColor(color(fill))
+    context.fill(CGRect(x: x, y: y, width: k, height: k))
+  }
+  return context.makeImage()!
 }
 
-func render(_ svgText: String, size: Int) -> NSBitmapImageRep {
-  let image = NSImage(data: Data(svgText.utf8))!
-  let rep = NSBitmapImageRep(
-    bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8,
-    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-    bytesPerRow: 0, bitsPerPixel: 0)!
-  rep.size = NSSize(width: size, height: size)
-  NSGraphicsContext.saveGraphicsState()
-  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-  image.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
-  NSGraphicsContext.restoreGraphicsState()
-  return rep
-}
+/// 7×7 badge patterns: `#` is the glyph's ink, `a` amber, `r` red, `w` white.
+let badges: [Badge: [String]] = [
+  .remote: [
+    "..###..",
+    ".#.#.#.",
+    "#..#..#",
+    "#######",
+    "#..#..#",
+    ".#.#.#.",
+    "..###..",
+  ],
+  .controlling: [
+    "#......",
+    "##.....",
+    "###....",
+    "####...",
+    "#####..",
+    "##.##..",
+    "#...##.",
+  ],
+  .attention: [
+    "..aaa..",
+    ".aaaaa.",
+    "aaaaaaa",
+    "aaaaaaa",
+    "aaaaaaa",
+    ".aaaaa.",
+    "..aaa..",
+  ],
+  .error: [
+    "..rrr..",
+    ".rrrrr.",
+    "rrwrwrr",
+    "rrrwrrr",
+    "rrwrwrr",
+    ".rrrrr.",
+    "..rrr..",
+  ],
+]
 
-/// A .ico whose entries are PNGs (supported since Windows Vista).
-func ico(_ pngs: [(Int, Data)]) -> Data {
+/// A 32-bit BGRA DIB icon entry: BITMAPINFOHEADER, bottom-up pixels, then the 1-bit AND mask.
+func dib(_ image: CGImage) -> Data {
+  let n = image.width
+  var rgba = [UInt8](repeating: 0, count: n * n * 4)
+  let context = CGContext(
+    data: &rgba, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+  context.draw(image, in: CGRect(x: 0, y: 0, width: n, height: n))
   var data = Data()
   func u16(_ v: Int) { data.append(contentsOf: [UInt8(v & 0xFF), UInt8(v >> 8 & 0xFF)]) }
   func u32(_ v: Int) { u16(v & 0xFFFF); u16(v >> 16 & 0xFFFF) }
-  u16(0); u16(1); u16(pngs.count)
-  var offset = 6 + 16 * pngs.count
-  for (size, png) in pngs {
-    data.append(UInt8(size % 256)); data.append(UInt8(size % 256))
-    data.append(0); data.append(0)
-    u16(1); u16(32); u32(png.count); u32(offset)
-    offset += png.count
+  let maskStride = ((n + 31) / 32) * 4
+  u32(40); u32(n); u32(n * 2); u16(1); u16(32); u32(0); u32(n * n * 4 + maskStride * n)
+  u32(0); u32(0); u32(0); u32(0)
+  // The bitmap context's first row is the top row; DIB rows go bottom first.
+  for y in (0..<n).reversed() {
+    for x in 0..<n {
+      let i = (y * n + x) * 4
+      let a = rgba[i + 3]
+      func un(_ c: UInt8) -> UInt8 { a == 0 ? 0 : UInt8(min(255, Int(c) * 255 / Int(a))) }
+      data.append(contentsOf: [un(rgba[i + 2]), un(rgba[i + 1]), un(rgba[i]), a])
+    }
   }
-  for (_, png) in pngs { data.append(png) }
+  for y in (0..<n).reversed() {
+    var row = [UInt8](repeating: 0, count: maskStride)
+    for x in 0..<n where rgba[(y * n + x) * 4 + 3] == 0 { row[x / 8] |= 0x80 >> UInt8(x % 8) }
+    data.append(contentsOf: row)
+  }
+  return data
+}
+
+func ico(_ entries: [(Int, Data)]) -> Data {
+  var data = Data()
+  func u16(_ v: Int) { data.append(contentsOf: [UInt8(v & 0xFF), UInt8(v >> 8 & 0xFF)]) }
+  func u32(_ v: Int) { u16(v & 0xFFFF); u16(v >> 16 & 0xFFFF) }
+  u16(0); u16(1); u16(entries.count)
+  var offset = 6 + 16 * entries.count
+  for (size, payload) in entries {
+    data.append(UInt8(size)); data.append(UInt8(size)); data.append(0); data.append(0)
+    u16(1); u16(32); u32(payload.count); u32(offset)
+    offset += payload.count
+  }
+  for (_, payload) in entries { data.append(payload) }
   return data
 }
 
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-var previews: [String: [String: NSBitmapImageRep]] = [:]
-for (theme, glyph) in themes {
+var images: [String: CGImage] = [:]
+for (theme, ink) in themes {
   for state in states {
     var entries: [(Int, Data)] = []
     for size in sizes {
-      let text = svg(state, size: size, glyph: glyph)
-      let rep = render(text, size: size)
-      let png = rep.representation(using: .png, properties: [:])!
-      entries.append((size, png))
-      previews["\(theme)-\(state.name)", default: [:]]["\(size)"] = rep
-      if size == 16 {
-        try text.write(to: out.appending(path: "vidvnc-\(state.name)-\(theme).svg"), atomically: true, encoding: .utf8)
-      }
+      let image = draw(state, size: size, ink: ink)
+      images["\(theme)-\(state.name)-\(size)"] = image
+      entries.append((size, dib(image)))
     }
-    try ico(entries).write(to: out.appending(path: "vidvnc-\(state.name)-\(theme).ico"))
+    let file = ico(entries)
+    try file.write(to: out.appending(path: "vidvnc-\(state.name)-\(theme).ico"))
+    if state.name == "sharing" {
+      try file.write(to: hostAssets.appending(path: "VidVnc.tray-on-\(theme).ico"))
+    }
   }
 }
 
-// Preview sheet: each theme on its taskbar colour, every state at every size, magnified 4×
-// with nearest-neighbour scaling so individual pixels are visible.
-let zoom = 4, cell = 32 * zoom + 24, labelHeight = 28
-let width = 120 + states.count * cell
-let rowHeight = sizes.count * (32 * zoom / 2 + 12) + 12
+// Preview: each theme on its taskbar colour, every state at 16–32 px magnified 8× with
+// nearest-neighbour scaling, and at actual pixel size beside it.
+let previewSizes = [16, 20, 24, 32]
+let zoom = 8, labelHeight = 40, labelWidth = 220, gutter = 24
+let cell = 32 * zoom + 32 + 2 * gutter
+let width = labelWidth + states.count * cell
+let rowHeight = previewSizes.reduce(0) { $0 + $1 * zoom + gutter } + gutter
 let height = labelHeight + themes.count * rowHeight
-let sheet = NSImage(size: NSSize(width: width, height: height))
-sheet.lockFocus()
-NSColor.white.setFill()
-NSRect(x: 0, y: 0, width: width, height: height).fill()
-let font = NSFont.systemFont(ofSize: 13)
+let canvas = CGContext(
+  data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+canvas.interpolationQuality = .none
+canvas.setFillColor(CGColor(gray: 1, alpha: 1))
+canvas.fill(CGRect(x: 0, y: 0, width: width, height: height))
+let ns = NSGraphicsContext(cgContext: canvas, flipped: false)
+NSGraphicsContext.current = ns
+let font = NSFont.systemFont(ofSize: 22)
 for (i, state) in states.enumerated() {
   (state.label as NSString).draw(
-    at: NSPoint(x: 120 + i * cell, y: height - labelHeight + 6),
+    at: NSPoint(x: labelWidth + i * cell, y: height - labelHeight + 8),
     withAttributes: [.font: font, .foregroundColor: NSColor.black])
 }
 for (t, (theme, _)) in themes.enumerated() {
   let top = height - labelHeight - t * rowHeight
-  let bg = theme == "dark" ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.93, alpha: 1)
-  bg.setFill()
-  NSRect(x: 0, y: top - rowHeight, width: width, height: rowHeight).fill()
+  canvas.setFillColor(CGColor(gray: theme == "dark" ? 0.13 : 0.93, alpha: 1))
+  canvas.fill(CGRect(x: 0, y: top - rowHeight, width: width, height: rowHeight))
   let fg = theme == "dark" ? NSColor.white : NSColor.black
-  var y = top - 12
-  for size in sizes {
-    let h = size * zoom / 2
+  var y = top - gutter
+  for size in previewSizes {
+    let h = size * zoom
     y -= h
     ("\(theme) \(size) px" as NSString).draw(
-      at: NSPoint(x: 10, y: y + h / 2 - 8), withAttributes: [.font: font, .foregroundColor: fg])
+      at: NSPoint(x: 16, y: y + h / 2 - 12), withAttributes: [.font: font, .foregroundColor: fg])
     for (i, state) in states.enumerated() {
-      let rep = previews["\(theme)-\(state.name)"]!["\(size)"]!
-      NSGraphicsContext.current?.imageInterpolation = .none
-      rep.draw(in: NSRect(x: 120 + i * cell, y: y, width: h, height: h), from: .zero,
-        operation: .sourceOver, fraction: 1, respectFlipped: false, hints: [.interpolation: NSImageInterpolation.none.rawValue])
-      // Actual size beside the magnified one.
-      rep.draw(in: NSRect(x: 120 + i * cell + h + 10, y: y, width: size, height: size), from: .zero,
-        operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+      let image = images["\(theme)-\(state.name)-\(size)"]!
+      canvas.draw(image, in: CGRect(x: labelWidth + i * cell, y: y, width: h, height: h))
+      canvas.draw(image, in: CGRect(x: labelWidth + i * cell + h + gutter, y: y, width: size, height: size))
     }
-    y -= 12
+    y -= gutter
   }
 }
-sheet.unlockFocus()
-let tiff = sheet.tiffRepresentation!
-try NSBitmapImageRep(data: tiff)!.representation(using: .png, properties: [:])!
+NSGraphicsContext.current = nil
+try NSBitmapImageRep(cgImage: canvas.makeImage()!).representation(using: .png, properties: [:])!
   .write(to: out.appending(path: "preview.png"))
-print("Wrote \(states.count * themes.count) icons and preview.png to \(out.path)")
+print("Wrote \(states.count * themes.count) icons, preview.png and the two host tray icons")

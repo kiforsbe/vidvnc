@@ -25,21 +25,28 @@ off so that closing the window stops sharing; VidVNC stays in the notification a
 way. This matches the macOS host, which stays in the menu bar
 ([prototype](../../../apps/macos-host/README.md#ui-prototype)).
 
-### Tray icon states (proposal)
+### Tray icon
 
-The tray currently shows one glyph, a monitor with a play triangle, in white or black to
-match the taskbar. [tray/preview.png](tray/preview.png) proposes a version for each state,
-in the same style: thin single-colour line glyphs drawn on each size's pixel grid (16, 20,
-24 and 32 px for 100% to 200% scaling) so they stay crisp. A plain monitor outline means
-sharing is off; the Fluent share-screen arrow inside it means sharing is on. State badges
-sit in the lower-right corner with a transparent gap, like the system's Safely Remove
-Hardware check: a globe for remote access, a pointer when someone is controlling, an amber
-dot when something needs attention (an approval or a new network) and a red cross when
-the server stopped unexpectedly. Only the warning badges use colour. These match the
-macOS menu bar states and are not used by the Windows host yet.
+The tray icons follow the same conventions as the tray icons of
+[Agenda](https://github.com/kiforsbe/agenda) (its `scripts/create-assets.ps1`), so the two
+apps look alike in the notification area: each size (16, 20, 24, 32, 40, 48 and 64 px) is
+drawn separately, strokes are size/16 px wide on the pixel grid with anti-aliasing off, the
+ink is white for a dark taskbar and RGB 26,26,26 for a light one, and the entries are
+uncompressed 32-bit DIBs. The glyph is a monitor outline with the Fluent share-screen arrow
+inside it. The Windows host embeds that "sharing" glyph as
+`apps/windows-host/Assets/VidVnc.tray-on-dark.ico` and `VidVnc.tray-on-light.ico` and shows
+it in every state; the tooltip says the state.
 
-[tray/make-tray-icons.swift](tray/make-tray-icons.swift) generates the SVGs (16 px
-master), the multi-size `-dark` and `-light` `.ico` files and the preview on a Mac:
+[tray/preview.png](tray/preview.png) also proposes a version for each state: a plain
+outline when sharing is off, and 7×7 pixel badges in the lower-right corner, cut out with a
+one-pixel gap like the check on Windows' Safely Remove Hardware icon: a globe for remote
+access, a pointer when someone is controlling, an amber dot when something needs attention
+(an approval or a new network) and a red cross when the server stopped unexpectedly. Only
+the warning badges use colour. These match the macOS menu bar states; the Windows host
+doesn't switch between them yet.
+
+[tray/make-tray-icons.swift](tray/make-tray-icons.swift) writes all of these (the per-state
+`.ico` files, the preview and the two host icons) on a Mac:
 `swift docs/design/windows-host-previz/tray/make-tray-icons.swift`.
 
 ## Session stability addition
