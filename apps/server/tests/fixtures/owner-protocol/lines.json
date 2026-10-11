@@ -50,7 +50,10 @@
             "bitrateKbps": 4000,
             "bitrateMode": "cbr",
             "quality": "balanced",
-            "frameDelivery": "fixed"
+            "frameDelivery": "fixed",
+            "sizing": "height",
+            "scalePercent": 100,
+            "aspect": "keep"
           }
         ],
         "defaultProfileId": "auto",
@@ -192,7 +195,10 @@
             "bitrateKbps": 4000,
             "bitrateMode": "cbr",
             "quality": "balanced",
-            "frameDelivery": "fixed"
+            "frameDelivery": "fixed",
+            "sizing": "height",
+            "scalePercent": 100,
+            "aspect": "keep"
           }
         ],
         "defaultProfileId": "auto",

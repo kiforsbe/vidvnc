@@ -378,7 +378,7 @@ test('profiles list in client order; profile add uses host defaults and slug IDs
   const { run, context } = await offline(t);
   assert.match(
     (await run('profiles')).text,
-    /^1\s+iphone-720p-test\s+iPhone 720p\s+1280×720\s+15\s+1 Mbit\/s\s+yes\s+Conservative starting point for iPhone$/m,
+    /^1\s+iphone-720p-test\s+iPhone 720p\s+720 high\s+15\s+1 Mbit\/s\s+yes\s+Conservative starting point for iPhone$/m,
   );
   assert.equal(
     (await run('profile add "Office desk" --fps 60 --description "Desk monitor"')).text,
@@ -396,6 +396,9 @@ test('profiles list in client order; profile add uses host defaults and slug IDs
     bitrateMode: 'cbr',
     quality: 'balanced',
     frameDelivery: 'fixed',
+    sizing: 'height',
+    scalePercent: 100,
+    aspect: 'keep',
   });
   assert.equal(
     (await run('profile add "Office desk" --disabled --size 1280x720 --bitrate 2500')).text,
@@ -477,6 +480,9 @@ test('profile edit, duplicate, enable, disable and remove follow host validation
       bitrateMode: 'cbr',
       quality: 'balanced',
       frameDelivery: 'fixed',
+      sizing: 'fixed',
+      scalePercent: 100,
+      aspect: 'keep',
     },
   );
   await assert.rejects(run('profile edit balanced'), usage(/^Give at least one change/));

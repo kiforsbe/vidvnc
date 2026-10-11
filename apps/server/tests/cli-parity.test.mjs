@@ -38,6 +38,8 @@ const script = [
   'profile add "Office desk"',
   'profile edit office-desk --name Office --description "Desk monitor" --size 2560x1440 --fps 60 --bitrate 12000',
   'profile edit office-desk --bitrate-mode vbr --quality high',
+  'profile edit office-desk --scale 75',
+  'profile edit office-desk --size 1920x1080 --aspect stretch',
   'profile disable office-desk',
   'profile move balanced 1',
 ];

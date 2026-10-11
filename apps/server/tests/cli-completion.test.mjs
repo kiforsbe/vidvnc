@@ -85,10 +85,15 @@ test('devices complete as console numbers and stream IDs, never session IDs', as
 test('flags complete for the command, skipping ones already given and flag values', async () => {
   assert.deepEqual(await matches('audio off --'), ['--yes ']);
   assert.deepEqual(await matches('profile move mobile --'), []);
-  assert.deepEqual(await matches('profile edit mobile --s'), ['--size ']);
+  assert.deepEqual(await matches('profile edit mobile --s'), ['--size', '--scale']);
+  assert.deepEqual(await matches('profile edit mobile --si'), ['--size ']);
   assert.deepEqual(await matches('profile edit mobile --size '), []);
   assert.deepEqual(await matches('profile edit mobile --size 1280x720 --'), [
     '--description',
+    '--height',
+    '--width',
+    '--scale',
+    '--aspect',
     '--fps',
     '--bitrate',
     '--bitrate-mode',

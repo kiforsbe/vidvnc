@@ -224,6 +224,14 @@ skips the question. Bitrates are in kbit/s. These commands are local-only, not H
 administration endpoints. When commands are piped into the server instead of typed,
 there is no prompt or completion.
 
+A profile's size follows the display it streams. `--height N` (the built-in profiles'
+choice) or `--width N` fixes one side and takes the other from the display's shape, so
+there are no black bars; `--scale PERCENT` streams the display's own size scaled from 10 to
+400%; `--size WxH` is a fixed size, and `--aspect keep|fit|stretch` says whether the display
+keeps its shape inside it (`keep`, the default), keeps it with black bars (`fit`) or is
+stretched to fill it. On a Mac the display's size is in points, so 200% gives a Retina
+display's full resolution. Both hosts' profile editors offer the same choices.
+
 A profile can use constant or variable bitrate. Set it with `profile add` or
 `profile edit` using `--bitrate-mode cbr|vbr` and `--quality efficient|balanced|high`
 (the Windows host's profile editor has the same Bitrate mode and Quality choices).

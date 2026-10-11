@@ -7,10 +7,21 @@ struct StreamProfile {
     int width = 2560, height = 1440, fps = 30, bitrate = 6000, mtu = 1200;
     BitrateMode bitrate_mode = BitrateMode::Cbr;
     Quality quality = Quality::Balanced;
+    // Fill the whole frame with the screen, distorting its shape, instead of fitting it in
+    // with bars. Sent only when true (stream-policy.mjs `aspect: stretch`).
+    bool stretch = false;
 };
 inline bool parse_stream_profile(JsonObject *object, StreamProfile &result) {
-    if (!object || json_object_get_size(object) != 7)
+    // Seven members, plus an optional `stretch: true`.
+    const bool has_stretch = object && json_object_has_member(object, "stretch");
+    if (!object || json_object_get_size(object) != (has_stretch ? 8u : 7u))
         return false;
+    if (has_stretch) {
+        auto node = json_object_get_member(object, "stretch");
+        if (!JSON_NODE_HOLDS_VALUE(node) || json_node_get_value_type(node) != G_TYPE_BOOLEAN ||
+            !json_node_get_boolean(node))
+            return false;
+    }
     const char *keys[] = {"width", "height", "fps", "bitrateKbps", "mtu"};
     gint64 values[5];
     for (int i = 0; i < 5; ++i) {
@@ -50,6 +61,7 @@ inline bool parse_stream_profile(JsonObject *object, StreamProfile &result) {
         parsed.quality = Quality::High;
     else
         return false;
+    parsed.stretch = has_stretch;
     result = parsed;
     return true;
 }

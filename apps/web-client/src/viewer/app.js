@@ -1,7 +1,7 @@
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
 import { videoCodecPreferences } from './codec-preferences.js';
-import { bitrateText, profileTooltip } from './profile-labels.js';
+import { bitrateText, profileTooltip, sizeText } from './profile-labels.js';
 import { needsImmersive, videoPoint } from './stage-geometry.js';
 
 const $ = (id) => document.getElementById(id);
@@ -114,6 +114,9 @@ export function createViewer({ onExit }) {
   // Safari can leave videoWidth at 0 for a WebRTC track and skip its resize event, so the
   // receiver's decoded frame size from getStats stands in until the element reports one.
   let statsSize = null;
+  // A stretched stream fills its frame with the screen, so the pointer maps over the whole
+  // frame; otherwise it maps over the screen's area inside it.
+  let stretched = false;
   function fitVideo() {
     const video = $('video');
     const width = video.videoWidth || statsSize?.width;
@@ -285,7 +288,7 @@ export function createViewer({ onExit }) {
         p.id,
         p.name,
         '',
-        `${p.width} × ${p.height} · ${p.fps} fps · ${bitrateText(p)}`,
+        `${sizeText(p)} · ${p.fps} fps · ${bitrateText(p)}`,
         profileTooltip(p),
       );
     $('qualityHeading').textContent = 'Allowed by ' + catalog.serverName;
@@ -590,6 +593,7 @@ export function createViewer({ onExit }) {
         channel = row?.channel;
         $('video').srcObject = row?.stream ?? null;
         statsSize = null;
+        stretched = row?.profile?.stretch === true;
         renderPictureInPicture();
         if (row?.profile) {
           currentRequest = row.request;
@@ -792,7 +796,7 @@ export function createViewer({ onExit }) {
       video.getBoundingClientRect(),
       video.videoWidth || statsSize?.width,
       video.videoHeight || statsSize?.height,
-      catalog?.display,
+      stretched ? null : catalog?.display,
     );
   }
   let lastMove = 0;

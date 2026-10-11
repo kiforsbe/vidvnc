@@ -233,6 +233,7 @@ struct ScreenState {
     guint display = 0; // CGDirectDisplayID; 0 is the main display.
     int width = 1280, height = 720, fps = 30;
     bool cursor = true;
+    bool stretch = false;
     CaptureQueue queue;
     CVPixelBufferRef last = nullptr;
     std::chrono::steady_clock::time_point next;
@@ -254,7 +255,8 @@ enum {
     SCREEN_PROP_WIDTH,
     SCREEN_PROP_HEIGHT,
     SCREEN_PROP_FPS,
-    SCREEN_PROP_CURSOR
+    SCREEN_PROP_CURSOR,
+    SCREEN_PROP_STRETCH
 };
 
 static ScreenState &screen(gpointer self) {
@@ -279,6 +281,9 @@ static void screen_set_property(GObject *object, guint id, const GValue *value, 
     case SCREEN_PROP_CURSOR:
         state.cursor = g_value_get_boolean(value);
         break;
+    case SCREEN_PROP_STRETCH:
+        state.stretch = g_value_get_boolean(value);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, id, spec);
     }
@@ -301,6 +306,9 @@ static void screen_get_property(GObject *object, guint id, GValue *value, GParam
         break;
     case SCREEN_PROP_CURSOR:
         g_value_set_boolean(value, state.cursor);
+        break;
+    case SCREEN_PROP_STRETCH:
+        g_value_set_boolean(value, state.stretch);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, id, spec);
@@ -346,6 +354,9 @@ static gboolean screen_start(GstBaseSrc *source) {
         configuration.colorMatrix = kCGDisplayStreamYCbCrMatrix_ITU_R_709_2;
         configuration.minimumFrameInterval = CMTimeMake(1, state.fps);
         configuration.showsCursor = state.cursor;
+        // The screen keeps its shape in the frame, with bars where the frame's shape differs,
+        // unless the profile stretches it to fill.
+        configuration.preservesAspectRatio = !state.stretch;
         // Frames held at once: the newest, the one last sent and the one being encoded, with
         // room for ScreenCaptureKit to keep capturing.
         configuration.queueDepth = 6;
@@ -499,6 +510,10 @@ static void vidvnc_screen_src_class_init(VidVncScreenSrcClass *klass) {
     g_object_class_install_property(
         object, SCREEN_PROP_CURSOR,
         g_param_spec_boolean("show-cursor", "Show cursor", "Draw the cursor", TRUE, flags));
+    g_object_class_install_property(
+        object, SCREEN_PROP_STRETCH,
+        g_param_spec_boolean("stretch", "Stretch", "Fill the frame, ignoring the screen's shape",
+                             FALSE, flags));
     gst_element_class_add_static_pad_template(element, &screen_template);
     gst_element_class_set_static_metadata(element, "VidVNC screen capture", "Source/Video",
                                           "One display through ScreenCaptureKit", "VidVNC");

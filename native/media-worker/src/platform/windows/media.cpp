@@ -32,7 +32,9 @@ std::string video_pipeline(const VideoRequest &request) {
             *log << "ENCODER " << element << " has no property " << name << std::endl;
     return "d3d11screencapturesrc name=capture " + target +
            " show-cursor=true num-buffers=" + std::to_string(request.frames) +
-           " ! d3d11convert ! "
+           // d3d11convert keeps the screen's shape with bars unless the profile stretches it.
+           " ! d3d11convert" + std::string(profile.stretch ? " add-borders=false" : "") +
+           " ! "
            "video/x-raw(memory:D3D11Memory),format=NV12,width=" +
            std::to_string(profile.width) + ",height=" + std::to_string(profile.height) +
            ",framerate=" + std::to_string(profile.fps) + "/1 ! " + element + " name=encoder " +

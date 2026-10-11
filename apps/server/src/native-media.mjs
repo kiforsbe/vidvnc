@@ -189,6 +189,9 @@ export class NativeMedia {
                 mtu: 1200,
                 bitrateMode: profile.bitrateMode ?? DEFAULT_BITRATE_MODE,
                 quality: profile.quality ?? DEFAULT_QUALITY,
+                // Only when the profile stretches the screen to its box; otherwise the
+                // capture keeps the screen's shape.
+                ...(profile.stretch ? { stretch: true } : {}),
               },
         display: (video && display) || undefined,
         // The host's encoder choice. Absent means automatic, which is also what the worker

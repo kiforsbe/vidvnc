@@ -116,6 +116,7 @@ test('HTTP custom stream requests obey persisted mode and approved option lists'
     bitrateMode: 'cbr',
     quality: 'balanced',
     mtu: 1200,
+    aspect: 'fit',
   });
   await controller.replace({ ...controller.snapshot(), clientMode: 'profiles' }, 1, true);
   assert.equal((await connect(approved)).status, 403);

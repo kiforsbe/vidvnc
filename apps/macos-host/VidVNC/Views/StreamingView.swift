@@ -40,7 +40,7 @@ struct StreamingView: View {
               }
               Spacer()
               Text(
-                "\(profile.width) \u{00D7} \(profile.height) \u{00B7} \(profile.fps) fps \u{00B7} \(Self.bitrate(profile.bitrateKbps))"
+                "\(profile.sizeText) \u{00B7} \(profile.fps) fps \u{00B7} \(Self.bitrate(profile.bitrateKbps))"
               )
               .foregroundStyle(.secondary)
             }
@@ -216,7 +216,8 @@ struct StreamingView: View {
     while model.profiles.contains(where: { $0.id == "profile-\(number)" }) { number += 1 }
     return StreamProfile(
       id: "profile-\(number)", name: "New profile", description: "", enabled: true, width: 1920, height: 1080,
-      fps: 30, bitrateKbps: 4000, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed")
+      fps: 30, bitrateKbps: 4000, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed",
+      sizing: "height", scalePercent: 100, aspect: "keep")
   }
 
   static func bitrate(_ kbps: Int) -> String {

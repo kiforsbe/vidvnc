@@ -14,11 +14,34 @@ export function targetBitrateText(profile) {
   return isVbr(profile) ? `VBR up to ${text}` : text;
 }
 
+// A profile's size in words: a policy profile says how it follows the shared screen
+// (stream-policy.mjs `sizing`); a resolved stream profile carries only its actual size.
+export function sizeText(profile) {
+  const box = `${profile?.width} × ${profile?.height}`;
+  switch (profile?.sizing) {
+    case 'height':
+      return `${profile.height}p`;
+    case 'width':
+      return `${profile.width} wide`;
+    case 'scale':
+      return `${profile.scalePercent}% of screen`;
+    case 'fixed':
+      return profile.aspect === 'keep'
+        ? `up to ${box}`
+        : profile.aspect === 'stretch'
+          ? `${box} stretched`
+          : box;
+    default:
+      return profile?.width && profile?.height ? box : '';
+  }
+}
+
 // Tooltip for a profile choice or the current profile: its description, then one details line
 // (size, frame rate, bitrate, rate mode). Missing fields are skipped; '' when nothing is known.
 export function profileTooltip(profile) {
   const details = [];
-  if (profile?.width && profile?.height) details.push(`${profile.width} × ${profile.height}`);
+  const size = sizeText(profile);
+  if (size) details.push(size);
   if (profile?.fps) details.push(`${profile.fps} fps`);
   if (Number.isFinite(profile?.bitrateKbps)) details.push(bitrateText(profile));
   if (profile?.bitrateMode === 'vbr') {

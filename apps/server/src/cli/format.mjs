@@ -34,6 +34,24 @@ export function pairs(rows) {
 
 export const mbps = (kbps) => `${Number((kbps / 1000).toFixed(3))} Mbit/s`;
 export const size = ({ width, height }) => `${width}×${height}`;
+
+// How a profile sizes its stream, in a few words (stream-policy.mjs SIZINGS).
+export function profileSize(profile) {
+  switch (profile.sizing) {
+    case 'height':
+      return `${profile.height} high`;
+    case 'width':
+      return `${profile.width} wide`;
+    case 'scale':
+      return `${profile.scalePercent}% of screen`;
+    default:
+      return profile.aspect === 'keep'
+        ? `within ${size(profile)}`
+        : profile.aspect === 'stretch'
+          ? `${size(profile)} stretched`
+          : size(profile);
+  }
+}
 export const accessLabel = (value) => ACCESS_LABELS[value];
 export const connectionModeLabel = (value) => CONNECTION_MODE_LABELS[value];
 export const modeLabel = (mode) => MODE_LABELS[mode];
@@ -205,7 +223,7 @@ export function formatProfiles(profiles, policy) {
     index + 1,
     profile.id,
     profile.name,
-    size(profile),
+    profileSize(profile),
     profile.fps,
     bitrateLabel(profile),
     profile.enabled ? 'yes' : 'no',

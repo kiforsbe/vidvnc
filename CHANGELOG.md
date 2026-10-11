@@ -9,6 +9,14 @@ may include breaking changes.
 
 ### Added
 
+- Stream profiles follow the shape of the screen they share. A profile can fix the height
+  (what the built-in profiles now do) or the width and take the other side from the screen,
+  stream the screen's own size scaled by a percentage, or keep a fixed size and choose
+  whether the screen keeps its shape, gets black bars or is stretched. Set it in the
+  profile editor of either app, or with `--height`, `--width`, `--scale` and
+  `--size … --aspect` on `profile add` and `profile edit`. Profiles you made before keep
+  their exact size with bars. VidVNC 0.10.0 and earlier cannot read stream settings saved
+  by this version.
 - The coming macOS version has its VidVNC app: a window with Overview, Displays, Streaming
   (profiles, codecs and the encoder; **Restore Defaults** puts the five standard profiles
   back as shipped and keeps your own), Connections, Access, Network, Activity and Permissions, and a menu bar item that keeps sharing running when the window is

@@ -42,8 +42,8 @@ std::string video_pipeline(const VideoRequest &request) {
            std::to_string(request.display ? request.display->handle : 0) +
            " show-cursor=true num-buffers=" + std::to_string(request.frames) +
            " width=" + std::to_string(profile.width) + " height=" + std::to_string(profile.height) +
-           " fps=" + std::to_string(profile.fps) + " ! " +
-           encoder_element(request.backend, request.codec.id) +
+           " fps=" + std::to_string(profile.fps) + (profile.stretch ? " stretch=true" : "") +
+           " ! " + encoder_element(request.backend, request.codec.id) +
            " name=encoder codec=" + request.codec.id + " " + rate_properties(rate) + " ! " +
            request.codec.caps + " ! " + request.codec.parser;
 }

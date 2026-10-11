@@ -15,6 +15,14 @@ int main() {
     assert(parse(
         R"({"width":1280,"height":720,"fps":30,"bitrateKbps":3000,"mtu":1200,"bitrateMode":"vbr","quality":"high"})"));
     assert(profile.bitrate_mode == BitrateMode::Vbr && profile.quality == Quality::High);
+    assert(!profile.stretch);
+    assert(parse(
+        R"({"width":1280,"height":720,"fps":30,"bitrateKbps":3000,"mtu":1200,"bitrateMode":"cbr","quality":"balanced","stretch":true})"));
+    assert(profile.stretch);
+    assert(!parse(
+        R"({"width":1280,"height":720,"fps":30,"bitrateKbps":3000,"mtu":1200,"bitrateMode":"cbr","quality":"balanced","stretch":false})"));
+    assert(!parse(
+        R"({"width":1280,"height":720,"fps":30,"bitrateKbps":3000,"mtu":1200,"bitrateMode":"cbr","quality":"balanced","stretch":1})"));
     assert(!parse(
         R"({"width":1279,"height":720,"fps":15,"bitrateKbps":1000,"mtu":1200,"bitrateMode":"cbr","quality":"balanced"})"));
     assert(!parse(

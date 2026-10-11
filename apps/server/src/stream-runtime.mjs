@@ -484,6 +484,7 @@ export class StreamRuntime {
       effective = resolveStreamPolicy(policy, {
         profileId: request.profile ?? 'auto',
         displayId: display.id,
+        display,
         userAgent: session.device === 'iPhone' ? 'iPhone' : '',
         audio: false,
       });

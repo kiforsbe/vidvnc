@@ -8,6 +8,9 @@ export const NEW_PROFILE = Object.freeze({
   bitrateKbps: 4000,
   bitrateMode: DEFAULT_BITRATE_MODE,
   quality: DEFAULT_QUALITY,
+  sizing: 'height',
+  scalePercent: 100,
+  aspect: 'keep',
 });
 export const OPTION_KINDS = Object.freeze({
   size: 'resolutions',
@@ -25,6 +28,9 @@ const EDITABLE = [
   'bitrateKbps',
   'bitrateMode',
   'quality',
+  'sizing',
+  'scalePercent',
+  'aspect',
 ];
 
 // Every edit returns a validated copy with the same revision; stores own revisions.
@@ -127,6 +133,9 @@ export function addProfile(
     bitrateKbps = NEW_PROFILE.bitrateKbps,
     bitrateMode = NEW_PROFILE.bitrateMode,
     quality = NEW_PROFILE.quality,
+    sizing = NEW_PROFILE.sizing,
+    scalePercent = NEW_PROFILE.scalePercent,
+    aspect = NEW_PROFILE.aspect,
     enabled = true,
   },
 ) {
@@ -142,6 +151,9 @@ export function addProfile(
     bitrateMode,
     quality,
     frameDelivery: 'fixed',
+    sizing,
+    scalePercent,
+    aspect,
   };
   return { policy: edit(policy, (next) => next.profiles.push(profile)), profile };
 }

@@ -27,7 +27,7 @@ export function sourceKey(plan) {
     revision,
     display.id,
     [display.x, display.y, display.width, display.height, display.rotation].join(','),
-    `${profile.width}x${profile.height}@${profile.fps}`,
+    `${profile.width}x${profile.height}@${profile.fps}${profile.stretch ? ':stretch' : ''}`,
     profile.bitrateKbps,
     bitrateMode === 'vbr' ? `vbr:${profile.quality ?? DEFAULT_QUALITY}` : bitrateMode,
     plan.codec ?? 'h264',
