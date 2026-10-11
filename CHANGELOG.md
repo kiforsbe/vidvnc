@@ -52,6 +52,10 @@ may include breaking changes.
 
 ### Fixed
 
+- The pointer lands where you point when the shared screen's shape differs from the
+  profile's, for example a 1512 × 982 Mac screen in a 1920 × 1080 stream. The host adds black
+  bars to fit the screen into the stream, and the viewer used to count the bars as part of
+  the desktop.
 - Desktop audio no longer crackles. Since 0.10.0 the sound reached viewers with uneven
   timing, which iPhone Safari and other browsers patched over audibly; each audio packet now
   keeps the timing it was encoded with.

@@ -792,6 +792,7 @@ export function createViewer({ onExit }) {
       video.getBoundingClientRect(),
       video.videoWidth || statsSize?.width,
       video.videoHeight || statsSize?.height,
+      catalog?.display,
     );
   }
   let lastMove = 0;
