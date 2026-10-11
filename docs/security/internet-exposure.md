@@ -473,10 +473,11 @@ the public host avoids the rest.
     a process (`EPERM`), binds UDP on every address; the real relay listens and forwards an
     authenticated check. Killing the launcher's parent with `SIGKILL` ended the launcher and
     Node.js; `SIGTERM` to the launcher reached Node.js.
-  - `npm run test:hardware` from a shell without Screen Recording: the session checks
-    (malformed peer, worker failure and retry) and `control-permission-check.mjs` pass; the
-    capture self-tests fail for want of the grant, as expected.
-  - **Not run yet:** `npm run test:hardware`, `relay-check.mjs`, `audio-only-check.mjs`,
+  - `npm run test:hardware` from Terminal with Screen & System Audio Recording: 22 passed,
+    AV1 skipped (no hardware encoder), including the session checks that waited for the
+    sandbox; input reported unavailable, as Terminal has no Device Control & Data Access
+    grant. `control-permission-check.mjs` passed.
+  - **Not run yet:** `relay-check.mjs`, `audio-only-check.mjs`,
     `multi-stream-check.mjs` and `shared-stream-check.mjs` from a terminal with Screen &
     System Audio Recording; a browser or iPhone viewing a Mac; the official Node.js 24
     under the relay profile in this build (MG5 ran it in the prototype); the Windows build
