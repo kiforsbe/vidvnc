@@ -1640,7 +1640,7 @@ apps/
   server/          Node signaling, authentication, worker lifecycle; src/ + tests/
   web-client/      Browser UI and receiver logic; src/ + tests/
   windows-host/    WinUI 3/.NET host, conventional XAML/MSBuild layout
-  macos-host/      Planned native Apple server host (ownership guide only)
+  macos-host/      Planned native Apple server host; Prototype/ is a SwiftUI UI prototype on fake data
   windows-client/ Planned WinUI 3 viewer (ownership guide only)
   macos-client/   Planned native Apple viewer (ownership guide only)
 native/
