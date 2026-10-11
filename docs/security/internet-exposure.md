@@ -485,8 +485,9 @@ the public host avoids the rest.
   - **Not run yet:**
     `multi-stream-check.mjs` and `shared-stream-check.mjs` from a terminal with Screen &
     System Audio Recording; a browser or iPhone viewing a Mac; the official Node.js 24
-    under the relay profile in this build (MG5 ran it in the prototype); the Windows build
-    of the shared worker changes.
+    under the relay profile in this build (MG5 ran it in the prototype).
+  - Windows (Thor): MSVC build clean, CTest 13/13, `npm run test:hardware` 22 passed and 3
+    skipped (the macOS-only media-net tests), including the system host tests.
 
 - **2026-09-26, `claude/epic-maxwell-jt98x1`, privilege split (R4 phase 2), owner's Windows
   machine:**
