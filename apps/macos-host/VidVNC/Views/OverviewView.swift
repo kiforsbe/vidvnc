@@ -57,6 +57,27 @@ struct OverviewView: View {
         }
       }
 
+      Section("Displays") {
+        Button {
+          presentation.section = .displays
+        } label: {
+          HStack(spacing: 16) {
+            DisplayArrangement(displays: model.displays, selection: nil)
+              .frame(width: 140, height: 56)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("\(model.displays.filter(\.isShared).count) of \(model.displays.count) displays shared")
+              Text(model.displays.map(\.name).joined(separator: ", "))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+          }
+          .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+      }
+
       Section("Connection Details") {
         LabeledContent("Computer name", value: model.computerName)
         LabeledContent("Viewer address") {
@@ -102,26 +123,6 @@ struct OverviewView: View {
         }
       }
 
-      Section("Displays") {
-        Button {
-          presentation.section = .displays
-        } label: {
-          HStack(spacing: 16) {
-            DisplayArrangement(displays: model.displays, selection: nil)
-              .frame(width: 140, height: 56)
-            VStack(alignment: .leading, spacing: 2) {
-              Text("\(model.displays.filter(\.isShared).count) of \(model.displays.count) displays shared")
-              Text(model.displays.map(\.name).joined(separator: ", "))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-          }
-          .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-      }
     }
     .formStyle(.grouped)
   }

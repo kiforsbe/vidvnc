@@ -9,8 +9,9 @@ in the plan's task 5.4; the plan itself is not edited.
 
 ## Decisions
 
-- **Sections, not Windows pages.** The window has a sidebar with Overview, Connections,
-  Access, Network, Activity, Displays and Permissions. Streaming profiles, allowed options,
+- **Sections, not Windows pages.** The window has a sidebar with Overview, Displays,
+  Connections, Access, Network, Activity and Permissions (Displays moved up at the owner's
+  request; Overview shows its displays strip above Connection Details too). Streaming profiles, allowed options,
   the encoder and codecs go to the Settings window (Streaming tab), with General (open at
   login, keep sharing when the window closes, logs) and About (versions). Parity with Windows
   is kept function by function, not page by page.

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
-  case overview, connections, access, network, activity, displays, permissions
+  case overview, displays, connections, access, network, activity, permissions
 
   var id: Self { self }
 
