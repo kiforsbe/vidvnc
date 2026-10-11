@@ -5,6 +5,7 @@
 // (Carbon's HIToolbox/Events.h), and tests/input-policy.cpp checks that both tables cover
 // exactly the allow-list. Keys outside it are ignored.
 #include <cmath>
+#include <initializer_list>
 #include <map>
 #include <optional>
 #include <string>
@@ -118,9 +119,21 @@ inline const std::vector<std::string> &allowed_key_codes() {
     };
     return codes;
 }
+// Each table is written as a list of (code, key) entries: an aggregate takes the literals as
+// `unsigned short` directly, where a map's pair constructor would narrow them from `int`.
+struct KeyEntry {
+    const char *code;
+    unsigned short key;
+};
+inline std::map<std::string, unsigned short> key_table(std::initializer_list<KeyEntry> entries) {
+    std::map<std::string, unsigned short> table;
+    for (const auto &entry : entries)
+        table.emplace(entry.code, entry.key);
+    return table;
+}
 // Windows virtual-key codes, posted by scan code (platform/windows/input.cpp).
 inline const std::map<std::string, unsigned short> &windows_key_codes() {
-    static const std::map<std::string, unsigned short> keys = {
+    static const std::map<std::string, unsigned short> keys = key_table({
         {"KeyA", 0x41},
         {"KeyB", 0x42},
         {"KeyC", 0x43},
@@ -220,14 +233,14 @@ inline const std::map<std::string, unsigned short> &windows_key_codes() {
         {"NumpadMultiply", 0x6A},
         {"NumpadDivide", 0x6F},
         {"NumpadDecimal", 0x6E},
-    };
+    });
     return keys;
 }
 // macOS virtual key codes (`kVK_ANSI_A` is 0, so a code is never "no key"). Keys are passed
 // by position: the viewer's Control is the Mac's Control, Meta is Command and Alt is Option.
 // NumLock is the keypad's Clear key, which sits where NumLock does, and Insert is Help.
 inline const std::map<std::string, unsigned short> &macos_key_codes() {
-    static const std::map<std::string, unsigned short> keys = {
+    static const std::map<std::string, unsigned short> keys = key_table({
         {"KeyA", 0x00},
         {"KeyB", 0x0B},
         {"KeyC", 0x08},
@@ -327,7 +340,7 @@ inline const std::map<std::string, unsigned short> &macos_key_codes() {
         {"NumpadMultiply", 0x43},
         {"NumpadDivide", 0x4B},
         {"NumpadDecimal", 0x41},
-    };
+    });
     return keys;
 }
 // This platform's code for an allowed key, or nothing.
