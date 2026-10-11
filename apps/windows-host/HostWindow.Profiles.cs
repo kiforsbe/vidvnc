@@ -150,7 +150,7 @@ public sealed partial class HostWindow
             Grid.SetColumn(identity, 1); row.Children.Add(identity);
             var megabits = profile["bitrateKbps"]!.GetValue<int>() / 1000.0;
             var variableRate = ProfileBitrateMode(profile) == "vbr";
-            var labels = new[] { $"{profile["width"]} × {profile["height"]}", $"{profile["fps"]} fps" };
+            var labels = new[] { ProfileSizeLabel(profile), $"{profile["fps"]} fps" };
             for (int i = 0; i < labels.Length; i++) {
                 var label = Label(labels[i]); label.TextWrapping = TextWrapping.NoWrap; label.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(label, i + 2); row.Children.Add(label);
@@ -195,6 +195,25 @@ public sealed partial class HostWindow
     }
 
     // Read defensively: a profile saved before these fields existed is Constant / Balanced.
+    // How a profile's size follows the shared screen (stream-policy.mjs SIZINGS). Profiles
+    // from servers before sizing have no `sizing` and are a fixed size with bars.
+    static string ProfileSizing(JsonObject profile) => profile["sizing"]?.GetValue<string>() ?? "fixed";
+    static string ProfileAspect(JsonObject profile) => profile["aspect"]?.GetValue<string>() ?? "fit";
+    static int ProfileScale(JsonObject profile) => profile["scalePercent"]?.GetValue<int>() ?? 100;
+
+    static string ProfileSizeLabel(JsonObject profile) => ProfileSizing(profile) switch
+    {
+        "height" => $"{profile["height"]}p",
+        "width" => $"{profile["width"]} wide",
+        "scale" => $"{ProfileScale(profile)}% of screen",
+        _ => ProfileAspect(profile) switch
+        {
+            "keep" => $"up to {profile["width"]} × {profile["height"]}",
+            "stretch" => $"{profile["width"]} × {profile["height"]} stretched",
+            _ => $"{profile["width"]} × {profile["height"]}",
+        },
+    };
+
     static string ProfileBitrateMode(JsonObject profile) =>
         profile["bitrateMode"] is JsonValue value && value.TryGetValue<string>(out var mode) && mode == "vbr" ? "vbr" : "cbr";
 
@@ -245,7 +264,7 @@ public sealed partial class HostWindow
         var candidate = streamPolicy!.DeepClone().AsObject();
         var profile = source?.DeepClone().AsObject() ?? new JsonObject { ["id"] = Guid.NewGuid().ToString(), ["name"] = "", ["description"] = "",
             ["enabled"] = true, ["width"] = 1920, ["height"] = 1080, ["fps"] = 30, ["bitrateKbps"] = 4000, ["frameDelivery"] = "fixed",
-            ["bitrateMode"] = "cbr", ["quality"] = "balanced" };
+            ["bitrateMode"] = "cbr", ["quality"] = "balanced", ["sizing"] = "height", ["scalePercent"] = 100, ["aspect"] = "keep" };
         if (duplicate) { profile["id"] = Guid.NewGuid().ToString(); profile["name"] = "Copy of " + profile["name"]!.GetValue<string>(); }
         var form = new StackPanel { Spacing = HostSpacing.Row, MinWidth = 320, MaxWidth = 520 };
         var name = new TextBox { Header = "Name", Text = profile["name"]!.GetValue<string>(), MaxLength = 64 };
@@ -272,7 +291,51 @@ public sealed partial class HostWindow
         size.SelectionChanged += (_, _) => { if (size.SelectedItem is SizeChoice choice) ShowAspect(choice.Label); };
         size.TextSubmitted += (_, args) => { args.Handled = true; ShowAspect(args.Text); };
         size.Loaded += (_, _) => { if (FindEditableText(size) is { } box) box.TextChanged += (_, _) => ShowAspect(box.Text); };   // live while typing
-        form.Children.Add(FieldRow(new StackPanel { Spacing = HostSpacing.Small, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = "Output size" }, aspect } }, size));
+        var sizeRow = FieldRow(new StackPanel { Spacing = HostSpacing.Small, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = "Output size" }, aspect } }, size);
+        // How the size follows the shared screen: one side fixed with the other from the
+        // screen's shape, a percentage of the screen, or a fixed box with a choice of shape.
+        var sizingKeys = new[] { "height", "width", "scale", "fixed" };
+        var sizing = new ComboBox { Header = "Size", HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = new[] { "Fixed height", "Fixed width", "Percentage of the screen", "Fixed width and height" },
+            SelectedIndex = Math.Max(0, Array.IndexOf(sizingKeys, ProfileSizing(profile))) };
+        var lengthHeading = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        var length = new NumberBox { Width = 160, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        var lengthRow = FieldRow(lengthHeading, length);
+        var aspectKeys = new[] { "keep", "fit", "stretch" };
+        var shape = new ComboBox { Header = "Screen shape", HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = new[] { "Keep, no bars", "Keep, with bars", "Stretch to fill" },
+            SelectedIndex = Math.Max(0, Array.IndexOf(aspectKeys, ProfileAspect(profile))) };
+        var sizeHelp = Secondary("");
+        void ApplySizing()
+        {
+            var key = sizingKeys[Math.Max(0, sizing.SelectedIndex)];
+            var fixedBox = key == "fixed";
+            sizeRow.Visibility = shape.Visibility = fixedBox ? Visibility.Visible : Visibility.Collapsed;
+            lengthRow.Visibility = fixedBox ? Visibility.Collapsed : Visibility.Visible;
+            (lengthHeading.Text, length.Minimum, length.Maximum, length.SmallChange, length.Value) = key switch
+            {
+                "height" => ("Height (pixels)", 64d, 4096d, 2d, (double)profile["height"]!.GetValue<int>()),
+                "width" => ("Width (pixels)", 64d, 4096d, 2d, (double)profile["width"]!.GetValue<int>()),
+                "scale" => ("Percentage of the screen", 10d, 400d, 5d, (double)ProfileScale(profile)),
+                _ => (lengthHeading.Text, length.Minimum, length.Maximum, length.SmallChange, length.Value),
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(length, lengthHeading.Text);
+            sizeHelp.Text = key switch
+            {
+                "height" or "width" => "The other side follows the shared screen's shape, so the picture has no bars.",
+                "scale" => "The shared screen's own size, scaled.",
+                _ => aspectKeys[Math.Max(0, shape.SelectedIndex)] switch
+                {
+                    "keep" => "The screen keeps its shape inside this size, so the stream can be narrower or shorter.",
+                    "stretch" => "The screen fills this size exactly, even if that distorts it.",
+                    _ => "The screen keeps its shape, with black bars where it doesn't fill this size.",
+                },
+            };
+        }
+        sizing.SelectionChanged += (_, _) => ApplySizing();
+        shape.SelectionChanged += (_, _) => ApplySizing();
+        ApplySizing();
+        form.Children.Add(sizing); form.Children.Add(lengthRow); form.Children.Add(sizeRow); form.Children.Add(shape); form.Children.Add(sizeHelp);
         // Frame rate: editable dropdown of common rates plus the profile's own value.
         var currentRate = profile["fps"]!.GetValue<int>();
         var rateChoices = ProfileInputs.FrameRatePresets.Append(currentRate).Distinct().Order().Select(r => r.ToString()).ToList();
@@ -312,9 +375,27 @@ public sealed partial class HostWindow
             try {
                 if (string.IsNullOrWhiteSpace(name.Text)) throw new InvalidOperationException("Enter a profile name.");
                 // Read the edit box itself: ComboBox.Text is only committed on Enter or focus loss.
-                if (!ProfileInputs.TryParseSize(FindEditableText(size)?.Text ?? size.Text, out var width, out var height)) throw new InvalidOperationException("Enter the output size as width × height, for example 1920 × 1080.");
-                if (width is < 64 or > 4096 || height is < 64 or > 4096) throw new InvalidOperationException("Output width and height must each be from 64 to 4096.");
-                if (width % 2 != 0 || height % 2 != 0) throw new InvalidOperationException("Output width and height must be even.");
+                var sizingKey = sizingKeys[Math.Max(0, sizing.SelectedIndex)];
+                int width = profile["width"]!.GetValue<int>(), height = profile["height"]!.GetValue<int>();
+                if (sizingKey == "fixed")
+                {
+                    if (!ProfileInputs.TryParseSize(FindEditableText(size)?.Text ?? size.Text, out width, out height)) throw new InvalidOperationException("Enter the output size as width × height, for example 1920 × 1080.");
+                    if (width is < 64 or > 4096 || height is < 64 or > 4096) throw new InvalidOperationException("Output width and height must each be from 64 to 4096.");
+                    if (width % 2 != 0 || height % 2 != 0) throw new InvalidOperationException("Output width and height must be even.");
+                }
+                else
+                {
+                    if (!double.IsFinite(length.Value) || length.Value != Math.Truncate(length.Value) || length.Value < length.Minimum || length.Value > length.Maximum)
+                        throw new InvalidOperationException($"Enter a whole number from {length.Minimum} to {length.Maximum} for {lengthHeading.Text.ToLowerInvariant()}.");
+                    var value = (int)length.Value;
+                    if (sizingKey != "scale" && value % 2 != 0) throw new InvalidOperationException("Width and height must be even.");
+                    if (sizingKey == "height") height = value;
+                    else if (sizingKey == "width") width = value;
+                    else profile["scalePercent"] = value;
+                }
+                profile["sizing"] = sizingKey;
+                profile["aspect"] = sizingKey == "fixed" ? aspectKeys[Math.Max(0, shape.SelectedIndex)] : "keep";
+                if (profile["scalePercent"] is null) profile["scalePercent"] = 100;
                 if (!ProfileInputs.TryParseFrameRate(FindEditableText(fps)?.Text ?? fps.Text, out var rate) || rate is < 1 or > 60) throw new InvalidOperationException("Enter a frame rate from 1 to 60.");
                 if (!double.IsFinite(bitrate.Value) || bitrate.Value != Math.Truncate(bitrate.Value)) throw new InvalidOperationException("Enter whole numbers for stream settings.");
                 profile["width"] = width; profile["height"] = height; profile["fps"] = rate; profile["bitrateKbps"] = (int)bitrate.Value;

@@ -16,6 +16,15 @@ const seeds = [
   ['low-bandwidth', 'Low bandwidth', 'Lower data use'],
 ];
 
+// How a profile's output size follows the shared screen. `height` and `width` fix one side
+// and take the other from the screen's shape; `scale` is the screen's own size times
+// `scalePercent`; `fixed` is width × height, with `aspect` saying how a screen of another
+// shape goes into it: `keep` shrinks the box to the screen's shape (no bars), `fit` adds bars
+// (the behaviour before sizing existed), `stretch` fills it.
+export const SIZINGS = Object.freeze(['height', 'width', 'scale', 'fixed']);
+export const ASPECTS = Object.freeze(['keep', 'fit', 'stretch']);
+const SEED_IDS = new Set(seeds.map(([id]) => id));
+
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -84,6 +93,9 @@ export function defaultStreamPolicy() {
         bitrateMode,
         quality,
         frameDelivery: 'fixed',
+        sizing: 'height',
+        scalePercent: 100,
+        aspect: 'keep',
       };
     }),
     defaultProfileId: 'auto',
@@ -124,6 +136,15 @@ export function validateStreamPolicy(value) {
                 ? {}
                 : { bitrateMode: DEFAULT_BITRATE_MODE }),
               ...(Object.hasOwn(profile, 'quality') ? {} : { quality: DEFAULT_QUALITY }),
+              // Saved before sizing existed: the built-in profiles follow the screen's shape at
+              // their height, the owner's own keep their exact size with bars, as before.
+              ...(Object.hasOwn(profile, 'sizing')
+                ? {}
+                : { sizing: SEED_IDS.has(profile.id) ? 'height' : 'fixed' }),
+              ...(Object.hasOwn(profile, 'scalePercent') ? {} : { scalePercent: 100 }),
+              ...(Object.hasOwn(profile, 'aspect')
+                ? {}
+                : { aspect: SEED_IDS.has(profile.id) ? 'keep' : 'fit' }),
             }
           : profile,
       ),
@@ -164,6 +185,9 @@ export function validateStreamPolicy(value) {
         'bitrateMode',
         'quality',
         'frameDelivery',
+        'sizing',
+        'scalePercent',
+        'aspect',
       ],
       'Profile',
     );
@@ -181,6 +205,9 @@ export function validateStreamPolicy(value) {
     requireValue(profile.frameDelivery === 'fixed', 'Variable frame delivery is not supported yet');
     requireValue(BITRATE_MODES.includes(profile.bitrateMode), 'Bitrate mode is invalid');
     requireValue(QUALITY_LEVELS.includes(profile.quality), 'Quality is invalid');
+    requireValue(SIZINGS.includes(profile.sizing), 'Sizing is invalid');
+    requireValue(ASPECTS.includes(profile.aspect), 'Aspect is invalid');
+    integer(profile.scalePercent, 10, 400, 'Scale percentage');
     numericPlan(profile);
   }
   const enabled = new Set(value.profiles.filter((p) => p.enabled).map((p) => p.id));
@@ -256,7 +283,7 @@ export function validateStreamPolicy(value) {
 // authorization and actual encoder capabilities before starting capture.
 export function resolveStreamPolicy(
   value,
-  { profileId = 'auto', displayId, userAgent = '', custom, audio = true } = {},
+  { profileId = 'auto', displayId, display, userAgent = '', custom, audio = true } = {},
 ) {
   const policy = validateStreamPolicy(value);
   requireValue(
@@ -282,6 +309,9 @@ export function resolveStreamPolicy(
       id: 'custom',
       bitrateMode: DEFAULT_BITRATE_MODE,
       quality: DEFAULT_QUALITY,
+      sizing: 'fixed',
+      scalePercent: 100,
+      aspect: 'fit',
     };
     selectedBy = 'client';
   } else {
@@ -306,7 +336,8 @@ export function resolveStreamPolicy(
     source = policy.profiles.find((p) => p.id === id && p.enabled);
     requireValue(!!source, 'Requested profile is not allowed');
   }
-  const { width, height, fps, bitrateKbps, bitrateMode, quality } = source;
+  const { fps, bitrateKbps, bitrateMode, quality } = source;
+  const { width, height, stretch } = outputSize(source, display);
   // `name` stays the id (the native worker matches its legacy profiles on it); `label` and
   // `description` are display-only and never reach the worker plan or the shared-encode key.
   return {
@@ -321,11 +352,57 @@ export function resolveStreamPolicy(
       bitrateMode,
       quality,
       mtu: 1200,
+      // How the viewer finds the screen in the frame: only `fit` adds bars.
+      aspect: source.sizing === 'fixed' ? source.aspect : 'keep',
+      ...(stretch ? { stretch: true } : {}),
     },
     audio: { mode: policy.allowAudio && audio ? 'on' : 'off' },
     // A host property, not a client one: it does not vary by profile or custom settings.
     encoderBackend: policy.encoderBackend,
     revision: policy.revision,
     selectedBy,
+  };
+}
+
+const even = (value) => Math.max(2, Math.round(value / 2) * 2);
+
+// The size a profile streams `display` at (its `width` and `height` as the host reports them:
+// pixels on Windows, points on macOS). Without a display it is the profile's own box. The
+// result keeps the encoder's limits (64 to 4096, even), shrinking or growing both sides
+// together so the shape survives.
+export function outputSize(profile, display) {
+  const screenWidth = display?.width,
+    screenHeight = display?.height;
+  const known =
+    Number.isFinite(screenWidth) &&
+    Number.isFinite(screenHeight) &&
+    screenWidth > 0 &&
+    screenHeight > 0;
+  const sizing = profile.sizing ?? 'fixed';
+  const aspect = profile.aspect ?? 'fit';
+  if (!known || (sizing === 'fixed' && aspect !== 'keep'))
+    return { width: profile.width, height: profile.height, stretch: aspect === 'stretch' };
+  let width, height;
+  if (sizing === 'height') {
+    height = profile.height;
+    width = (height * screenWidth) / screenHeight;
+  } else if (sizing === 'width') {
+    width = profile.width;
+    height = (width * screenHeight) / screenWidth;
+  } else if (sizing === 'scale') {
+    width = (screenWidth * profile.scalePercent) / 100;
+    height = (screenHeight * profile.scalePercent) / 100;
+  } else {
+    const scale = Math.min(profile.width / screenWidth, profile.height / screenHeight);
+    width = screenWidth * scale;
+    height = screenHeight * scale;
+  }
+  const shrink = Math.min(1, 4096 / width, 4096 / height);
+  const grow = Math.max(1, 64 / width, 64 / height);
+  const factor = shrink < 1 ? shrink : grow;
+  return {
+    width: Math.min(4096, even(width * factor)),
+    height: Math.min(4096, even(height * factor)),
+    stretch: false,
   };
 }

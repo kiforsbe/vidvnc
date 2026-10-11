@@ -1,6 +1,7 @@
 import { UsageError } from '../usage-error.mjs';
 import { expectArguments, outcome, parseChoice, parseSize, parseWhole } from '../arguments.mjs';
 import { BITRATE_MODES, QUALITY_LEVELS } from '../../rate-control.mjs';
+import { ASPECTS } from '../../stream-policy.mjs';
 import {
   clean,
   formatAccess,
@@ -17,6 +18,10 @@ import * as edits from '../policy-edits.mjs';
 const VALUE_FLAGS = {
   description: 'value',
   size: 'value',
+  height: 'value',
+  width: 'value',
+  scale: 'value',
+  aspect: 'value',
   fps: 'value',
   bitrate: 'value',
   'bitrate-mode': 'value',
@@ -28,7 +33,27 @@ function profileValues(flags) {
   const values = {};
   if (flags.name !== undefined) values.name = flags.name;
   if (flags.description !== undefined) values.description = flags.description;
-  if (flags.size !== undefined) Object.assign(values, parseSize(flags.size));
+  // One way to size the stream: a height or a width that follows the screen's shape, a
+  // percentage of the screen, or a fixed box.
+  const sizings = ['size', 'height', 'width', 'scale'].filter((key) => flags[key] !== undefined);
+  if (sizings.length > 1)
+    throw new UsageError('Use only one of --size, --height, --width and --scale.');
+  if (flags.aspect !== undefined && flags.size === undefined)
+    throw new UsageError('--aspect goes with --size.');
+  if (flags.size !== undefined)
+    Object.assign(values, parseSize(flags.size), {
+      sizing: 'fixed',
+      aspect: flags.aspect === undefined ? 'keep' : parseChoice(flags.aspect, ASPECTS, 'Aspect'),
+    });
+  if (flags.height !== undefined)
+    Object.assign(values, { sizing: 'height', height: parseEven(flags.height, 'Height') });
+  if (flags.width !== undefined)
+    Object.assign(values, { sizing: 'width', width: parseEven(flags.width, 'Width') });
+  if (flags.scale !== undefined)
+    Object.assign(values, {
+      sizing: 'scale',
+      scalePercent: parseWhole(String(flags.scale).replace(/%$/, ''), 'Scale'),
+    });
   if (flags.fps !== undefined) values.fps = parseWhole(flags.fps, 'Frame rate');
   if (flags.bitrate !== undefined) values.bitrateKbps = parseWhole(flags.bitrate, 'Bitrate');
   if (flags['bitrate-mode'] !== undefined)
@@ -39,6 +64,12 @@ function profileValues(flags) {
   if (flags.enabled) values.enabled = true;
   if (flags.disabled) values.enabled = false;
   return values;
+}
+
+function parseEven(value, label) {
+  const number = parseWhole(value, label);
+  if (number % 2) throw new Error(`${label} must be even`);
+  return number;
 }
 
 function parseOption(kind, value) {
@@ -111,9 +142,9 @@ export const profileCommands = [
   {
     name: 'profile add',
     usage:
-      'profile add <name> [--size WxH] [--fps N] [--bitrate KBPS] [--bitrate-mode cbr|vbr] [--quality efficient|balanced|high] [--description TEXT] [--disabled]',
+      'profile add <name> [--height N | --width N | --scale PERCENT | --size WxH [--aspect keep|fit|stretch]] [--fps N] [--bitrate KBPS] [--bitrate-mode cbr|vbr] [--quality efficient|balanced|high] [--description TEXT] [--disabled]',
     summary:
-      'Create a profile. Defaults: 1920x1080, 30 fps, 4000 kbit/s, cbr, balanced quality, available. A VBR profile treats the bitrate as a sustained cap.',
+      "Create a profile. Defaults: 1080 pixels high in the shared screen's shape, 30 fps, 4000 kbit/s, cbr, balanced quality, available. --height and --width fix one side and follow the screen's shape; --scale is a percentage of the screen's size (10 to 400); --size is a fixed box, which --aspect keep shrinks to the screen's shape (the default), fit fills with bars and stretch fills. A VBR profile treats the bitrate as a sustained cap.",
     where: 'both',
     mayDisconnect: true,
     flags: { ...VALUE_FLAGS, disabled: 'boolean' },
@@ -139,7 +170,7 @@ export const profileCommands = [
   {
     name: 'profile edit',
     usage:
-      'profile edit <profile> [--name TEXT] [--description TEXT] [--size WxH] [--fps N] [--bitrate KBPS] [--bitrate-mode cbr|vbr] [--quality efficient|balanced|high] [--enabled|--disabled]',
+      'profile edit <profile> [--name TEXT] [--description TEXT] [--height N | --width N | --scale PERCENT | --size WxH [--aspect keep|fit|stretch]] [--fps N] [--bitrate KBPS] [--bitrate-mode cbr|vbr] [--quality efficient|balanced|high] [--enabled|--disabled]',
     summary: 'Change a profile.',
     where: 'both',
     mayDisconnect: true,

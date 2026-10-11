@@ -257,6 +257,7 @@ export function createHttpApp({
       effective = resolveStreamPolicy(policy.snapshot(), {
         profileId: typeof body.profile === 'string' ? body.profile : 'auto',
         displayId: selectedDisplay?.id,
+        display: selectedDisplay,
         userAgent: request.headers['user-agent'] || '',
         custom: body.custom,
         audio: body.audio !== 'off',
@@ -805,6 +806,7 @@ export function createHttpApp({
             );
           effective = resolveStreamPolicy(snapshot, {
             displayId: selectedDisplay?.id,
+            display: selectedDisplay,
             profileId: body.profile ?? 'auto',
             custom: body.custom,
             audio: body.audio !== 'off',

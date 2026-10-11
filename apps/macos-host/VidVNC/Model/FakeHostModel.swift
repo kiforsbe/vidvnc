@@ -107,7 +107,8 @@ final class FakeHostModel: HostModel {
     {
       ProfileData(
         id: id, name: name, description: text, enabled: true, width: w, height: h, fps: fps,
-        bitrateKbps: kbps, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed")
+        bitrateKbps: kbps, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed",
+      sizing: "height", scalePercent: 100, aspect: "keep")
     }
     policy = StreamPolicy(
       schemaVersion: 1, revision: 3,

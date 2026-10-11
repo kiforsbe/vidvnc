@@ -70,6 +70,9 @@ test('profiles are added, edited, duplicated, enabled and removed with host vali
     bitrateMode: 'cbr',
     quality: 'balanced',
     frameDelivery: 'fixed',
+    sizing: 'height',
+    scalePercent: 100,
+    aspect: 'keep',
   });
   assert.deepEqual(policy.profiles.at(-1), profile);
   assert.throws(() => edits.addProfile(policy, { name: '   ' }), /Profile name is invalid/);

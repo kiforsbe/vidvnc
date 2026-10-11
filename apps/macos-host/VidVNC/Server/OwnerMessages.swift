@@ -57,6 +57,27 @@ nonisolated struct ProfileData: Codable, Equatable, Sendable, Identifiable {
   var bitrateMode: String
   var quality: String
   var frameDelivery: String
+  /// `height`, `width`, `scale` or `fixed` (stream-policy.mjs SIZINGS).
+  var sizing: String
+  /// For `scale`: the shared screen's size times this, 10 to 400.
+  var scalePercent: Int
+  /// For `fixed`: `keep` the screen's shape, `fit` with bars, or `stretch`.
+  var aspect: String
+
+  /// How the size follows the shared screen, in a few words.
+  var sizeText: String {
+    switch sizing {
+    case "height": "\(height)p, screen's shape"
+    case "width": "\(width) wide, screen's shape"
+    case "scale": "\(scalePercent)% of the screen"
+    default:
+      switch aspect {
+      case "keep": "Up to \(width) \u{00D7} \(height)"
+      case "stretch": "\(width) \u{00D7} \(height), stretched"
+      default: "\(width) \u{00D7} \(height) with bars"
+      }
+    }
+  }
 }
 
 nonisolated struct Resolution: Codable, Hashable, Sendable {

@@ -31,3 +31,24 @@ test('profileTooltip lists the description then the size, rate and bitrate mode'
   assert.equal(profileTooltip(vbr), '1280 × 720 · 15 fps · up to 6 Mbit/s · Variable (High)');
   assert.equal(profileTooltip({}), '');
 });
+
+test('a profile says how its size follows the shared screen', async () => {
+  const { sizeText } = await import('../src/profile-labels.js');
+  assert.equal(sizeText({ sizing: 'height', width: 1920, height: 1080 }), '1080p');
+  assert.equal(sizeText({ sizing: 'width', width: 1280, height: 720 }), '1280 wide');
+  assert.equal(sizeText({ sizing: 'scale', scalePercent: 150 }), '150% of screen');
+  assert.equal(
+    sizeText({ sizing: 'fixed', aspect: 'keep', width: 1920, height: 1080 }),
+    'up to 1920 × 1080',
+  );
+  assert.equal(
+    sizeText({ sizing: 'fixed', aspect: 'fit', width: 1920, height: 1080 }),
+    '1920 × 1080',
+  );
+  assert.equal(
+    sizeText({ sizing: 'fixed', aspect: 'stretch', width: 800, height: 600 }),
+    '800 × 600 stretched',
+  );
+  // A running stream's profile has only its actual size.
+  assert.equal(sizeText({ width: 1662, height: 1080 }), '1662 × 1080');
+});

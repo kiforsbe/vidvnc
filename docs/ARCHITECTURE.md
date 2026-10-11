@@ -333,6 +333,18 @@ is stored. Clients may choose among what the policy allows and, when the host en
 supply custom settings that are checked against approved bounds; they can never widen the
 policy itself.
 
+A profile's output size follows the display it streams
+([stream-policy.mjs](../apps/server/src/stream-policy.mjs) `outputSize`): `sizing: height` or
+`width` fixes one side and takes the other from the display's shape, `scale` is the display's
+size times `scalePercent` (10 to 400), and `fixed` is the profile's width × height, where
+`aspect` says how a display of another shape goes in: `keep` shrinks the box to the display's
+shape, `fit` fills it with bars, `stretch` fills it (the worker then turns off the capture's
+aspect preservation). The display's size is what the host reports, physical pixels on Windows
+and points on macOS. Sizes keep the encoder's limits (64 to 4096, even) without changing
+shape. The built-in profiles use `height`; profiles saved before sizing existed keep their
+exact size with bars. The viewer maps the pointer over the display's area inside the frame,
+or over the whole frame when the profile stretches.
+
 ## Media pipeline
 
 One capture and one encode per source, then a per-viewer branch off a tee. Adding a

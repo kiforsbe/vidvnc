@@ -4,6 +4,7 @@ import {
   defaultStreamPolicy,
   validateStreamPolicy,
   resolveStreamPolicy,
+  outputSize,
 } from '../src/stream-policy.mjs';
 import { VIDEO_CODECS } from '../src/video-codecs.mjs';
 import { ENCODER_BACKEND_CHOICES } from '../src/encoder-backends.mjs';
@@ -22,6 +23,7 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
     bitrateMode: 'cbr',
     quality: 'balanced',
     mtu: 1200,
+    aspect: 'keep',
   });
   assert.deepEqual(resolveStreamPolicy(policy, {}).profile, {
     name: 'desktop',
@@ -34,6 +36,7 @@ test('seeds preserve working iPhone and desktop numeric plans', () => {
     bitrateMode: 'cbr',
     quality: 'balanced',
     mtu: 1200,
+    aspect: 'keep',
   });
 });
 
@@ -87,6 +90,7 @@ test('custom plans require approved mode and all approved dimensions, fps and bi
     bitrateMode: 'cbr',
     quality: 'balanced',
     mtu: 1200,
+    aspect: 'fit',
   });
   for (const change of [{ width: 1920 }, { fps: 60 }, { bitrateKbps: 5000 }, { mtu: 9000 }])
     assert.throws(() => resolveStreamPolicy(policy, { custom: { ...custom, ...change } }));
@@ -248,4 +252,61 @@ test('custom named profile survives validation and does not mutate source throug
   assert.equal(plan.profile.width, 1600);
   plan.profile.width = 2000;
   assert.equal(policy.profiles.at(-1).width, 1600);
+});
+
+test('profile sizes follow the shared screen', () => {
+  const screen = { width: 1512, height: 982 };
+  const size = (profile) => {
+    const { width, height, stretch } = outputSize(profile, screen);
+    return `${width}x${height}${stretch ? ' stretch' : ''}`;
+  };
+  // A 3:2-ish Mac screen: built-in profiles keep its shape at their height.
+  assert.equal(size({ sizing: 'height', width: 1920, height: 1080 }), '1662x1080');
+  assert.equal(size({ sizing: 'width', width: 1280, height: 720 }), '1280x832');
+  assert.equal(size({ sizing: 'scale', scalePercent: 200 }), '3024x1964');
+  assert.equal(size({ sizing: 'scale', scalePercent: 50 }), '756x492');
+  assert.equal(size({ sizing: 'fixed', aspect: 'keep', width: 1920, height: 1080 }), '1662x1080');
+  assert.equal(size({ sizing: 'fixed', aspect: 'fit', width: 1920, height: 1080 }), '1920x1080');
+  assert.equal(
+    size({ sizing: 'fixed', aspect: 'stretch', width: 1920, height: 1080 }),
+    '1920x1080 stretch',
+  );
+  // The encoder's limits keep the shape: 400% of 5K is shrunk to fit 4096 wide.
+  assert.deepEqual(
+    outputSize({ sizing: 'scale', scalePercent: 400 }, { width: 5120, height: 2880 }),
+    {
+      width: 4096,
+      height: 2304,
+      stretch: false,
+    },
+  );
+  // Without a display the profile's own box is used.
+  assert.deepEqual(outputSize({ sizing: 'height', width: 1920, height: 1080 }), {
+    width: 1920,
+    height: 1080,
+    stretch: false,
+  });
+});
+
+test('profiles saved before sizing keep working', () => {
+  const policy = defaultStreamPolicy();
+  for (const profile of policy.profiles) {
+    delete profile.sizing;
+    delete profile.scalePercent;
+    delete profile.aspect;
+  }
+  policy.profiles.push({ ...policy.profiles[0], id: 'mine', name: 'Mine' });
+  const migrated = validateStreamPolicy(policy);
+  assert.equal(migrated.profiles.find((p) => p.id === 'balanced').sizing, 'height');
+  const mine = migrated.profiles.find((p) => p.id === 'mine');
+  assert.equal(mine.sizing, 'fixed');
+  assert.equal(mine.aspect, 'fit');
+  assert.throws(
+    () => validateStreamPolicy({ ...migrated, profiles: [{ ...mine, sizing: 'zoom' }] }),
+    /Sizing/,
+  );
+  assert.throws(
+    () => validateStreamPolicy({ ...migrated, profiles: [{ ...mine, scalePercent: 5 }] }),
+    /Scale percentage/,
+  );
 });
