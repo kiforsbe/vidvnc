@@ -60,12 +60,20 @@ rendezvous hub is not used.
 
 ## Process lifetime and ownership
 
-The WinUI host owns the server, and the server owns its workers and the media relay. Every
-link fails closed.
+The host (the WinUI host on Windows, the Swift host on macOS) owns the server, and the server
+owns its workers and the media relay. Every link fails closed.
 
 - The host creates a Win32 job object with `KILL_ON_JOB_CLOSE` and assigns the Node
   process to it, so the server cannot outlive the host even if the host is killed. The
   handle is non-inheritable and belongs only to the host ([ServerJob.cs](../apps/windows-host/ServerJob.cs)).
+- macOS has no job object. The Swift host starts the server with `posix_spawn`, in a process
+  group of its own, with only stdin, stdout and stderr inherited
+  ([ServerProcess.swift](../apps/macos-host/VidVNC/Server/ServerProcess.swift)). Only the
+  host holds the write end of the server's stdin, so when the host exits or is killed the
+  owner pipe closes and the server stops; the parent watch below backs that up. A stop that
+  takes more than five seconds ends the whole process group.
+  [process-tree.mjs](../apps/macos-host/tests/process-tree.mjs) kills the host with `SIGKILL`
+  and requires the server and its relay to be gone.
 - The server does not open its port until the desktop owner approves. It reads one line
   from stdin and accepts only one of three exact approval lines: `{"type":"start"}`, or the
   same with `"sharing":"local"` or `"sharing":"remote"` added. Anything else, a line over
@@ -120,16 +128,20 @@ sequenceDiagram
 ## Owner protocol
 
 The host and the server speak JSON lines over the server's stdin and stdout, one object per
-line. This is the whole interface a native host needs; the WinUI host speaks it today, and
-the planned macOS host will speak the same protocol unchanged. The examples in
+line. This is the whole interface a native host needs; the WinUI host and the macOS host
+both speak it unchanged. The macOS host starts the server with `--confirm-networks` too, and
+answers `network-confirm`
+([ServerHostModel.swift](../apps/macos-host/VidVNC/Server/ServerHostModel.swift)). The examples in
 [fixtures/owner-protocol](../apps/server/tests/fixtures/owner-protocol/) are the contract:
 [owner-protocol.test.mjs](../apps/server/tests/owner-protocol.test.mjs) checks that the
 server's real replies and lines have the same fields and JSON types as the examples, that
 every example is something the server really sends, that every command the WinUI host's
 sources name is in the contract, and that the WinUI navigation test's stand-in server
 ([owner-fixture.mjs](../apps/windows-host/tests/Navigation/owner-fixture.mjs)) answers in
-the same shapes. The server side lives in
-[owner-commands.mjs](../apps/server/src/owner-commands.mjs).
+the same shapes. For the macOS host,
+[its own check](../apps/macos-host/tests/owner-protocol.test.mjs) does the same for its Swift
+sources and its stand-in server, and its unit tests decode every example. The server side
+lives in [owner-commands.mjs](../apps/server/src/owner-commands.mjs).
 
 **Start.** The server is started with `--desktop --await-owner` and reads exactly one
 approval line first ([start.json](../apps/server/tests/fixtures/owner-protocol/start.json),
@@ -1423,8 +1435,12 @@ server; the receiving page strips it and refuses to replace a different stored s
 - The host places the server in a Win32 job object with `KILL_ON_JOB_CLOSE`; the server owns
   the media relay and one worker process per source. No process outlives its parent: the
   job covers the server's children, and the relay and workers also exit when their input
-  pipe closes. macOS has no job objects: there the server, the worker and the relay's
-  launcher also watch their parent and stop when it exits.
+  pipe closes. macOS has no job objects: there the Swift host is the only holder of the
+  server's owner pipe and starts it in its own process group, and the server, the worker and
+  the relay's launcher also watch their parent and stop when it exits. The host's Debug build
+  has a test switch, `VIDVNC_TEST_ASSUME_SCREEN_RECORDING`, that skips its own Screen
+  Recording check for the stand-in tests; it is compiled out of Release builds and grants
+  nothing, since macOS still decides what the worker may capture.
 - The worker never authenticates anyone, trusts only its owner pipe and holds no network
   socket; the server never handles pixels. WebRTC runs in media-net, which listens on
   `127.0.0.1` only and is reached only through the media relay, for senders that proved a
@@ -1694,7 +1710,7 @@ apps/
   server/          Node signaling, authentication, worker lifecycle; src/ + tests/
   web-client/      Browser UI and receiver logic; src/ + tests/
   windows-host/    WinUI 3/.NET host, conventional XAML/MSBuild layout
-  macos-host/      Planned native Apple server host; Prototype/ is a SwiftUI UI prototype on fake data
+  macos-host/      Swift/SwiftUI host (Xcode project); unit and UI tests, stand-in server in tests/
   windows-client/ Planned WinUI 3 viewer (ownership guide only)
   macos-client/   Planned native Apple viewer (ownership guide only)
 native/

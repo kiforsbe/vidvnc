@@ -1,0 +1,5 @@
+xcuserdata/
+DerivedData/
+build/
+# Each developer's own signing identity and team (Config/README in ../README.md).
+Config/Signing.local.xcconfig

@@ -251,8 +251,12 @@ and [implementation plan](superpowers/plans/2026-10-09-macos-support.md). Its pr
 the worker's platform layer and Apple build (phase 2), capture, encoding, audio and input
 (phase 3) and the sandbox for media-net and the relay (phase 4) are in: the worker builds with
 Xcode, and media-net and the relay run under their sandbox profiles, with the worker's socket
-audit. The host app (phase 5) and packaging (phase 6) are not, so there is no Mac app yet, and
-a full viewer session from a Mac has not been checked end to end.
+audit. The host app (phase 5) runs from source: the Swift app starts and stops the server
+over the owner protocol, with the permissions onboarding, network confirmation and every
+section of the [accepted design](superpowers/specs/2026-10-11-macos-host-design.md), and its
+unit, UI and process-tree checks pass on the owner's Mac against a stand-in server and, for
+the process tree, the real one. Packaging (phase 6) is not in, so there is no Mac app to
+install yet, and a full viewer session from a Mac has not been checked end to end.
 It targets macOS 27 on Apple Silicon only, with the same packages as Windows: the VidVNC app
 (native Swift host, the server and the media worker, with the command-line server inside)
 and a standalone command-line server ZIP, both with Node.js bundled, signed with the owner's

@@ -1,22 +1,22 @@
-# macOS host prototype screenshots
+# macOS host screenshots
 
-Light and dark images of each section of the macOS host UI prototype
-([apps/macos-host/Prototype/](../../../apps/macos-host/README.md#ui-prototype)). The
-prototype is illustrative: it runs on fake data with no server, and every computer name,
-address, device, display and network shown here is sample data. These images show the
-planned design, not implemented VidVNC functionality.
+Light and dark images of each section of the VidVNC app for Mac
+([apps/macos-host](../../../apps/macos-host/README.md)), drawn by the app's own views from
+the sample data of a Debug build (`-scenario`), with no server behind them. Every computer
+name, address, device, display and network shown here is sample data. They started as the
+design preview for plan task 5.1 and are regenerated from the app as it changes.
 
 Regenerate them from the repository root with:
 
 ```sh
-apps/macos-host/Prototype/screenshots.sh
+apps/macos-host/screenshots.sh
 ```
 
 The script starts the app in the "Local network" scenario (pass another Scenario menu
 title as its argument) and the app draws its own window, so no Screen Recording permission
 is needed. Because of that, the images show the detail column only: the sidebar's glass
 can't be drawn offscreen. Switches are also drawn without their coloured track. Run the
-app to see the sidebar, its sharing footer, the menu bar extra, sheets and Settings.
+app to see the sidebar, its sharing footer, the menu bar item, sheets and Settings.
 
 | Section     | Light                                          | Dark                                         |
 | ----------- | ---------------------------------------------- | -------------------------------------------- |

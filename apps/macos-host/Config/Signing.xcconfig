@@ -1,0 +1,8 @@
+// Signing for local builds. Ad-hoc by default, which builds anywhere but loses the Screen
+// Recording and Accessibility grants on every rebuild. To keep them, copy
+// Signing.local.xcconfig.example to Signing.local.xcconfig (ignored by git) and name your
+// own identity there. `npm run start:host` passes VIDVNC_SIGN_IDENTITY instead.
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+#include? "Signing.local.xcconfig"

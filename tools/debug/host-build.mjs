@@ -49,8 +49,34 @@ function run(root, command, args, capture = false) {
   return result.stdout?.trim();
 }
 
-export function hostProject(root) {
-  return path.join(root, 'apps/windows-host/VidVnc.Host.csproj');
+export function hostProject(root, platform = process.platform) {
+  return platform === 'darwin'
+    ? path.join(root, 'apps/macos-host/VidVNC.xcodeproj')
+    : path.join(root, 'apps/windows-host/VidVnc.Host.csproj');
+}
+
+// The macOS host's Xcode build output, kept out of the source tree like the worker's.
+export function macHostDerivedData(root) {
+  return path.join(root, 'out/macos-host/DerivedData');
+}
+
+// Where the macOS development manifest goes: the path the VidVNC scheme's Run action names
+// in VIDVNC_RUNTIME_MANIFEST, so Xcode and start:host use the same one.
+export function macManifestPath(root, configuration) {
+  return path.join(root, 'out/macos-host', configuration, 'runtime.json');
+}
+
+// Signing for the macOS host: VIDVNC_SIGN_IDENTITY names a code-signing identity in the
+// keychain (its common name or SHA-1). Without it the build is ad-hoc signed, which works but
+// loses the Screen Recording and Accessibility grants on every rebuild.
+export function macSigningArguments(env = process.env) {
+  const identity = env.VIDVNC_SIGN_IDENTITY;
+  if (!identity) return [];
+  return [
+    'CODE_SIGN_STYLE=Manual',
+    `CODE_SIGN_IDENTITY=${identity}`,
+    ...(env.VIDVNC_DEVELOPMENT_TEAM ? [`DEVELOPMENT_TEAM=${env.VIDVNC_DEVELOPMENT_TEAM}`] : []),
+  ];
 }
 
 export function buildWorker(root, configuration) {
@@ -73,10 +99,27 @@ export function buildWorker(root, configuration) {
 }
 
 export function buildHost(root, configuration) {
-  run(root, 'dotnet', ['build', hostProject(root), '-c', configuration, '-nologo', '-v:minimal']);
+  if (process.platform === 'darwin')
+    run(root, 'xcodebuild', [
+      '-project',
+      hostProject(root),
+      '-scheme',
+      'VidVNC',
+      '-configuration',
+      configuration,
+      '-derivedDataPath',
+      macHostDerivedData(root),
+      '-quiet',
+      'build',
+      ...macSigningArguments(),
+    ]);
+  else
+    run(root, 'dotnet', ['build', hostProject(root), '-c', configuration, '-nologo', '-v:minimal']);
 }
 
 export function hostTarget(root, configuration) {
+  if (process.platform === 'darwin')
+    return path.join(macHostDerivedData(root), 'Build/Products', configuration, 'VidVNC.app');
   return run(
     root,
     'dotnet',

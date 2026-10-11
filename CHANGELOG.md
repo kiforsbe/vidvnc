@@ -9,6 +9,15 @@ may include breaking changes.
 
 ### Added
 
+- The coming macOS version has its VidVNC app: a window with Overview, Connections, Access,
+  Network, Activity, Displays and Permissions, a Settings window for streaming profiles,
+  codecs and the encoder, and a menu bar item that keeps sharing running when the window is
+  closed (unless **Keep sharing when the window closes** is off). It asks for nothing at
+  launch: the first time you turn sharing on it explains, then macOS asks for Screen & System
+  Audio Recording and Local Network; Device Control & Data Access is explained the first time
+  you give a viewer control. It asks before sharing on a network it hasn't used. For now it
+  runs from source with `npm run start:host` on a Mac.
+
 - `npm run deps` sets up a checkout for building from source in one step: the npm packages,
   the GStreamer SDK (it reuses an installed GStreamer of the pinned version, or installs it
   for the current user), portable CMake, the packaging installers and the development

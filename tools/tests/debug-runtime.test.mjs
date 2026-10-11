@@ -24,22 +24,45 @@ test('Debug preparation requires Debug output and writes a validated explicit ma
   ])
     writeFileSync(path.join(root, name), 'fixture');
   const filename = path.join(root, 'host/runtime.json');
+  const platform = 'win32';
   assert.throws(
-    () => writeDevelopmentManifest({ root, configuration: 'Debug', filename }),
+    () => writeDevelopmentManifest({ root, configuration: 'Debug', filename, platform }),
     /worker/,
   );
   mkdirSync(path.join(root, 'out/native/windows-x64/Debug'));
   writeFileSync(path.join(root, 'out/native/windows-x64/Debug/media-worker.exe'), 'fixture');
-  writeDevelopmentManifest({ root, configuration: 'Debug', filename });
+  writeDevelopmentManifest({ root, configuration: 'Debug', filename, platform });
   const manifest = loadRuntimeManifest(filename);
   assert.equal(manifest.mode, 'development');
   assert.equal(manifest.configuration, 'Debug');
   assert.ok(manifest.worker.includes(`${path.sep}Debug${path.sep}`));
   assert.equal(manifest.node, process.execPath);
+  assert.equal(manifest.os, 'windows');
   assert.throws(
-    () => writeDevelopmentManifest({ root, configuration: 'Other', filename }),
+    () => writeDevelopmentManifest({ root, configuration: 'Other', filename, platform }),
     /configuration/,
   );
+});
+
+test('macOS preparation writes an arm64 macOS manifest for the Debug worker', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'vidvnc mac debug '));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sdk = path.join(root, 'GStreamer.framework/Versions/1.0');
+  for (const name of [
+    'apps/server/src',
+    'out/native/macos-arm64/Debug',
+    'GStreamer.framework/Versions/1.0/bin',
+    'GStreamer.framework/Versions/1.0/lib/gstreamer-1.0',
+  ])
+    mkdirSync(path.join(root, name), { recursive: true });
+  for (const name of ['apps/server/src/main.mjs', 'out/native/macos-arm64/Debug/media-worker'])
+    writeFileSync(path.join(root, name), 'fixture');
+  const filename = path.join(root, 'out/macos-host/Debug/runtime.json');
+  writeDevelopmentManifest({ root, configuration: 'Debug', filename, sdk, platform: 'darwin' });
+  const manifest = loadRuntimeManifest(filename);
+  assert.equal(manifest.os, 'macos');
+  assert.equal(manifest.architecture, 'arm64');
+  assert.ok(manifest.worker.endsWith(path.join('macos-arm64', 'Debug', 'media-worker')));
 });
 
 test('worker staleness follows source and output timestamps and ignores tests', (t) => {

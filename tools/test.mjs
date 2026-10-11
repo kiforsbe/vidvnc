@@ -38,6 +38,7 @@ export async function discoverTests(mode) {
         : [
             'apps/server/tests',
             'apps/web-client/tests',
+            'apps/macos-host/tests',
             'native/media-worker/tests',
             'packaging/tests',
             'tools/tests',

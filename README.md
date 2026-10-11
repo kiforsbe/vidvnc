@@ -264,6 +264,14 @@ is the same as `npm start`.
 This development output depends on the checkout/SDK; it is not the distribution
 payload described in [packaging](docs/PACKAGING.md).
 
+On a Mac (macOS 27, Apple Silicon), the same two commands build the Swift host with Xcode
+into `out/macos-host/` and open VidVNC through Launch Services; closing its window leaves it
+in the menu bar. The first time you turn sharing on, it explains and then macOS asks for
+Screen & System Audio Recording and Local Network; Device Control & Data Access is asked
+the first time you give a viewer control. Set `VIDVNC_SIGN_IDENTITY` to a code-signing
+identity so rebuilds keep those permissions. There is no packaged Mac app yet; see
+[apps/macos-host](apps/macos-host/README.md).
+
 `npm run screenshot:host` regenerates the app screenshot at the top of this README: it starts that Debug
 host, waits 8 seconds for it to finish starting, saves its window to
 `docs/images/windows-host-overview.png` and closes it. Close VidVNC and any CLI server

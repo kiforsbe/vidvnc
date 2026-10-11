@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "windows-debug-preparation-implemented",
+  "status": "windows-and-macos-debug-preparation-implemented",
   "configurations": ["Debug", "Release"],
   "targets": [
     {
@@ -15,8 +15,9 @@
       "id": "macos-host",
       "sourceDirectory": "apps/macos-host",
       "debugger": "xcode-lldb",
-      "status": "application-not-implemented",
-      "childProcesses": ["server", "macos-media-worker"]
+      "status": "debug-build-and-launch-smoke-tested",
+      "childProcesses": ["server", "macos-media-worker"],
+      "project": "apps/macos-host/VidVNC.xcodeproj"
     },
     {
       "id": "windows-client",
@@ -47,7 +48,9 @@
     {
       "id": "macos-media-worker",
       "debugger": "xcode-lldb",
-      "status": "application-not-implemented"
+      "status": "debug-build-verified",
+      "sourceDirectory": "native/media-worker",
+      "project": "native/media-worker/CMakeLists.txt"
     }
   ]
 }
