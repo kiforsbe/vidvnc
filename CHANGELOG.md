@@ -18,16 +18,17 @@ may include breaking changes.
   their exact size with bars. VidVNC 0.10.0 and earlier cannot read stream settings saved
   by this version.
 - The coming macOS version has its VidVNC app: a window with Overview, Displays, Streaming
-  (profiles, codecs and the encoder; **Restore Defaults** puts the five standard profiles
-  back as shipped and keeps your own), Connections, Access, Network, Activity and Permissions, and a menu bar item that keeps sharing running when the window is
-  closed (unless **Keep sharing when the window closes** is off). It asks for nothing at
-  launch: the first time you turn sharing on it explains, then macOS asks for Screen & System
-  Audio Recording and Local Network; Device Control & Data Access is explained the first time
-  you give a viewer control. It asks before sharing on a network it hasn't used. For now it
-  runs from source with `npm run start:host` on a Mac.
-
-- The Windows host's Streaming profiles page has a **Restore defaults** button that puts the five standard profiles back as shipped (adding any you deleted) and keeps your own.
-
+  (profiles, codecs and the encoder), Connections, Access, Network, Activity and
+  Permissions, and a menu bar item that keeps sharing running when the window is closed
+  (unless **Keep sharing when the window closes** is off). It shares the Mac's displays with
+  hardware H.264 or H.265, system audio, and keyboard and mouse control. It asks for nothing
+  at launch: the first time you turn sharing on it explains, then macOS asks for Screen &
+  System Audio Recording and Local Network; Device Control & Data Access is explained the
+  first time you give a viewer control. It asks before sharing on a network it hasn't used.
+  For now it runs from source with `npm run start:host` on a Mac.
+- **Restore defaults** on the Streaming profiles page of the VidVNC app (**Restore
+  Defaults** in Streaming on the Mac) puts the five standard profiles back as shipped,
+  adding any you deleted, and keeps your own.
 - `npm run deps` sets up a checkout for building from source in one step: the npm packages,
   the GStreamer SDK (it reuses an installed GStreamer of the pinned version, or installs it
   for the current user), portable CMake, the packaging installers and the development
@@ -42,11 +43,6 @@ may include breaking changes.
   about each network the first time it sees it, and lets local devices use the standing
   password there only after a yes. The answers are kept in `known-networks.json` in the
   settings folder. The command line does not ask, and Windows is unchanged.
-- The coming macOS version runs each stream's WebRTC process and the media relay in a macOS
-  sandbox, as Windows does with its restricted token: they cannot use VidVNC's Screen
-  Recording or Accessibility permissions, read your files or start other programs, and
-  WebRTC can send only to VidVNC's own relay. If the WebRTC process ever opens a socket on
-  your network, the stream stops.
 - `sessions` in the command line says when a stream cannot take keyboard and mouse input,
   and why. Only the coming macOS version reports this: until the owner allows VidVNC under
   Privacy & Security → Device Control & Data Access, macOS ignores the input a viewer sends.
@@ -70,6 +66,20 @@ may include breaking changes.
 - Desktop audio no longer crackles. Since 0.10.0 the sound reached viewers with uneven
   timing, which iPhone Safari and other browsers patched over audibly; each audio packet now
   keeps the timing it was encoded with.
+
+### Security
+
+- The coming macOS version runs each stream's WebRTC process and the media relay in a macOS
+  sandbox, as Windows does with its restricted token: they cannot use VidVNC's Screen
+  Recording or Accessibility permissions, read your files or start other programs, and
+  WebRTC can send only to VidVNC's own relay. If the WebRTC process ever opens a socket on
+  your network, the stream stops.
+
+### Known limitations
+
+- The macOS version is a preview that runs from source on macOS 27 with Apple Silicon.
+  There is no packaged Mac app or command-line server yet, no AV1 (no Mac has a hardware AV1
+  encoder), and no software encoder.
 
 ## [0.10.0] - 2026-09-26
 

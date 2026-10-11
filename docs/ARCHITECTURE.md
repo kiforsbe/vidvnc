@@ -1,9 +1,9 @@
 # Architecture
 
-VidVNC streams a Windows desktop to a browser over WebRTC on the local network:
-DXGI desktop duplication into a hardware video encoder, out as RTP, with keyboard and
-mouse travelling back. This document describes how the running system is put together
-and the conventions the repository follows.
+VidVNC streams a Windows desktop, and in development a Mac's, to a browser over WebRTC:
+DXGI desktop duplication (ScreenCaptureKit on macOS) into a hardware video encoder, out as
+RTP, with keyboard and mouse travelling back. This document describes how the running
+system is put together and the conventions the repository follows.
 
 See [distribution requirements](PACKAGING.md) for the six self-contained products:
 server/host, native viewer, and CLI server, each on Windows and macOS. Build modules
@@ -12,8 +12,9 @@ are reusable inputs to those products, not one duplicated source tree per instal
 ## System overview
 
 Four kinds of process, each in the language that suits its job. The split is deliberate:
-Windows capture and GStreamer need C++, session and authentication logic is far easier
-to write and test in JavaScript, and the desktop UI belongs in WinUI.
+capture and GStreamer need C++, session and authentication logic is far easier to write
+and test in JavaScript, and the desktop UI belongs in each platform's own toolkit (WinUI on
+Windows, SwiftUI on macOS).
 
 ```mermaid
 flowchart LR
@@ -41,6 +42,12 @@ flowchart LR
     server -->|"one child per source;<br/>JSON lines on stdin/stdout"| worker
     worker --> gst --> win
 ```
+
+A Mac has the same processes: the SwiftUI host
+([apps/macos-host](../apps/macos-host/README.md)) in place of the WinUI one, a sandbox
+profile in place of the restricted token, and ScreenCaptureKit, a Core Audio tap and
+`CGEventPost` in place of DXGI, WASAPI and `SendInput`
+([Capture and encode on macOS](#capture-and-encode-on-macos)).
 
 The browser talks to the Node server for everything except media, and to the source's
 sandboxed network process for media only, through the media relay. The server never carries
@@ -416,7 +423,76 @@ sink, media-net's launch and port attestation, and media-net's own sandbox steps
 implementation is in [platform/windows/](../native/media-worker/src/platform/windows/) (the
 code described here). The macOS one, in [platform/macos/](../native/media-worker/src/platform/macos/),
 has POSIX pipes, port attestation, `--adapters`, capture, encode, audio and input
-([below](#capture-and-encode-on-macos)), and the sandbox described next.
+([below](#capture-and-encode-on-macos)), and [its own sandbox](#media-nets-sandbox-on-macos).
+
+A source's start and its traffic with media-net, as on Windows:
+
+```mermaid
+sequenceDiagram
+    participant S as Node server
+    participant W as media-worker
+    participant N as media-net (sandboxed)
+    participant B as Browser
+
+    S->>W: start {profile, codec, hostControl, ...}
+    W->>W: capture and encode pipeline ending in appsink
+    W->>N: CreateProcessAsUser (restricted token, job, desktop), four pipe handles
+    N->>N: load plugins, RevertToSelf, Arbitrary Code Guard
+    N-->>W: net-ready
+    W-->>S: ready {encoder ...}
+    S->>W: add-peer {peerId, sdp}
+    W->>N: add-peer {peerId, sdp}
+    N-->>W: answer
+    W-->>S: answer (passed through unparsed)
+    loop encoded access units
+        W->>N: frame record {video or audio, flags, bytes}
+    end
+    B->>N: data channel {type: move ...}
+    N->>W: input record {peerId, text}
+    W->>W: lease, allow-lists, rate limit, SendInput
+    W->>N: control-state {peerId, control}
+    N->>W: keyframe-request {kind: join or recovery}
+    W->>W: keyframe limiter, force-key-unit
+```
+
+**Pipes.** Four anonymous pipes ([net-pipes.hpp](../native/media-worker/src/net-pipes.hpp)):
+control in each direction (JSON lines: `configure`, `add-peer`, `remove-peer`,
+`control-state` one way; `net-ready`, `answer`, `peer-failed`, `peer-closed`,
+`channel-closed`, `keyframe-request`, `peer-metrics`, `log`, `fatal` the other), frames
+(worker to media-net: a 32-byte header and the payload, with a caps record whenever caps
+change) and input (media-net to worker: peer id and data-channel text, at most 64 and 1,024
+bytes). The record formats are in [net-records.hpp](../native/media-worker/src/net-records.hpp).
+Anonymous pipes have no name, so nothing else can open them. On macOS they are `pipe(2)`
+pairs (design D2): every end is close-on-exec, the launcher maps exactly the four child ends
+into media-net as descriptors 3 to 6, and the write ends never raise `SIGPIPE`, which the
+worker also ignores, so a closed pipe is an error to handle. All pipe I/O runs on dedicated
+threads; the worker's main loop only queues, so a stalled media-net can delay video but never
+the owner pipe, input release or shutdown. The frame queue holds at most 32 MiB; on overflow
+it is emptied, video skips to the next keyframe and one is requested.
+
+**Audio timing.** Opus packets cross the frame pipe in bursts, so media-net does not stamp
+them on arrival, which bunched their RTP timestamps and made viewers' jitter buffers conceal
+the overlaps as crackles. Each packet instead follows on from the last by its own duration,
+counted in samples, and the timeline is set again from the pipeline clock, with the packet
+marked as a discontinuity, only after it drifts more than 200 ms (a pause or dropped
+packets) ([audio-timeline.hpp](../native/media-worker/src/audio-timeline.hpp), shared with
+`vidvncaudiosrc` on macOS). Video keeps its arrival timestamps.
+
+**Trust.** The worker treats everything from media-net as untrusted: known peer ids only,
+bounded sizes, expected message types; anything malformed ends the source. Input goes
+through the same broker as before the split — the owner's lease, the peer's control flag,
+the allow-lists and the rate limit — so a compromised media-net can act as the viewer that
+currently holds control, but cannot grant control or inject input when nobody holds it. A
+source whose `start` does not carry `hostControl` is refused. Before registering a stream
+with the relay, the server asks the worker to attest the answer's loopback port
+(`check-port`): the worker confirms that `127.0.0.1:<port>` is owned by its own media-net
+(`GetExtendedUdpTable` on Windows; on macOS `proc_pidinfo` and `proc_pidfdinfo` over
+media-net's own descriptors, [udp-ports.hpp](../native/media-worker/src/platform/macos/udp-ports.hpp)), so a compromised media-net cannot point the relay at another
+program's socket. media-net's standard handles are the `NUL` device (`/dev/null` on macOS), and its GLib and
+GStreamer messages go to the worker's log. Viewers that arrive before
+media-net is ready wait in the worker, in order. media-net writes no files: its log lines go
+to the worker, which writes them to `native-worker.log` with a `NET` prefix. Capture starts
+only when the first viewer is answered.
 
 #### media-net's sandbox on macOS
 
@@ -491,65 +567,6 @@ name, and without audio the tap delivers silence.
 Displays are listed from `CGGetOnlineDisplayList` (a sleeping display stays listed), in
 global points, identified by a hash of the display UUID; mirrors are left out. A display
 that is unplugged, moved or changes mode underneath a stream fails it, as on Windows.
-
-```mermaid
-sequenceDiagram
-    participant S as Node server
-    participant W as media-worker
-    participant N as media-net (sandboxed)
-    participant B as Browser
-
-    S->>W: start {profile, codec, hostControl, ...}
-    W->>W: capture and encode pipeline ending in appsink
-    W->>N: CreateProcessAsUser (restricted token, job, desktop), four pipe handles
-    N->>N: load plugins, RevertToSelf, Arbitrary Code Guard
-    N-->>W: net-ready
-    W-->>S: ready {encoder ...}
-    S->>W: add-peer {peerId, sdp}
-    W->>N: add-peer {peerId, sdp}
-    N-->>W: answer
-    W-->>S: answer (passed through unparsed)
-    loop encoded access units
-        W->>N: frame record {video or audio, flags, bytes}
-    end
-    B->>N: data channel {type: move ...}
-    N->>W: input record {peerId, text}
-    W->>W: lease, allow-lists, rate limit, SendInput
-    W->>N: control-state {peerId, control}
-    N->>W: keyframe-request {kind: join or recovery}
-    W->>W: keyframe limiter, force-key-unit
-```
-
-**Pipes.** Four anonymous pipes ([net-pipes.hpp](../native/media-worker/src/net-pipes.hpp)):
-control in each direction (JSON lines: `configure`, `add-peer`, `remove-peer`,
-`control-state` one way; `net-ready`, `answer`, `peer-failed`, `peer-closed`,
-`channel-closed`, `keyframe-request`, `peer-metrics`, `log`, `fatal` the other), frames
-(worker to media-net: a 32-byte header and the payload, with a caps record whenever caps
-change) and input (media-net to worker: peer id and data-channel text, at most 64 and 1,024
-bytes). The record formats are in [net-records.hpp](../native/media-worker/src/net-records.hpp).
-Anonymous pipes have no name, so nothing else can open them. On macOS they are `pipe(2)`
-pairs (design D2): every end is close-on-exec, the launcher maps exactly the four child ends
-into media-net as descriptors 3 to 6, and the write ends never raise `SIGPIPE`, which the
-worker also ignores, so a closed pipe is an error to handle. All pipe I/O runs on dedicated
-threads; the worker's main loop only queues, so a stalled media-net can delay video but never
-the owner pipe, input release or shutdown. The frame queue holds at most 32 MiB; on overflow
-it is emptied, video skips to the next keyframe and one is requested.
-
-**Trust.** The worker treats everything from media-net as untrusted: known peer ids only,
-bounded sizes, expected message types; anything malformed ends the source. Input goes
-through the same broker as before the split — the owner's lease, the peer's control flag,
-the allow-lists and the rate limit — so a compromised media-net can act as the viewer that
-currently holds control, but cannot grant control or inject input when nobody holds it. A
-source whose `start` does not carry `hostControl` is refused. Before registering a stream
-with the relay, the server asks the worker to attest the answer's loopback port
-(`check-port`): the worker confirms that `127.0.0.1:<port>` is owned by its own media-net
-(`GetExtendedUdpTable` on Windows; on macOS `proc_pidinfo` and `proc_pidfdinfo` over
-media-net's own descriptors, [udp-ports.hpp](../native/media-worker/src/platform/macos/udp-ports.hpp)), so a compromised media-net cannot point the relay at another
-program's socket. media-net's standard handles are the `NUL` device (`/dev/null` on macOS), and its GLib and
-GStreamer messages go to the worker's log. Viewers that arrive before
-media-net is ready wait in the worker, in order. media-net writes no files: its log lines go
-to the worker, which writes them to `native-worker.log` with a `NET` prefix. Capture starts
-only when the first viewer is answered.
 
 ### Media relay
 
@@ -1756,6 +1773,7 @@ flowchart LR
     end
     cpp["media-worker C++<br/>CMake + CTest"]
     host["WinUI 3 host<br/>MSBuild"]
+    machost["SwiftUI host<br/>Xcode"]
     gst["GStreamer SDK"]
 
     server -->|"static assets, password helper"| web
@@ -1764,6 +1782,7 @@ flowchart LR
     mw -.->|"locates binary"| cpp
     cpp --> gst
     host -->|"process protocol (stdin/stdout)"| server
+    machost -->|"process protocol (stdin/stdout)"| server
     server -->|"process protocol (stdin/stdout)"| cpp
 ```
 
@@ -1776,8 +1795,11 @@ flowchart LR
   supplies a local HTTP fixture for UI smoke tests.
 - WinUI owns its MSBuild/XAML project and launches Node through the existing process
   protocol. It does not depend on npm to compile its UI.
-- Future Apple apps should use Swift/SwiftUI/AppKit and native Xcode/SPM targets,
-  with their own tests. Future Windows viewers should use WinUI 3. The explicitly
+- The macOS host owns its Xcode project (Swift, SwiftUI, AppKit where SwiftUI falls short)
+  and launches Node through the same protocol; npm only drives its build and its
+  protocol checks. Future Apple viewers should likewise use Swift/SwiftUI/AppKit and native
+  Xcode/SPM targets, with their own tests. Future Windows viewers should use WinUI 3. The
+  explicitly
   requested ownership scaffolds are not runnable projects; do not invent a shared
   native abstraction before it has users.
 - Extract genuinely shared protocol/validation code into a package when needed;
@@ -1862,4 +1884,5 @@ iPhone user-agent tests routing, not Safari or iPhone hardware decoding.
 ## Platform target
 
 Windows SDK 26100 is the compilation target; runtime preflight enforces Windows build
-26200 (25H2).
+26200 (25H2). On macOS the worker and the host target macOS 27 on Apple Silicon (arm64,
+`CMAKE_OSX_DEPLOYMENT_TARGET` and `MACOSX_DEPLOYMENT_TARGET` 27.0).

@@ -1,7 +1,9 @@
 # macOS packaging ownership
 
 Targets: `macos-server`, `macos-client`, `macos-cli` in `../targets.json`.
-Status: native apps/media worker and packaging recipes are not implemented.
+Status: the media worker and the [server host app](../../apps/macos-host/README.md) build
+and run from source; the native viewer and the packaging recipes are not implemented
+(macOS plan phase 6).
 
 Use native Apple application bundles and Xcode/SwiftPM build outputs. This layer
 owns bundle layout, embedded runtime/library paths, signing order, entitlements,

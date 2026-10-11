@@ -109,7 +109,9 @@ monitor exposure; existing iPhone and desktop profile tests still pass.
 ### Stream configuration that controls negotiation
 
 Implemented so far: saved sharing policy, per-display default profiles, profile
-editing and host-approved options. The rest of this section is design direction.
+editing, profile sizes that follow the display's shape (fixed height or width, a scale,
+or a fixed size with keep, fit or stretch) and host-approved options. The rest of this
+section is design direction.
 Configuration is versioned and turned into explicit runtime plans, so that no UI
 invents its own interpretation of a profile.
 
