@@ -9,9 +9,10 @@ may include breaking changes.
 
 ### Added
 
-- `npm run deps` sets up a checkout for building from source in one step: it installs the
-  pinned GStreamer SDK, portable CMake, the packaging installers, the development
-  certificate and the npm packages, checking every download against its SHA-256 pin.
+- `npm run deps` sets up a checkout for building from source in one step: the npm packages,
+  the GStreamer SDK (it reuses an installed GStreamer of the pinned version, or installs it
+  for the current user), portable CMake, the packaging installers and the development
+  certificate, checking every download against its SHA-256 pin.
 - `encoder-backend videotoolbox` in the command line: Apple VideoToolbox, the encoder the
   coming macOS version of VidVNC uses. On Windows it names an encoder the PC does not have,
   so VidVNC picks one automatically, as for any other missing encoder. VidVNC 0.10.0 and

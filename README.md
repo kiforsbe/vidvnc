@@ -145,15 +145,20 @@ npm run test:hardware
 npm start
 ```
 
-`npm run deps` ([tools/deps.mjs](tools/deps.mjs)) sets up everything the checkout keeps in
-`.deps/`, skipping what is already there: the npm packages, the GStreamer SDK in
-`.deps/gstreamer` (the pinned official installer, run silently for the current user with
-the development files), portable CMake 3.31.6 in `.deps/cmake`, the packaging installers
-in `.deps/downloads` and the [development certificate](#development-certificate). Each
-download is checked against its SHA-256 pin before it is used. Run it again in each new
-checkout, for example a second one for a branch. The GStreamer installer registers an
-uninstaller in `.deps/gstreamer` and lists GStreamer under Installed apps; uninstall an
-SDK of another version before running it. Builds and tests never download anything.
+`npm run deps` ([tools/deps.mjs](tools/deps.mjs)) sets up everything the checkout needs in
+`.deps/`, skipping what is already there: the npm packages, the GStreamer SDK, portable
+CMake 3.31.6 in `.deps/cmake`, the packaging installers in `.deps/downloads` and the
+[development certificate](#development-certificate). Each download is checked against its
+SHA-256 pin before it is used. Run it again in each new checkout, for example a second one
+for a branch. Builds and tests never download anything.
+
+GStreamer's installer registers it as an installed app, so there is one GStreamer for the
+user (or the machine), not one per checkout. `npm run deps` looks it up under Installed
+apps and makes `.deps/gstreamer` a link to the one that is the pinned version with its
+development files. When there is none, it runs the pinned official installer silently, for
+the current user, in the installer's default folder, then links to that. It never replaces,
+upgrades or removes an installed GStreamer: if only another version is installed, it stops
+and says so. A checkout whose `.deps/gstreamer` already holds the right version keeps it.
 
 `npm start` prints a viewer address once HTTPS is ready, or immediately in explicit
 LAN-only TLS-off mode. Before HTTPS is ready, the CLI reports that viewer access is

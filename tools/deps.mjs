@@ -1,9 +1,10 @@
 // `npm run deps`: sets up everything a checkout keeps in .deps/, so a fresh clone (or a
 // second checkout for a branch) is ready to build, test and package with one command:
 //   - npm packages, from package-lock.json (`npm ci` when they do not match);
-//   - the GStreamer SDK in .deps/gstreamer, from the pinned official installer
-//     (packaging/windows/inputs.json), installed for the current user with the
-//     development files;
+//   - the GStreamer SDK: .deps/gstreamer links to the user's (or machine's) installed
+//     GStreamer of the pinned version (packaging/windows/inputs.json), which the pinned
+//     official installer installs for the current user, with the development files, when
+//     there is none;
 //   - portable CMake in .deps/cmake (tools/deps.json), which build-native.cmd prefers;
 //   - the packaging inputs in .deps/downloads and the development certificate in
 //     .deps/signing (packaging/windows/prepare.mjs).
@@ -12,7 +13,16 @@
 // download anything themselves (tools/dependencies.mjs only checks).
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ensureJsDependencies, gstreamerProblem, root } from './dependencies.mjs';
@@ -50,10 +60,12 @@ export async function downloadVerified(
   return filename;
 }
 
-// The GStreamer installer is Inno Setup: a silent, per-user install of the runtime and the
-// development files into `sdk`. It registers an uninstaller (unins000.exe in the SDK) and
-// may set the user's GSTREAMER_1_0_ROOT_MSVC_X86_64 variable; VidVNC does not read it.
-export function gstreamerInstallArgs(sdk) {
+// The GStreamer installer is Inno Setup. It does not change environment variables, but it
+// registers itself as one installed app for the user, so a checkout cannot keep its own
+// copy: there is one GStreamer per user (or per machine), in its installer's default
+// folder, and each checkout's .deps/gstreamer links to it. A silent, per-user install of
+// the runtime and the development files:
+export function gstreamerInstallArgs(log) {
   return [
     '/VERYSILENT',
     '/SUPPRESSMSGBOXES',
@@ -61,9 +73,60 @@ export function gstreamerInstallArgs(sdk) {
     '/SP-',
     '/CURRENTUSER',
     '/TYPE=devel',
-    `/DIR=${sdk}`,
-    `/LOG=${path.join(path.dirname(sdk), 'downloads', 'gstreamer-install.log')}`,
+    `/LOG=${log}`,
   ];
+}
+
+// The GStreamer installations Windows lists under Installed apps, for the user and the
+// machine, as { name, version, location }.
+const INSTALLED_APPS = `
+$keys = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+        'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+        'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+$apps = @(Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
+  Where-Object { $_.DisplayName -like '*GStreamer*' -and $_.InstallLocation } |
+  ForEach-Object { [pscustomobject]@{ name = $_.DisplayName; version = $_.DisplayVersion; location = $_.InstallLocation } })
+ConvertTo-Json -Compress -InputObject $apps
+`;
+
+export function registeredGStreamer({ execute = run } = {}) {
+  const result = execute(
+    path.join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32/WindowsPowerShell/v1.0/powershell.exe',
+    ),
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      Buffer.from(INSTALLED_APPS, 'utf16le').toString('base64'),
+    ],
+  );
+  if (result.status !== 0) throw new Error(`Listing installed apps failed: ${result.stderr}`);
+  return parseInstalls(result.stdout);
+}
+
+export function parseInstalls(output) {
+  const text = (output ?? '').trim();
+  if (!text) return [];
+  const value = JSON.parse(text);
+  return (Array.isArray(value) ? value : [value]).map((row) => ({
+    name: String(row.name),
+    version: row.version == null ? null : String(row.version),
+    location: String(row.location).replace(/[\\/]+$/, ''),
+  }));
+}
+
+// The installation to use: one whose own pkg-config file says the pinned version (so it has
+// the development files), else null. `others` lists the ones that do not qualify and why.
+export function chooseInstall(installs, check) {
+  const others = [];
+  for (const install of installs) {
+    const problem = check(install.location);
+    if (!problem) return { install, others };
+    others.push({ ...install, problem });
+  }
+  return { install: null, others };
 }
 
 // The version `cmake --version` prints, or null.
@@ -77,6 +140,13 @@ function run(command, args, options = {}) {
   return result;
 }
 
+// Whether `sdk` is a usable SDK of the pinned version with its development files.
+function sdkProblem(directory, sdk) {
+  if (!existsSync(path.join(sdk, 'lib/pkgconfig/gstreamer-1.0.pc')))
+    return `no development files at ${sdk}`;
+  return gstreamerProblem({ directory, sdk });
+}
+
 async function ensureGStreamer({ directory, log }) {
   const pinned = readJson(path.join(directory, 'packaging/windows/inputs.json')).gstreamer;
   if (process.env.GSTREAMER_ROOT) {
@@ -84,24 +154,52 @@ async function ensureGStreamer({ directory, log }) {
     if (problem) throw new Error(`${problem} (GSTREAMER_ROOT is set, so it is not installed)`);
     return log(`GStreamer: using GSTREAMER_ROOT (${process.env.GSTREAMER_ROOT}).`);
   }
-  const sdk = path.join(directory, pinned.sdk);
-  if (!gstreamerProblem({ directory, sdk }))
-    return log(`GStreamer: ${pinned.version} is installed.`);
-  // Installing over another version would leave its files behind.
-  if (existsSync(path.join(sdk, 'bin')))
-    throw new Error(
-      `${gstreamerProblem({ directory, sdk })}\nUninstall it first (${path.join(sdk, 'unins000.exe')}), then run npm run deps again.`,
+  const link = path.join(directory, pinned.sdk);
+  if (!sdkProblem(directory, link)) return log(`GStreamer: ${pinned.version} is ready at ${link}.`);
+  const check = (sdk) => sdkProblem(directory, sdk);
+  let { install, others } = chooseInstall(registeredGStreamer(), check);
+  if (!install) {
+    // Never replace or upgrade an installation something else may be using.
+    if (others.length)
+      throw new Error(
+        `GStreamer is installed, but not as VidVNC needs it (${pinned.version} with development files):\n${others
+          .map((other) => `  ${other.name} at ${other.location}: ${other.problem}`)
+          .join(
+            '\n',
+          )}\nUninstall it or install ${pinned.version} yourself, or set GSTREAMER_ROOT, then run npm run deps again.`,
+      );
+    const downloads = path.join(directory, '.deps/downloads');
+    const installer = await downloadVerified(pinned.installer, { directory: downloads, log });
+    log(`GStreamer: installing ${pinned.version} for this user...`);
+    const result = run(
+      installer,
+      gstreamerInstallArgs(path.join(downloads, 'gstreamer-install.log')),
+      {
+        stdio: 'inherit',
+      },
     );
-  const installer = await downloadVerified(pinned.installer, {
-    directory: path.join(directory, '.deps/downloads'),
-    log,
-  });
-  log(`GStreamer: installing ${pinned.version} into ${sdk}...`);
-  const result = run(installer, gstreamerInstallArgs(sdk), { stdio: 'inherit' });
-  if (result.status !== 0) throw new Error(`The GStreamer installer failed (${result.status})`);
-  const problem = gstreamerProblem({ directory, sdk });
-  if (problem) throw new Error(`The GStreamer installer finished, but: ${problem}`);
-  log(`GStreamer: ${pinned.version} installed.`);
+    if (result.status !== 0) throw new Error(`The GStreamer installer failed (${result.status})`);
+    ({ install, others } = chooseInstall(registeredGStreamer(), check));
+    if (!install)
+      throw new Error(
+        `The GStreamer installer finished, but no installed GStreamer ${pinned.version} was found (see ${path.join(downloads, 'gstreamer-install.log')}).`,
+      );
+  }
+  // .deps/gstreamer becomes a junction to it; a real folder there is never replaced.
+  let existing = null;
+  try {
+    existing = lstatSync(link);
+  } catch {
+    // Nothing there yet.
+  }
+  if (existing && !existing.isSymbolicLink())
+    throw new Error(
+      `${link} holds another GStreamer (${sdkProblem(directory, link)}); move it away or uninstall it, then run npm run deps again.`,
+    );
+  if (existing) rmSync(link);
+  mkdirSync(path.dirname(link), { recursive: true });
+  symlinkSync(install.location, link, 'junction');
+  log(`GStreamer: ${link} now points to ${install.name} at ${install.location}.`);
 }
 
 async function ensureCMake({ directory, log }) {

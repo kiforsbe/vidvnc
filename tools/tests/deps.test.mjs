@@ -5,7 +5,14 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { cmakeVersion, downloadVerified, gstreamerInstallArgs } from '../deps.mjs';
+import {
+  chooseInstall,
+  cmakeVersion,
+  downloadVerified,
+  gstreamerInstallArgs,
+  parseInstalls,
+  registeredGStreamer,
+} from '../deps.mjs';
 
 const bytes = Buffer.from('installer');
 const item = {
@@ -46,11 +53,46 @@ test('a download is kept only when it matches its pin, and reused after that', a
   assert.deepEqual(await readdir(other), []);
 });
 
-test('GStreamer installs silently, for the current user, with the development files', () => {
-  const sdk = path.join('C:', 'repo', '.deps', 'gstreamer');
-  const args = gstreamerInstallArgs(sdk);
-  for (const flag of ['/VERYSILENT', '/CURRENTUSER', '/TYPE=devel', `/DIR=${sdk}`])
+test('GStreamer installs silently for the current user, in its own default folder', () => {
+  const args = gstreamerInstallArgs('C:\\repo\\.deps\\downloads\\gstreamer-install.log');
+  for (const flag of ['/VERYSILENT', '/CURRENTUSER', '/TYPE=devel'])
     assert.ok(args.includes(flag), flag);
+  // One GStreamer per user: never a private copy inside a checkout.
+  assert.ok(!args.some((arg) => arg.startsWith('/DIR=')));
+});
+
+test('installed GStreamer copies are read from the Installed apps list', () => {
+  assert.deepEqual(parseInstalls(''), []);
+  assert.deepEqual(parseInstalls('[]'), []);
+  const row = { name: 'GStreamer 1.28.6 (MSVC x86_64)', version: '1.28.6', location: 'C:\\gst\\' };
+  const expected = [{ ...row, location: 'C:\\gst' }];
+  assert.deepEqual(parseInstalls(JSON.stringify([row])), expected);
+  // Older PowerShell writes a single object without the array.
+  assert.deepEqual(parseInstalls(JSON.stringify(row)), expected);
+  const calls = [];
+  const found = registeredGStreamer({
+    execute: (...args) => (calls.push(args), { status: 0, stdout: JSON.stringify([row]) }),
+  });
+  assert.deepEqual(found, expected);
+  assert.match(calls[0][0], /powershell\.exe$/);
+  assert.throws(
+    () => registeredGStreamer({ execute: () => ({ status: 1, stderr: 'denied' }) }),
+    /Listing installed apps failed: denied/,
+  );
+});
+
+test('the first installed copy of the pinned version is used, and the rest say why not', () => {
+  const installs = [
+    { name: 'old', version: '1.26.0', location: 'C:\\old' },
+    { name: 'right', version: '1.28.6', location: 'C:\\right' },
+  ];
+  const check = (location) => (location === 'C:\\right' ? null : 'is 1.26.0');
+  assert.deepEqual(chooseInstall(installs, check), {
+    install: installs[1],
+    others: [{ ...installs[0], problem: 'is 1.26.0' }],
+  });
+  assert.deepEqual(chooseInstall([installs[0]], check).install, null);
+  assert.deepEqual(chooseInstall([], check), { install: null, others: [] });
 });
 
 test('the pins name a download for every dependency the command installs', () => {
