@@ -142,8 +142,10 @@ function run(command, args, options = {}) {
 
 // Whether `sdk` is a usable SDK of the pinned version with its development files.
 function sdkProblem(directory, sdk) {
-  if (!existsSync(path.join(sdk, 'lib/pkgconfig/gstreamer-1.0.pc')))
-    return `no development files at ${sdk}`;
+  // The same files the worker build needs (native/media-worker/CMakeLists.txt): a runtime-only
+  // install has neither.
+  for (const file of ['include/gstreamer-1.0/gst/gst.h', 'lib/pkgconfig/gstreamer-1.0.pc'])
+    if (!existsSync(path.join(sdk, file))) return `no development files at ${sdk} (${file})`;
   return gstreamerProblem({ directory, sdk });
 }
 
