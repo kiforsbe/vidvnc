@@ -78,6 +78,12 @@ your network, open the address in a browser and enter the password. If Windows
 asks about VidVNC or Node.js, allow it on private networks: VidVNC's media relay runs in
 Node.js and receives all video, audio and input on one UDP port.
 
+Closing the VidVNC window doesn't stop sharing: VidVNC keeps running behind its icon in
+the notification area, next to the clock, and the icon's tooltip says whether sharing is
+on. Select the icon to open the window again, or right-click it to start or stop sharing
+or choose **Quit VidVNC**, which stops sharing and exits. To have closing the window stop
+sharing instead, turn off **Keep sharing when the window closes** in Settings.
+
 ### Viewing on an iPhone
 
 Open the address in Safari. With HTTPS on, install the certificate from the `/trust` page
@@ -254,7 +260,8 @@ the development runtime manifest. Then run `npm run start:host` to start the Deb
 `native/` (other than its tests) is newer than the worker, and the host through an
 incremental `dotnet build`. It also refreshes the runtime manifest, so it works without
 `prepare:host`. It refuses to start while VidVNC is already running, then stays attached
-until the window closes. `npm run start:cli` is the same as `npm start`.
+until VidVNC quits (closing the window leaves it in the notification area). `npm run start:cli`
+is the same as `npm start`.
 This development output depends on the checkout/SDK; it is not the distribution
 payload described in [packaging](docs/PACKAGING.md).
 

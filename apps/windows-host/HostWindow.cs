@@ -27,7 +27,8 @@ public sealed partial class HostWindow : Window
         Title = "VidVNC";
         SystemBackdrop = new MicaBackdrop();
         BuildShell();
-        Closed += async (_, _) => { closing = true; CloseIdentify(); await StopServer(); };
+        BuildTray();
+        Closed += async (_, _) => { closing = true; CloseIdentify(); RemoveTray(); await StopServer(); };
         _ = StartServer();
     }
     // Starts sharing. `sharingMode` is "local" (the default) or "remote"; the server applies it

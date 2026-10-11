@@ -2,10 +2,12 @@
 
 This WinUI integration executable compiles the real host window and exercises
 navigation between every page, the Connect a device dialog and the sharing
-indicator, including session arrival, expansion and
-removal. It uses an absent runtime manifest so it never starts a media server.
+indicator, including session arrival, expansion and removal. It checks that the
+notification-area icon is added and that Keep sharing when the window closes defaults
+to on and is saved. It uses an absent runtime manifest so it never starts a media server.
 It also verifies title-bar integration and shared light/dark/system themes.
-Interactive dragging, caption-button hit testing and Snap Layouts remain manual checks.
+Interactive dragging, caption-button hit testing, Snap Layouts, and closing the window
+to the notification area (its icon, menu and notice) remain manual checks.
 Run on an interactive Windows desktop with the host development prerequisites.
 
 From the repository root:

@@ -183,6 +183,7 @@ public sealed partial class HostWindow
         sharingDot.Foreground = ThemeStatusBrush(sharingText, remote ? "warning" : sharing ? "success" : "neutral");
         if (remote) sharingScope.Foreground = ThemeStatusBrush(sharingText, "warning");
         else sharingScope.ClearValue(TextBlock.ForegroundProperty);
+        UpdateTrayTip();
         if (sharingItem is null) return;
         var tip = stopping || launching ? sharingText.Text :
             remote ? "Remote access is on: approved devices can connect from the internet. Select to stop sharing." :

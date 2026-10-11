@@ -19,11 +19,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The executable's icon, also used for the notification-area icon (HostWindow.Tray.cs). -->
+    <ApplicationIcon>Assets\VidVnc.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
     <Content Remove="tests/**/*" />
     <None Remove="tests/**/*" />
+    <!-- The icon is embedded in the executable; the packaging step refuses folders in the publish. -->
+    <Content Remove="Assets/**/*" />
+    <None Remove="Assets/**/*" />
     <!-- Only the components the host uses; the metapackage adds unused AI/ML runtimes (~40 MB). -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.2.1" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.2.0" />

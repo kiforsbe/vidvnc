@@ -27,6 +27,15 @@ may include breaking changes.
   and why. Only the coming macOS version reports this: until the owner allows VidVNC under
   Privacy & Security → Device Control & Data Access, macOS ignores the input a viewer sends.
 
+### Changed
+
+- Closing the VidVNC app's window on Windows no longer stops sharing and exits. VidVNC
+  keeps running behind a new icon in the notification area, whose tooltip says whether
+  sharing is on; select it to open the window again, or right-click it to start or stop
+  sharing or choose **Quit VidVNC**. The first close in each run shows a notice saying so.
+  To have closing the window stop sharing, turn off **Keep sharing when the window closes**
+  in Settings (saved in `host-settings.json`). The app's executable also has an icon now.
+
 ## [0.10.0] - 2026-09-26
 
 ### Added

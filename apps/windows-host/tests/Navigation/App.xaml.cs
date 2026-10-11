@@ -36,6 +36,12 @@ public partial class App : Application
                     var orderFilename = Path.Combine(AppContext.BaseDirectory, "profile-order-test.json");
                     File.Delete(orderFilename);
                     typeof(HostWindow).GetField("profileOrder", flags)!.SetValue(window, new ProfileOrderStore(orderFilename));
+                    var preferencesFilename = Path.Combine(AppContext.BaseDirectory, "host-settings-test.json");
+                    File.Delete(preferencesFilename);
+                    typeof(HostWindow).GetField("preferences", flags)!.SetValue(window, new HostPreferencesStore(preferencesFilename));
+                    typeof(HostWindow).GetField("keepSharingOnClose", flags)!.SetValue(window, true);
+                    if (!(bool)typeof(HostWindow).GetField("trayAdded", flags)!.GetValue(window)!)
+                        throw new Exception("The notification-area icon was not added");
                     var navigation = (NavigationView)typeof(HostWindow).GetField("navigation", flags)!.GetValue(window)!;
                     if (!window.ExtendsContentIntoTitleBar) throw new Exception("Host still uses the default system title strip");
                     var shell = (Grid)window.Content;
@@ -325,6 +331,18 @@ public partial class App : Application
                             }
                             if (name == "Settings" && cycle == 0)
                             {
+                                var keep = Descendants(shell).OfType<ToggleSwitch>().SingleOrDefault(toggle => toggle.Tag as string == "keep-sharing-on-close")
+                                    ?? throw new Exception("Settings must offer Keep sharing when the window closes");
+                                if (!keep.IsOn) throw new Exception("Keep sharing when the window closes must default to on");
+                                keep.IsOn = false;
+                                await Task.Delay(80);
+                                if (!File.ReadAllText(preferencesFilename).Contains("\"keepSharingOnClose\":false"))
+                                    throw new Exception("Keep sharing when the window closes was not saved");
+                                keep = Descendants(shell).OfType<ToggleSwitch>().Single(toggle => toggle.Tag as string == "keep-sharing-on-close");
+                                keep.IsOn = true;
+                                await Task.Delay(80);
+                                if (!new HostPreferencesStore(preferencesFilename).Load().KeepSharingOnClose)
+                                    throw new Exception("Keep sharing when the window closes did not turn back on");
                                 var publicNameStart = new System.Diagnostics.ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true,
                                     RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
                                 publicNameStart.ArgumentList.Add(Path.GetFullPath("apps/windows-host/tests/Navigation/owner-fixture.mjs"));
@@ -1033,7 +1051,7 @@ public partial class App : Application
                             }
                         }
                     }
-                    File.WriteAllText(Result, "PASS: title bar/themes; seven-page navigation; Clients administration and connection modes; footer/header actions; aligned profile columns; cosmetic reorder persistence without policy changes; profile/options modal cancel; owner-pipe mode/options persistence; display/Overview layout; session lifecycle; HTTPS section (mode/port/strategy/expiry/fingerprint, strategy-specific reissue warning, disabled regenerate for provided and off, visible provisioning failure, HTTPS address display, locally rendered enrolment QR, owner-pipe regenerate).");
+                    File.WriteAllText(Result, "PASS: title bar/themes; notification-area icon and close setting; seven-page navigation; Clients administration and connection modes; footer/header actions; aligned profile columns; cosmetic reorder persistence without policy changes; profile/options modal cancel; owner-pipe mode/options persistence; display/Overview layout; session lifecycle; HTTPS section (mode/port/strategy/expiry/fingerprint, strategy-specific reissue warning, disabled regenerate for provided and off, visible provisioning failure, HTTPS address display, locally rendered enrolment QR, owner-pipe regenerate).");
                     window.Close();
                     Exit();
                 }

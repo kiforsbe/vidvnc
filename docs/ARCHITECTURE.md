@@ -79,6 +79,12 @@ link fails closed.
   ([parent-watch.mjs](../apps/server/src/parent-watch.mjs)). That second check is defence in
   depth for macOS, which has no job object: an orphaned process is re-parented there. On
   Windows a process is never re-parented, so only the pipe and the job apply.
+- Closing the host window does not end any of this: the window hides and the host keeps
+  running, and sharing with it, behind a notification-area icon whose tooltip and menu show
+  the sharing state. The icon's Quit closes the window for real, which stops the server as
+  above. With **Keep sharing when the window closes** off, closing the window also stops
+  sharing ([HostWindow.Tray.cs](../apps/windows-host/HostWindow.Tray.cs)). The macOS host
+  does the same from the menu bar.
 - The CLI server is the same Node application driven from a terminal instead of the
   WinUI host.
 
@@ -1303,6 +1309,7 @@ system's per-user file permissions:
 | `access-settings.json`                     | Mode, limits, remote access, public names and ports                     | None                                                |
 | `approved-clients.json`                    | Devices, usernames, labels, generation                                  | Hashes and scrypt verifiers only                    |
 | `stream-policy.json`, `profile-order.json` | Stream policy                                                           | None                                                |
+| `host-settings.json` (Windows app only)    | Whether closing the window keeps sharing                                | None                                                |
 | `tls-settings.json`                        | TLS mode, ports, provided certificate paths                             | A provided PFX passphrase, if the operator sets one |
 | `known-networks.json` (macOS app only)     | Networks the owner allowed or refused: subnets, router hardware address | None                                                |
 | TLS state directory                        | Certificate, private key or PFX, passphrase sidecar                     | Private key (plaintext sidecar by design)           |
@@ -1409,6 +1416,7 @@ server; the receiving page strips it and refuses to replace a different stored s
 | Remote access    | Off; each host start is local-only     | Internet peers get `403` everywhere                                                    |
 | Remote access on | Forces `approved-only`                 | Standing password and one-time codes stop working for everyone                         |
 | Control          | Keyboard and mouse start off           | Nobody can inject input until the owner grants it                                      |
+| Closing window   | Keeps sharing, icon stays              | The notification-area icon and a one-time notice say sharing is still on               |
 | Codes            | Issued on request, single use, 300 s   | No standing code sits waiting                                                          |
 | Media            | One UDP port (4384), the media relay   | The worker is on loopback only; nothing is forwarded before the ICE password is proved |
 
@@ -1452,6 +1460,7 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T18 | Input path (B2, B9)     | E      | Inject input without a grant, or keep it after revoke                        | Broker in the worker: lease from the owner pipe only, 5 s expiry, per-peer control flag, allow-lists, rate limit, release of held keys; media-net can only relay what a viewer sent; `hostControl` required                                                                    | F2 (queued message window) |
 | T19 | Viewer assets           | E      | Load the viewer or its code without admission                                | Session- and peer-bound `HttpOnly` grant cookie                                                                                                                                                                                                                                | —                          |
 | T20 | Media relay (B2, B8)    | S, T   | Send media into another viewer's stream, or confirm a live port to strangers | Pins keyed by 5-tuple and stream; a valid check for another stream on a pinned path is dropped; the worker's replies go only to the pinned tuple; no reply before authentication                                                                                               | R4                         |
+| T21 | Owner actions           | I      | Sharing stays on after the owner closes the window, believing it stopped     | Notification-area icon with the state in its tooltip and menu; a one-time notice on the first close; Settings can make closing stop sharing                                                                                                                                    | —                          |
 
 ### Residual risk and open items
 

@@ -167,7 +167,7 @@ public sealed partial class HostWindow
                 page.Children.Add(Card(theme));
                 RenderPublicNameSettings();
                 RenderTls();
-                page.Children.Add(Card(Label("When the window closes\nSharing stops and the application exits. Automatic startup is off.")));
+                RenderCloseSettings();
                 RenderRemoteAccessSettings();
                 page.Children.Add(Command("Open logs folder", () => { var folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VidVNC", "logs"); System.IO.Directory.CreateDirectory(folder); Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true }); }));
                 RenderVersions();

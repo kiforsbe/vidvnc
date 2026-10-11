@@ -14,7 +14,9 @@ const running = spawnSync('tasklist', ['/FI', 'IMAGENAME eq VidVnc.Host.exe', '/
   windowsHide: true,
 });
 if (/VidVnc\.Host\.exe/i.test(running.stdout))
-  throw new Error('VidVNC is already running. Close it first; it would block the rebuild.');
+  throw new Error(
+    'VidVNC is already running. Quit it first (right-click its icon in the notification area and choose Quit VidVNC); it would block the rebuild.',
+  );
 if (workerIsStale(root, configuration)) {
   console.log(`Media worker is out of date; building the ${configuration} worker...`);
   buildWorker(root, configuration);

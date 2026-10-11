@@ -38,6 +38,8 @@ public static class VidVncScreenshot {
 # Per-monitor DPI aware, so window sizes are physical pixels.
 [void][VidVncScreenshot]::SetProcessDpiAwarenessContext([IntPtr](-4))
 
+# Closing the window would otherwise leave the host running in the notification area.
+$env:VIDVNC_HOST_QUIT_ON_CLOSE = '1'
 $process = Start-Process -FilePath $Executable -WorkingDirectory (Split-Path $Executable) -PassThru
 try {
   $deadline = (Get-Date).AddSeconds(30)

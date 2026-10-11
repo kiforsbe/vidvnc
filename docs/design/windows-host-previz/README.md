@@ -13,13 +13,15 @@ inside the monitor work area so labels do not cover its taskbar.
 
 ## Closing the window
 
-Decided on 2026-10-11: closing the host window minimizes VidVNC to the notification area
-(system tray) by default, and sharing carries on. The tray icon shows the sharing state
-and offers Open VidVNC, Stop sharing and Quit; only Quit (or signing out) ends sharing
-and the server. A Settings toggle, on by default, lets people choose to stop sharing when
-the window closes instead. This matches the macOS host, which stays in the menu bar
-([prototype](../../../apps/macos-host/README.md#ui-prototype)). Not implemented yet: the
-current Windows host stops the server when its window closes.
+Decided on 2026-10-11 and implemented in
+[HostWindow.Tray.cs](../../../apps/windows-host/HostWindow.Tray.cs): closing the host window
+hides VidVNC to the notification area (system tray) and sharing carries on. The tray icon's
+tooltip and menu show the sharing state; selecting it opens the window, and its menu offers
+Open VidVNC, Start or Stop sharing and Quit VidVNC. Only Quit (or signing out) ends the
+server. **Keep sharing when the window closes** in Settings, on by default, can be turned
+off so that closing the window stops sharing; VidVNC stays in the notification area either
+way. This matches the macOS host, which stays in the menu bar
+([prototype](../../../apps/macos-host/README.md#ui-prototype)).
 
 ## Session stability addition
 
