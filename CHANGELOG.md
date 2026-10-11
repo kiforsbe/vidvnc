@@ -50,6 +50,12 @@ may include breaking changes.
   To have closing the window stop sharing, turn off **Keep sharing when the window closes**
   in Settings (saved in `host-settings.json`). The app's executable also has an icon now.
 
+### Fixed
+
+- Desktop audio no longer crackles. Since 0.10.0 the sound reached viewers with uneven
+  timing, which iPhone Safari and other browsers patched over audibly; each audio packet now
+  keeps the timing it was encoded with.
+
 ## [0.10.0] - 2026-09-26
 
 ### Added

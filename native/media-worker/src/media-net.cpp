@@ -30,6 +30,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "audio-timeline.hpp"
 #include "json-util.hpp"
 #include "net-pipes.hpp"
 #include "net-records.hpp"
@@ -716,6 +717,29 @@ gboolean command(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+// Opus packets reach this process over the frame pipe in bursts. Stamped on arrival (appsrc's
+// do-timestamp), as they have been since WebRTC moved here in 0.10.0, their RTP timestamps
+// jitter and bunch, and viewers' jitter buffers stretch and conceal the overlaps into
+// crackles. Each packet follows on from the last by its own duration instead
+// (audio-timeline.hpp), as the encoder produced them. Until the pipeline has a clock, appsrc
+// stamps on arrival as before.
+AudioTimeline audio_timeline;
+
+void stamp_audio(GstElement *source, GstBuffer *buffer, std::int64_t duration_ns) {
+    GstClock *clock = gst_element_get_clock(source);
+    if (!clock)
+        return;
+    const auto time = gst_clock_get_time(clock);
+    const auto base = gst_element_get_base_time(source);
+    gst_object_unref(clock);
+    const auto now = time > base ? static_cast<std::int64_t>(time - base) : 0;
+    const auto stamp = audio_timeline.next_duration(now, duration_ns);
+    GST_BUFFER_PTS(buffer) = static_cast<GstClockTime>(stamp.pts_ns);
+    GST_BUFFER_DTS(buffer) = static_cast<GstClockTime>(stamp.pts_ns);
+    if (stamp.discont)
+        GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DISCONT);
+}
+
 // Frame records from the worker, pushed straight into the appsrc from this thread (appsrc is
 // thread-safe). A malformed record ends the stream.
 void read_frames(net_pipes::Native frames) {
@@ -753,6 +777,8 @@ void read_frames(net_pipes::Native frames) {
             GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
         if (header->duration)
             GST_BUFFER_DURATION(buffer) = header->duration;
+        if (!video && header->duration)
+            stamp_audio(source, buffer, static_cast<std::int64_t>(header->duration));
         const auto flow = gst_app_src_push_buffer(GST_APP_SRC(source), buffer);
         if (flow != GST_FLOW_OK)
             last_push_failure = flow;
