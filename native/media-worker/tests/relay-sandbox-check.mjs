@@ -1,11 +1,14 @@
-// Explicit Windows check for the media relay's sandbox: `media-worker.exe --sandbox` runs Node
-// under the tier T1 restricted token (user SID deny-only, low integrity, job, own desktop).
+// Explicit check for the media relay's sandbox: `media-worker --sandbox` runs Node under the
+// tier T1 restricted token on Windows (user SID deny-only, low integrity, job, own desktop), and
+// under the relay's sandbox profile on macOS (design D3: UDP only, no Mach services, no fork or
+// exec, reads limited to the system and Node.js), where Node runs `--jitless` from `/` with no
+// OpenSSL configuration, as media-relay.mjs starts it.
 //
 // Usage: node relay-sandbox-check.mjs
 //
-// 1. A probe under the launcher (without Node's permission model, so it tests the token
-//    alone): a file in %LOCALAPPDATA%\VidVNC must not be readable; a UDP socket on every
-//    address must bind.
+// 1. A probe under the launcher (without Node's permission model, so it tests the sandbox
+//    alone): a file in VidVNC's data folder must not be readable; a UDP socket on every
+//    address must bind; on macOS, starting a process must be refused too.
 // 2. The real relay, from its bundle under the permission model, started the way the server
 //    starts it: it must listen and forward an authenticated STUN check to a loopback socket.
 import { spawn } from 'node:child_process';
@@ -13,6 +16,7 @@ import dgram from 'node:dgram';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { executable, workerEnvironment } from '../runtime.mjs';
+import { dataDirectory } from '../runtime-paths.mjs';
 import { ensureJsDependencies, ensureNativeWorker } from '../../../tools/dependencies.mjs';
 import { MediaRelay, sandboxedRelayLaunch } from '../../../apps/server/src/media-relay.mjs';
 import { bindingRequest } from '../../../apps/server/tests/fixtures/stun-messages.mjs';
@@ -26,17 +30,21 @@ const report = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}${detail ? ` - ${detail}` : ''}`);
 };
 
-// 1. The token.
-const folder = path.join(process.env.LOCALAPPDATA ?? '', 'VidVNC');
+// 1. The sandbox alone.
+const macos = process.platform === 'darwin';
+const folder = dataDirectory();
 const secret = path.join(folder, 'relay-sandbox-secret.txt');
 mkdirSync(folder, { recursive: true });
 writeFileSync(secret, 'secret');
 const probe = `
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import dgram from 'node:dgram';
 const result = {};
 try { readFileSync(${JSON.stringify(secret)}); result.secret = 'read'; }
 catch (error) { result.secret = error.code ?? String(error); }
+const started = spawnSync('/usr/bin/true');
+result.spawn = started.error ? started.error.code ?? String(started.error) : 'started';
 const socket = dgram.createSocket({ type: 'udp6', ipv6Only: false });
 socket.once('error', (error) => { result.udp = error.code ?? String(error); done(); });
 socket.bind(0, '::', () => { result.udp = 'bound ' + socket.address().port; socket.close(); done(); });
@@ -45,8 +53,21 @@ function done() { process.stdout.write(JSON.stringify(result) + '\\n'); }
 const output = await new Promise((resolve) => {
   const child = spawn(
     executable,
-    ['--sandbox', '--', process.execPath, '--input-type=module', '-e', probe],
-    { env: workerEnvironment(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+    [
+      '--sandbox',
+      '--',
+      process.execPath,
+      ...(macos ? ['--jitless', '--openssl-config=/dev/null'] : []),
+      '--input-type=module',
+      '-e',
+      probe,
+    ],
+    {
+      env: workerEnvironment(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...(macos ? { cwd: '/' } : {}),
+    },
   );
   let stdout = '';
   let stderr = '';
@@ -68,9 +89,9 @@ try {
     `INFO: probe exit ${output.code}; stdout ${output.stdout.trim()}; stderr ${output.stderr.trim()}`,
   );
 }
-report('Node starts under the restricted token', output.code === 0 && result.secret !== undefined);
+report('Node starts under the sandbox', output.code === 0 && result.secret !== undefined);
 report(
-  'a file in the user profile cannot be read',
+  "a file in VidVNC's data folder cannot be read",
   result.secret === 'EPERM' || result.secret === 'EACCES',
   String(result.secret),
 );
@@ -79,6 +100,8 @@ report(
   String(result.udp).startsWith('bound'),
   String(result.udp),
 );
+
+if (macos) report('a process cannot be started', result.spawn === 'EPERM', String(result.spawn));
 
 // 2. The real relay.
 const worker = dgram.createSocket('udp4');

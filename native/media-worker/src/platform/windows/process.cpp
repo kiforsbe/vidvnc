@@ -23,6 +23,10 @@ void exit_now(int code) {
     ExitProcess(static_cast<UINT>(code)); // not reached
 }
 
+// The worker ends when its owner pipe closes, and the Windows host's kill-on-close job ends the
+// whole tree; there is no parent watch.
+void watch_parent(void (*)()) {}
+
 bool launch_network(const NetEnds &ends, NetLaunch &out, std::string &error) {
     wchar_t executable[MAX_PATH] = {};
     if (!GetModuleFileNameW(nullptr, executable, MAX_PATH)) {
@@ -103,6 +107,9 @@ bool port_owned(const NetLaunch &launched, unsigned port) {
     }
     return false;
 }
+
+// Tier T1 keeps media-net off every address but loopback; there is nothing to audit.
+std::string network_socket_violation(const NetLaunch &) { return {}; }
 
 // Quotes one argument the way CommandLineToArgvW reads it back.
 static std::wstring quote_argument(const std::wstring &argument) {

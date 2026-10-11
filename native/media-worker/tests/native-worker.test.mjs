@@ -156,26 +156,19 @@ test('mobile encoder emits Level 3.1 and responds to force-key-unit', async () =
   assert.ok(value.forceEvents >= 1);
   assert.ok(value.keyframes >= 5, JSON.stringify(value));
 });
-// A session needs media-net, which on macOS waits for its sandbox (macOS plan, phase 4).
-const sessionsSkipped =
-  process.platform === 'darwin' && 'media-net needs its macOS sandbox first (macOS plan, phase 4)';
-test(
-  'native session fails a malformed peer without failing its source or starting capture',
-  { skip: sessionsSkipped },
-  async () => {
-    // The peer is sent before `ready`, as the server does; the worker holds it until the
-    // sandboxed network process is up, which then refuses the SDP.
-    const result = await run('--session', { until: /peer-failed/ });
-    assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(
-      result.stdout
-        .trim()
-        .split(/\r?\n/)
-        .map((line) => JSON.parse(line)),
-      [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
-    );
-  },
-);
+test('native session fails a malformed peer without failing its source or starting capture', async () => {
+  // The peer is sent before `ready`, as the server does; the worker holds it until the
+  // sandboxed network process is up, which then refuses the SDP.
+  const result = await run('--session', { until: /peer-failed/ });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(
+    result.stdout
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line)),
+    [{ type: 'ready' }, { type: 'peer-failed', peerId: 'invalid', reason: 'Invalid SDP' }],
+  );
+});
 test('an unknown ICE bind, or a session without the host lease, stops the worker', async () => {
   const invalid = await run('--session', { env: { VIDVNC_ICE_BIND: 'any' } });
   assert.equal(invalid.code, 2);

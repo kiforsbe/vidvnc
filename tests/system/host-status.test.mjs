@@ -36,7 +36,8 @@ test('owned host pipe reports real sessions and disconnects them without stoppin
     } catch {}
   });
   async function waitFor(predicate) {
-    const deadline = Date.now() + 7000;
+    // A cold first run (the worker probe and TLS set-up) can take several seconds on Windows.
+    const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
       const match = messages.find(predicate);
       if (match) return match;

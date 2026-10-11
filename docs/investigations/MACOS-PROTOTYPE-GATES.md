@@ -34,8 +34,9 @@ What phase 1 onwards must take from this:
   and report input unavailable. A check that moves the cursor also fails if someone moves
   the mouse at the same time; it must tolerate that.
 - **media-net can listen on the LAN under its sandbox, but never send there.** The owner
-  accepted this residual with a fail-closed socket audit by the worker (phase 4); it goes in
-  the security analysis.
+  accepted this residual with a fail-closed socket audit by the worker, which phase 4
+  implemented ([architecture](../ARCHITECTURE.md#media-nets-sandbox-on-macos)); it is in the
+  [security analysis](../security/internet-exposure.md#r4-native-parsing-is-reachable-before-authentication-on-the-media-ports-mitigated).
 - **Local Network approval is needed only for connections the Mac starts** toward a LAN
   device other than the router. Viewers contact the Mac first, so normal use needs none;
   discovery or LAN probing would trigger the prompt (plan task 5.5).

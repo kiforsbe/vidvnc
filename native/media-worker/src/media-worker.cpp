@@ -826,8 +826,8 @@ static gboolean net_message(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-// Starts media-net under the tier T1 sandbox with its four pipe ends, and the threads that
-// serve them. Returns false after reporting why.
+// Starts media-net under its sandbox (tier T1 on Windows, the profile on macOS) with its four
+// pipe ends, and the threads that serve them. Returns false after reporting why.
 static bool start_network() {
     net = std::make_unique<NetProcess>();
     if (!net_pipes::make_pipe(net->control_to, true) ||
@@ -887,6 +887,18 @@ static bool start_network() {
 // from media-net must belong to this source's own media-net, so a compromised media-net
 // cannot point the relay at another process's socket.
 static bool port_owned(unsigned port) { return net && platform::port_owned(net->launched, port); }
+// The socket audit (macOS, gate MG4): media-net's profile cannot keep it from binding a LAN
+// address, so any network socket of its own off loopback ends the source, at once.
+static void audit_network_sockets() {
+    if (!net || shutdown_started)
+        return;
+    const auto found = platform::network_socket_violation(net->launched);
+    if (found.empty())
+        return;
+    if (error_log.is_open())
+        error_log << "NET socket audit: " << found << std::endl;
+    fatal("The network process opened a socket outside loopback.");
+}
 static void stop_network() {
     if (!net)
         return;
@@ -1160,11 +1172,14 @@ static int session() {
                 write_object(sample);
             }
             enforce_permission();
+            audit_network_sockets();
             return G_SOURCE_CONTINUE;
         },
         nullptr);
     // Pipe ownership is the authorization boundary. The web server creates this
-    // worker only after authentication; losing the owner always ends capture.
+    // worker only after authentication; losing the owner always ends capture. The parent
+    // watch (macOS) ends it too if the server is killed before its pipes close.
+    platform::watch_parent(begin_shutdown);
     std::thread([] {
         std::string line;
         while (std::getline(std::cin, line)) {

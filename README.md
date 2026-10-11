@@ -127,9 +127,8 @@ port, for approved devices only; a self-hosted VPN is still the safer way in. Al
 the LAN too, reaches the PC through VidVNC's media relay on that UDP port (4384 by default),
 which forwards only devices that have authenticated to the media worker, itself bound to
 `127.0.0.1`. The worker's WebRTC code runs in a separate
-[sandboxed network process](docs/ARCHITECTURE.md#network-process-media-net), and on
-Windows the relay is sandboxed the same way: neither can read your files or send input to
-your desktop. The HTTP
+[sandboxed network process](docs/ARCHITECTURE.md#network-process-media-net), and the relay
+is sandboxed too: neither can read your files or send input to your desktop. The HTTP
 listener binds only loopback and eligible Private-LAN addresses. With the default TLS
 mode, the viewer is unavailable until HTTPS starts; an invalid TLS configuration or
 listener failure does not fall back to HTTP login or streaming. Only a valid, explicit

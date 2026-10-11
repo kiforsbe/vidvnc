@@ -340,6 +340,13 @@ the server attests each answer's loopback port before the relay forwards to it. 
 runs under the same restricted token, from a bundle with no file access
 ([architecture](../ARCHITECTURE.md#network-process-media-net)).
 
+**And on macOS, 2026-10-11 (phase 4 of the macOS plan, not yet shipped):** media-net and the
+relay run under sandbox profiles the launcher applies before `exec`: no Mach services (so
+neither can reach the window server, `replayd` or `tccd` to use VidVNC's Screen Recording or
+Accessibility grants), no fork or exec, no file writes, reads limited to the system and the
+program; media-net may use loopback UDP only, the relay UDP on any address
+([architecture](../ARCHITECTURE.md#media-nets-sandbox-on-macos)).
+
 **Residual:**
 
 - forged DTLS or RTP/RTCP packets with the exact address and port of an authenticated client
@@ -350,6 +357,11 @@ runs under the same restricted token, from a bundle with no file access
   datagrams, under the restricted token: the relay can read world-readable locations
   (Program Files, System32) and reach the network, but not open anything that grants access
   to the user alone;
+- on macOS, the sandbox profile cannot keep media-net from binding a LAN address and
+  receiving there (it can never send off loopback); the worker's socket audit ends the
+  source within a second when it finds such a socket. The owner accepted this receive-only
+  window on 2026-10-09 (gate MG4). The profiles rely on `sandbox_init`, which Apple has
+  deprecated;
 - the firewall rules (F1) are not in place yet: Windows Firewall scoping depends on the
   owner's answer to Windows' prompt, and nothing but the sandbox's loopback-only design
   keeps media-net from the network.
@@ -442,6 +454,40 @@ the public host avoids the rest.
    VPN. An external penetration test is advisable before advertising internet use.
 
 ## Verification record
+
+- **2026-10-11, `claude/macos-phase-4`, media-net and relay sandbox on macOS, owner's Mac
+  (macOS 27, Apple Silicon), development build:**
+  - Xcode build clean; CTest 16/16, including the socket audit (loopback IPv4 and IPv6, a
+    TCP listener and a connected UDP socket pass; `0.0.0.0` and `::` are reported; an
+    unreadable process fails closed) and the profile and start-up image tests.
+  - `sandbox-check.mjs`: without the profile the window server, `replayd` and `tccd` are
+    reachable; under media-net's profile they are denied, ScreenCaptureKit lists no
+    displays, posting access is false, `~/Documents` and a file in VidVNC's data folder are
+    refused, file writes, fork and exec are refused with `EPERM`, UDP to `192.0.2.1` and TCP
+    to `127.0.0.1` are refused with `EPERM`, and loopback UDP works. The residual shows: a
+    bind on `0.0.0.0` succeeds, and the socket audit reports it.
+  - `media-net-posix.test.mjs`: the real media-net under the profile reports tier
+    `profile`, answers with a `127.0.0.1` candidate only and owns its port.
+  - `relay-sandbox-check.mjs`: Node.js (Homebrew 25.5, linked against Homebrew libraries)
+    starts under the relay profile, is refused a file in VidVNC's data folder and starting
+    a process (`EPERM`), binds UDP on every address; the real relay listens and forwards an
+    authenticated check. Killing the launcher's parent with `SIGKILL` ended the launcher and
+    Node.js; `SIGTERM` to the launcher reached Node.js.
+  - `npm run test:hardware` from Terminal with Screen & System Audio Recording: 22 passed,
+    AV1 skipped (no hardware encoder), including the session checks that waited for the
+    sandbox; input reported unavailable, as Terminal has no Device Control & Data Access
+    grant. `control-permission-check.mjs` passed.
+  - `audio-only-check.mjs` passed: headless Chromium connected to the sandboxed media-net.
+  - `relay-check.mjs` (audio, 2 peers): both workers offered only `127.0.0.1`, ICE and DTLS
+    completed through the relay on the Mac's LAN address, `lsof` showed every worker UDP
+    socket on `127.0.0.1` and no TCP listener, 4 `media-worker` processes for 2 sources,
+    both peers on port 4384; mean ICE round trip 19.73 ms, 1,003 packets and 0 lost.
+  - **Not run yet:**
+    `multi-stream-check.mjs` and `shared-stream-check.mjs` from a terminal with Screen &
+    System Audio Recording; a browser or iPhone viewing a Mac; the official Node.js 24
+    under the relay profile in this build (MG5 ran it in the prototype).
+  - Windows (Thor): MSVC build clean, CTest 13/13, `npm run test:hardware` 22 passed and 3
+    skipped (the macOS-only media-net tests), including the system host tests.
 
 - **2026-09-26, `claude/epic-maxwell-jt98x1`, privilege split (R4 phase 2), owner's Windows
   machine:**

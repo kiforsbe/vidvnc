@@ -1,8 +1,8 @@
-// media-net over POSIX pipes on macOS (design D2): the real `media-worker --network`, given
-// its four pipe ends as descriptors 3-6 the way the worker's launcher maps them, reports
-// ready, answers a viewer with a candidate on 127.0.0.1 only, owns that port, and ends when
-// the worker says so, closes its pipe or sends a malformed frame record. Runs only on a Mac
-// with the worker built (./build-native.sh); the sandbox around it is phase 4's.
+// media-net over POSIX pipes on macOS (design D2), under its sandbox profile (D3): the real
+// `media-worker --sandbox --network`, given its four pipe ends as descriptors 3-6 the way the
+// worker maps them, reports ready under the profile, answers a viewer with a candidate on
+// 127.0.0.1 only, owns that port, and ends when the worker says so, closes its pipe or sends a
+// malformed frame record. Runs only on a Mac with the worker built (./build-native.sh).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -52,7 +52,7 @@ const offer = [
 ].join('\r\n');
 
 function startNet() {
-  const child = spawn(worker, ['--network', '3', '4', '5', '6'], {
+  const child = spawn(worker, ['--sandbox', '--network', '3', '4', '5', '6'], {
     stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
   });
   const [control, replies, frames] = [child.stdio[3], child.stdio[4], child.stdio[5]];
@@ -88,8 +88,7 @@ function startNet() {
 test('media-net answers on loopback over POSIX pipes and owns its port', { skip }, async () => {
   const net = startNet();
   const ready = await net.next('net-ready');
-  // Unsandboxed here, and it says so; phase 4's launcher applies the profile.
-  assert.deepEqual(ready, { type: 'net-ready', tier: 'none', codeGuard: 'off' });
+  assert.deepEqual(ready, { type: 'net-ready', tier: 'profile', codeGuard: 'off' });
   net.send({ type: 'configure', video: false, audioChannels: 2 });
   net.send({ type: 'add-peer', peerId: 'peer-1', sdp: offer });
   const answer = await net.next('answer');

@@ -8,7 +8,7 @@
 // SendInput, the tier T1 sandbox in sandbox.hpp, GetExtendedUdpTable).
 // macOS: platform/macos/ (docs/superpowers/specs/2026-10-09-macos-support-design.md):
 // ScreenCaptureKit and VideoToolbox through the worker's own elements (elements.hpp),
-// CGEventPost, and the launcher sandbox (phase 4 of the macOS plan, failing by name until then).
+// CGEventPost, and the sandbox profile the launcher applies before `exec`.
 #include <cstdint>
 #include <optional>
 #include <ostream>
@@ -40,6 +40,9 @@ void init_process();
 unsigned long process_id();
 // Ends this process at once, without cleanup. For the shutdown deadline and media-net's exit.
 [[noreturn]] void exit_now(int code);
+// Calls `on_exit` (from another thread) when the process that started this one exits. macOS
+// only (design D8, defence in depth next to the owner pipe); on Windows this does nothing.
+void watch_parent(void (*on_exit)());
 
 // ---- Displays (display-inventory.hpp has the row and its JSON).
 
@@ -116,8 +119,14 @@ std::string network_exit(NetLaunch &launched);
 void terminate_network(NetLaunch &launched);
 // Whether 127.0.0.1:`port` (UDP) belongs to this media-net (design: answer attestation).
 bool port_owned(const NetLaunch &launched, unsigned port);
+// The socket audit, run every second: empty while media-net's network sockets are all on
+// loopback, else the first one that is not, and the worker ends the source. macOS only, where
+// the sandbox profile cannot stop media-net binding a LAN address (gate MG4); Windows' tier
+// T1 sandbox needs no audit and this returns empty.
+std::string network_socket_violation(const NetLaunch &launched);
 
-// `media-worker --sandbox -- <program> [arguments]`, the launcher the relay runs under.
+// `media-worker --sandbox -- <program> [arguments]`, the launcher the relay runs under. On
+// macOS also `--sandbox --network <four ends>`, how launch_network starts media-net.
 int run_sandboxed(int argc, char **argv);
 
 // Inside media-net, in this order: before plugins load (Winsock on Windows); after they have
