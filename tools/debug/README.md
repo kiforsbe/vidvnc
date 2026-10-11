@@ -43,8 +43,9 @@ treats VidVNC, not Terminal, as the app asking for permissions.
 
 The scheme's disabled `VIDVNC_INSPECT` variable opts into the Node inspector on
 `127.0.0.1:9229`. Attach to the `media-worker` process from Xcode (Debug, Attach to
-Process) after a viewer connects. Set `VIDVNC_SIGN_IDENTITY` (and `VIDVNC_DEVELOPMENT_TEAM`
-when the identity needs one) so rebuilds keep their privacy grants; without it the app is
+Process) after a viewer connects. Set `VIDVNC_SIGN_IDENTITY` (for example
+`Developer ID Application`) so rebuilds keep their privacy grants; the team is read from the
+matching keychain identity unless `VIDVNC_DEVELOPMENT_TEAM` is set. Without it the app is
 signed ad hoc ([apps/macos-host](../../apps/macos-host/README.md#run-it)).
 
 The macOS host has no job object: it spawns the server with `posix_spawn` in its own process

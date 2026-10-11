@@ -67,16 +67,33 @@ export function macManifestPath(root, configuration) {
 }
 
 // Signing for the macOS host: VIDVNC_SIGN_IDENTITY names a code-signing identity in the
-// keychain (its common name or SHA-1). Without it the build is ad-hoc signed, which works but
-// loses the Screen Recording and Accessibility grants on every rebuild.
-export function macSigningArguments(env = process.env) {
+// keychain (its common name, or the start of it, such as "Developer ID Application").
+// Xcode also needs the identity's team: VIDVNC_DEVELOPMENT_TEAM when set, else the team in
+// the matching keychain identity's name, read at build time and never written anywhere.
+// Without an identity the build is ad-hoc signed, which works but loses the Screen
+// Recording and Accessibility grants on every rebuild.
+export function macSigningArguments(env = process.env, identities = keychainIdentities) {
   const identity = env.VIDVNC_SIGN_IDENTITY;
   if (!identity) return [];
-  return [
-    'CODE_SIGN_STYLE=Manual',
-    `CODE_SIGN_IDENTITY=${identity}`,
-    ...(env.VIDVNC_DEVELOPMENT_TEAM ? [`DEVELOPMENT_TEAM=${env.VIDVNC_DEVELOPMENT_TEAM}`] : []),
-  ];
+  const team = env.VIDVNC_DEVELOPMENT_TEAM || teamOf(identity, identities());
+  if (!team)
+    throw new Error(
+      `No code-signing identity in the keychain matches "${identity}". Check the name with: security find-identity -v -p codesigning`,
+    );
+  return ['CODE_SIGN_STYLE=Manual', `CODE_SIGN_IDENTITY=${identity}`, `DEVELOPMENT_TEAM=${team}`];
+}
+
+// The team of the first valid identity whose name starts with `identity`: the ten
+// characters in the parentheses that end a Developer ID or Apple Development name.
+export function teamOf(identity, listing) {
+  for (const [, name] of listing.matchAll(/^\s*\d+\) [0-9A-F]{40} "(.+)"$/gm))
+    if (name.startsWith(identity)) return /\(([A-Z0-9]{10})\)$/.exec(name)?.[1] ?? null;
+  return null;
+}
+
+function keychainIdentities() {
+  return spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' })
+    .stdout;
 }
 
 export function buildWorker(root, configuration) {
@@ -107,6 +124,8 @@ export function buildHost(root, configuration) {
       'VidVNC',
       '-configuration',
       configuration,
+      '-destination',
+      'platform=macOS,arch=arm64',
       '-derivedDataPath',
       macHostDerivedData(root),
       '-quiet',

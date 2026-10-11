@@ -43,8 +43,9 @@ scheme: its Run action points `VIDVNC_RUNTIME_MANIFEST` at the same manifest. En
 scheme's `VIDVNC_INSPECT` variable for the Node inspector on `127.0.0.1:9229`.
 
 **Signing.** The project signs ad-hoc unless told otherwise, which works but loses the Screen
-Recording and Device Control grants on every rebuild. Set `VIDVNC_SIGN_IDENTITY` (and, if the
-identity needs it, `VIDVNC_DEVELOPMENT_TEAM`) for `prepare:host` and `start:host`, or copy
+Recording and Device Control grants on every rebuild. Set `VIDVNC_SIGN_IDENTITY` (for example
+`Developer ID Application`) for `prepare:host` and `start:host`; the team comes from the
+matching identity in your keychain at build time, or from `VIDVNC_DEVELOPMENT_TEAM`. Or copy
 `Config/Signing.local.xcconfig.example` to `Config/Signing.local.xcconfig` for Xcode. Both
 stay out of the repository.
 

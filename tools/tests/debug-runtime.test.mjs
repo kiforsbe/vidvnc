@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { writeDevelopmentManifest } from '../debug/runtime.mjs';
-import { isStale } from '../debug/host-build.mjs';
+import { isStale, macSigningArguments, teamOf } from '../debug/host-build.mjs';
 import { loadRuntimeManifest } from '../../native/media-worker/runtime-manifest.mjs';
 
 test('Debug preparation requires Debug output and writes a validated explicit manifest', (t) => {
@@ -86,4 +86,30 @@ test('worker staleness follows source and output timestamps and ignores tests', 
   assert.equal(isStale(inputs, output), true);
   at(source, 400);
   assert.equal(isStale(inputs, output, ['tests']), true);
+});
+
+test('macOS signing takes the team from the matching keychain identity', () => {
+  const listing = [
+    '  1) 0123456789ABCDEF0123456789ABCDEF01234567 "Apple Development: Sample Person (ABCDE12345)"',
+    '  2) 89ABCDEF0123456789ABCDEF0123456789ABCDEF "Developer ID Application: Sample Person (FGHIJ67890)"',
+    '     2 valid identities found',
+  ].join('\n');
+  assert.equal(teamOf('Developer ID Application', listing), 'FGHIJ67890');
+  assert.equal(teamOf('Mac Installer', listing), null);
+  assert.deepEqual(
+    macSigningArguments({}, () => listing),
+    [],
+  );
+  assert.deepEqual(
+    macSigningArguments({ VIDVNC_SIGN_IDENTITY: 'Apple Development' }, () => listing),
+    [
+      'CODE_SIGN_STYLE=Manual',
+      'CODE_SIGN_IDENTITY=Apple Development',
+      'DEVELOPMENT_TEAM=ABCDE12345',
+    ],
+  );
+  assert.throws(
+    () => macSigningArguments({ VIDVNC_SIGN_IDENTITY: 'Nobody' }, () => listing),
+    /find-identity/,
+  );
 });
