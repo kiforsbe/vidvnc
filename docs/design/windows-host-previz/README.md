@@ -33,9 +33,9 @@ apps look alike in the notification area: each size (16, 20, 24, 32, 40, 48 and 
 drawn separately, strokes are size/16 px wide on the pixel grid with anti-aliasing off, the
 ink is white for a dark taskbar and RGB 26,26,26 for a light one, and the entries are
 uncompressed 32-bit DIBs. The glyph is drawn like the monitor in Windows' network icon: a
-rectangular frame whose outermost corner squares are faint ink (alpha 90 of 255, with the
-innermost pixel at 180 where the square is larger than one pixel; the only anti-aliased
-pixels), on an open stand of two
+rectangular frame with slightly softened corners (the only anti-aliased pixels: a faint
+corner pixel at alpha 90 of 255 for 1 px strokes, and at wider strokes a corner rounded at
+single-pixel resolution with the stroke's width as its radius), on an open stand of two
 legs and a foot, with the Fluent share-screen arrow inside it. The frame's width has the same parity as the stroke, so the arrow, its head and
 the stand share one exact centre column, and the arrow has equal space above and below it
 in the screen; the generator fails if any size's glyph isn't mirror-symmetric. The Windows host embeds that "sharing" glyph as

@@ -6,8 +6,8 @@
 // in the notification area:
 // - each size (16, 20, 24, 32, 40, 48, 64 px) is drawn separately, not resampled;
 // - strokes are size/16 px wide, on the pixel grid, with anti-aliasing off, so a 16 px icon
-//   is solid pixels rather than grey half-tones (only the monitor's four corner squares are
-//   faint ink, to soften them);
+//   is solid pixels rather than grey half-tones (only the monitor's corners are
+//   anti-aliased, to soften them);
 // - ink is white for a dark taskbar and RGB 26,26,26 for a light one, and the app swaps
 //   between the two when the taskbar theme changes;
 // - entries are uncompressed 32-bit DIBs, the layout Windows' own icons use.
@@ -45,10 +45,24 @@ let themes: [(String, RGB)] = [
   ("dark", RGB(r: 1, g: 1, b: 1)),
   ("light", RGB(r: 26 / 255, g: 26 / 255, b: 26 / 255)),
 ]
-/// Opacity of the softened corner squares (90/255), and of the innermost pixel of a corner
-/// square at sizes where it is more than one pixel (180/255).
+/// Opacity of the softened corner pixel at 1 px strokes (90/255).
 let cornerAlpha: CGFloat = 90 / 255
-let cornerInnerAlpha: CGFloat = 180 / 255
+
+/// The share of pixel (i, j), counted from the outer corner, that lies inside a circle of
+/// `radius` centred `radius` pixels in from both edges, sampled 16×16 and rounded to a whole
+/// alpha value so mirrored corners match exactly.
+func cornerCoverage(_ i: Int, _ j: Int, radius: Int) -> CGFloat {
+  let r = Double(radius), samples = 16
+  var inside = 0
+  for sy in 0..<samples {
+    for sx in 0..<samples {
+      let x = Double(i) + (Double(sx) + 0.5) / Double(samples)
+      let y = Double(j) + (Double(sy) + 0.5) / Double(samples)
+      if (x - r) * (x - r) + (y - r) * (y - r) <= r * r { inside += 1 }
+    }
+  }
+  return (Double(inside) / Double(samples * samples) * 255).rounded() / 255
+}
 let amber = RGB(r: 252 / 255, g: 185 / 255, b: 0)
 let red = RGB(r: 232 / 255, g: 17 / 255, b: 35 / 255)
 
@@ -86,10 +100,11 @@ func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
   fill(0, bottom - k, width, k)
   fill(0, top, k, bottom - top)
   fill(width - k, top, k, bottom - top)
-  // Near-square corners, like the monitor in Windows' network icon: the outermost
-  // stroke-sized square at each corner is filled with faint ink, the only anti-aliased
-  // pixels in the glyph, which softens the corner without rounding it. Where the square is
-  // more than one pixel, its innermost pixel is darker so the corner reads as a soft curve.
+  // Near-square corners, like the monitor in Windows' network icon, and the only
+  // anti-aliased pixels in the glyph. At 1 px strokes the corner pixel is faint ink. At
+  // wider strokes the corner is rounded at single-pixel resolution, not in stroke-sized
+  // blocks: each pixel of the stroke-sized corner square gets the share of it that lies
+  // inside a quarter circle with the stroke's width as its radius.
   context.setBlendMode(.copy)
   for (cornerX, cornerY, flipX, flipY) in [
     (0, top, false, false), (width - k, top, true, false),
@@ -97,8 +112,7 @@ func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
   ] {
     for i in 0..<k {
       for j in 0..<k {
-        let innermost = k > 1 && i == k - 1 && j == k - 1
-        let alpha = innermost ? cornerInnerAlpha : cornerAlpha
+        let alpha = k == 1 ? cornerAlpha : cornerCoverage(i, j, radius: k)
         context.setFillColor(CGColor(srgbRed: ink.r, green: ink.g, blue: ink.b, alpha: alpha))
         fill(cornerX + (flipX ? k - 1 - i : i), cornerY + (flipY ? k - 1 - j : j), 1, 1)
       }
