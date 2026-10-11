@@ -20,6 +20,9 @@ input.on('line', (line) => {
     // forwarded. Real live workers receive the backend resolved from the startup probe.
     const backend = message.encoderBackend === 'auto' ? 'nvenc' : message.encoderBackend;
     const encoder = encoders[backend] ?? encoders.nvenc;
+    // A macOS worker without the approval to post input says so before it is ready.
+    if (process.env.VIDVNC_FAKE_INPUT_UNAVAILABLE)
+      send({ type: 'input-unavailable', reason: process.env.VIDVNC_FAKE_INPUT_UNAVAILABLE });
     send({
       type: 'ready',
       codec: message.codec,

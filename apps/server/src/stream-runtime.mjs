@@ -264,6 +264,9 @@ export class StreamRuntime {
           // What the worker actually chose, not what policy asked for: the two differ when a
           // named backend is absent and the worker substitutes one.
           encoder: this.media.encoder?.(stream.sourceId) ?? null,
+          // Set when the worker cannot post input (macOS without the user's approval), so the
+          // host can say why control does nothing.
+          inputUnavailable: this.media.inputUnavailable?.(stream.sourceId) ?? null,
           ...this.#mediaPath(stream.id, session.clientKey),
         };
       });

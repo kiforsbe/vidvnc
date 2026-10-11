@@ -729,6 +729,28 @@ test('status reports the available backends, the host setting and what the worke
   });
 });
 
+test('status says when the worker cannot post input, and is silent when it can', async (t) => {
+  const reason = 'Remote control needs permission.';
+  const unavailable = await setup(t, 'approval', undefined, {
+    launch: () =>
+      spawn(
+        process.execPath,
+        [fileURLToPath(new URL('./fixtures/media-process.mjs', import.meta.url))],
+        {
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, VIDVNC_FAKE_INPUT_UNAVAILABLE: reason },
+        },
+      ),
+  });
+  await unavailable.offer(unavailable.a, 0);
+  assert.equal(unavailable.runtime.status().sessions[0].streams[0].inputUnavailable, reason);
+
+  const available = await setup(t);
+  await available.offer(available.a, 0);
+  assert.equal(available.runtime.status().sessions[0].streams[0].inputUnavailable, null);
+});
+
 test('two sessions on the same profile and display get separate sources when they support different codecs', async (t) => {
   const { a, b, offer, media, starts } = await setup(t);
   await offer(a, 0, 'mobile', av1H264Sdp());

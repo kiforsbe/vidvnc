@@ -334,6 +334,7 @@
                 "element": "nvd3d11h264enc",
                 "reason": "forced"
               },
+              "inputUnavailable": null,
               "mediaAddress": "192.168.1.20:50100",
               "mediaDiffers": false
             }
@@ -451,6 +452,7 @@
                 "element": "nvd3d11h264enc",
                 "reason": "forced"
               },
+              "inputUnavailable": null,
               "mediaAddress": "192.168.1.20:50100",
               "mediaDiffers": false
             }

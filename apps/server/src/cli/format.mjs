@@ -303,7 +303,10 @@ export function formatSessions(status, numbers) {
           (stream) =>
             `${stream.id} media from ${clean(stream.mediaAddress)}${stream.mediaDiffers ? ' (differs from the sign-in address)' : ''}`,
         );
-      return `${header}\n${[...streams.split('\n'), ...paths].map((line) => `    ${line}`).join('\n')}`;
+      const input = row.streams
+        .filter((stream) => stream.inputUnavailable)
+        .map((stream) => `${stream.id} input unavailable: ${clean(stream.inputUnavailable)}`);
+      return `${header}\n${[...streams.split('\n'), ...paths, ...input].map((line) => `    ${line}`).join('\n')}`;
     })
     .join('\n');
 }

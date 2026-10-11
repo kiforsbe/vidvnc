@@ -23,6 +23,9 @@ may include breaking changes.
   about each network the first time it sees it, and lets local devices use the standing
   password there only after a yes. The answers are kept in `known-networks.json` in the
   settings folder. The command line does not ask, and Windows is unchanged.
+- `sessions` in the command line says when a stream cannot take keyboard and mouse input,
+  and why. Only the coming macOS version reports this: until the owner allows VidVNC under
+  Privacy & Security → Device Control & Data Access, macOS ignores the input a viewer sends.
 
 ## [0.10.0] - 2026-09-26
 

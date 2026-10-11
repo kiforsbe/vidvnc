@@ -150,3 +150,36 @@ test('media-relay shows the port, paths and drops, or why media is unavailable',
   );
   assert.equal(formatRelay(null), 'Media relay: not running.');
 });
+
+test('sessions table says why a stream cannot take input', () => {
+  const text = formatSessions(
+    {
+      sessions: [
+        {
+          id: 'bearer',
+          device: 'iPhone',
+          address: '10.0.0.2',
+          health: 'Smooth',
+          audio: false,
+          control: 'Granted',
+          streams: [
+            {
+              id: 'stream-a',
+              name: 'Main',
+              width: 1280,
+              height: 720,
+              targetFps: 15,
+              profile: 'Mobile',
+              viewers: 1,
+              inputUnavailable: 'Remote control needs permission.',
+            },
+            { id: 'stream-b', name: 'Side', profile: 'Mobile', viewers: 1, inputUnavailable: null },
+          ],
+        },
+      ],
+    },
+    new SessionNumbers(),
+  );
+  assert.match(text, /stream-a input unavailable: Remote control needs permission\./);
+  assert.doesNotMatch(text, /stream-b input unavailable/);
+});

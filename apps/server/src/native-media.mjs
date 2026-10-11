@@ -215,6 +215,15 @@ export class NativeMedia {
       typeof message.allowed === 'boolean'
     )
       active.permission.resolve(message.allowed);
+    // macOS without the user's approval to control the computer (design D4): the worker posts
+    // nothing it is sent, and says so once, at start.
+    if (message.type === 'input-unavailable') {
+      active.inputUnavailable =
+        typeof message.reason === 'string' && message.reason
+          ? message.reason.slice(0, 512)
+          : 'Remote control is unavailable on this computer.';
+      this.#log(`[native-media ${active.id}] Input unavailable: ${active.inputUnavailable}`);
+    }
     if (message.type === 'ready') {
       // The worker chooses its encoder once per stream, so this arrives once and then holds.
       if (typeof message.encoderBackend === 'string')
@@ -316,6 +325,10 @@ export class NativeMedia {
       active.closed.then(() => finish(false));
       active.child.stdin.write(JSON.stringify({ type: 'check-port', peerId, port }) + '\n');
     });
+  }
+  // Why the worker cannot post input for this source, or null when it can (or has not said).
+  inputUnavailable(sourceId) {
+    return this.workers.get(sourceId)?.inputUnavailable ?? null;
   }
   removePeer(sourceId, peerId) {
     const active = this.workers.get(sourceId);
