@@ -245,6 +245,7 @@ test('on Windows the relay starts through the worker sandbox launcher, from its 
   const launch = sandboxedRelayLaunch({
     executable: 'C:\\VidVNC\\media-worker.exe',
     env: { PATH: 'x' },
+    platform: 'win32',
     start: (...args) => calls.push(args),
     bundle: 'runRelay();',
   });
