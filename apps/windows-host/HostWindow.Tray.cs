@@ -33,10 +33,7 @@ public sealed partial class HostWindow
         taskbarCreated = RegisterWindowMessageW("TaskbarCreated");
         trayProc = TrayWindowProc;
         SetWindowSubclass(windowHandle, trayProc, 1, UIntPtr.Zero);
-        var small = new IntPtr[1];
-        if (Environment.ProcessPath is { } executable && ExtractIconExW(executable, 0, null, small, 1) > 0 && small[0] != IntPtr.Zero)
-        { trayIcon = small[0]; trayIconOwned = true; }
-        else trayIcon = LoadIconW(IntPtr.Zero, 32512); // IDI_APPLICATION, for a build without the icon
+        LoadTrayIcon();
         AddTrayIcon();
         // Only the title bar's close button, Alt+F4 and the taskbar's Close window raise Closing;
         // Window.Close() from Quit does not, so Quit always closes for real.
@@ -79,6 +76,55 @@ public sealed partial class HostWindow
             ? "Closing the window keeps VidVNC sharing from the notification area. To stop sharing and exit, right-click the VidVNC icon there and choose Quit VidVNC. Automatic startup is off."
             : "Closing the window stops sharing. VidVNC stays in the notification area; right-click its icon and choose Quit VidVNC to exit. Automatic startup is off."));
         page.Children.Add(Card(content));
+    }
+
+    // A monochrome glyph in the style of Windows' own notification-area icons: white on a dark
+    // taskbar, black on a light one, at the small-icon size for the window's DPI. It is
+    // reloaded when the taskbar theme or the DPI changes.
+    void LoadTrayIcon()
+    {
+        if (trayIconOwned) DestroyIcon(trayIcon);
+        var size = GetSystemMetricsForDpi(49, GetDpiForWindow(windowHandle)); // SM_CXSMICON
+        trayIcon = LoadTrayGlyph(TaskbarIsLight() ? "VidVnc.tray-on-light.ico" : "VidVnc.tray-on-dark.ico", size > 0 ? size : 16);
+        trayIconOwned = trayIcon != IntPtr.Zero;
+        if (!trayIconOwned) trayIcon = LoadIconW(IntPtr.Zero, 32512); // IDI_APPLICATION, if the glyph is missing
+    }
+
+    static bool TaskbarIsLight() =>
+        Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "SystemUsesLightTheme", 0) is int light && light == 1;
+
+    // Picks the image in an embedded .ico closest to the wanted size (the smallest at least as
+    // large, else the largest) and makes an icon of it. The images are PNGs, which
+    // CreateIconFromResourceEx accepts as they are.
+    static IntPtr LoadTrayGlyph(string resource, int size)
+    {
+        using var stream = typeof(HostWindow).Assembly.GetManifestResourceStream(resource);
+        if (stream is null) return IntPtr.Zero;
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        var ico = memory.ToArray();
+        // ICONDIR (6 bytes), then one 16-byte entry per image: width at 0 (0 means 256),
+        // byte count at 8, offset at 12.
+        int count = BitConverter.ToUInt16(ico, 4), best = -1, bestWidth = 0;
+        for (int i = 0; i < count; i++)
+        {
+            var entry = 6 + 16 * i;
+            var width = ico[entry] == 0 ? 256 : ico[entry];
+            var better = best < 0 || (width >= size ? bestWidth < size || width < bestWidth : bestWidth < size && width > bestWidth);
+            if (better) { best = entry; bestWidth = width; }
+        }
+        if (best < 0) return IntPtr.Zero;
+        var image = ico.AsSpan(BitConverter.ToInt32(ico, best + 12), BitConverter.ToInt32(ico, best + 8)).ToArray();
+        return CreateIconFromResourceEx(image, (uint)image.Length, true, 0x00030000, size, size, 0);
+    }
+
+    void RefreshTrayIcon()
+    {
+        LoadTrayIcon();
+        if (!trayAdded) return;
+        var data = TrayData(NifIcon);
+        Shell_NotifyIconW(NimModify, ref data);
     }
 
     void RemoveTray()
@@ -177,6 +223,9 @@ public sealed partial class HostWindow
             else if (trayEvent == WmContextMenu) ShowTrayMenu(x, y);
             return IntPtr.Zero;
         }
+        // The taskbar switched between light and dark, or the window moved to another DPI.
+        if ((message == WmSettingChange && lParam != IntPtr.Zero && Marshal.PtrToStringUni(lParam) == "ImmersiveColorSet") || message == WmDpiChanged)
+            RefreshTrayIcon();
         // Explorer restarted: its notification area is new and empty, so add the icon again.
         if (message == taskbarCreated && taskbarCreated != 0) { trayAdded = false; AddTrayIcon(); }
         return DefSubclassProc(hWnd, message, wParam, lParam);
@@ -196,7 +245,7 @@ public sealed partial class HostWindow
     const uint NimAdd = 0, NimModify = 1, NimDelete = 2, NimSetVersion = 4, NotifyIconVersion4 = 4;
     const uint NifMessage = 0x1, NifIcon = 0x2, NifTip = 0x4, NifInfo = 0x10, NifShowTip = 0x80;
     const uint NiifInfo = 0x1, NiifRespectQuietTime = 0x80;
-    const uint NinSelect = 0x400, NinKeySelect = 0x401, WmContextMenu = 0x7B;
+    const uint NinSelect = 0x400, NinKeySelect = 0x401, WmContextMenu = 0x7B, WmSettingChange = 0x1A, WmDpiChanged = 0x2E0;
     const uint MfString = 0x0, MfGrayed = 0x1, MfSeparator = 0x800, TpmRightButton = 0x2, TpmReturnCmd = 0x100;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -221,7 +270,8 @@ public sealed partial class HostWindow
 
     delegate IntPtr SubclassProc(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern bool Shell_NotifyIconW(uint message, ref NotifyIconData data);
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern uint ExtractIconExW(string file, int index, IntPtr[]? large, IntPtr[]? small, uint count);
+    [DllImport("user32.dll")] static extern IntPtr CreateIconFromResourceEx(byte[] bits, uint length, bool icon, uint version, int width, int height, uint flags);
+    [DllImport("user32.dll")] static extern int GetSystemMetricsForDpi(int index, uint dpi);
     [DllImport("comctl32.dll")] static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProc proc, UIntPtr id, UIntPtr data);
     [DllImport("comctl32.dll")] static extern bool RemoveWindowSubclass(IntPtr hWnd, SubclassProc proc, UIntPtr id);
     [DllImport("comctl32.dll")] static extern IntPtr DefSubclassProc(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);

@@ -17,6 +17,8 @@
     <Compile Include="../../ServerJob.cs" Link="Host/ServerJob.cs" />
     <Compile Include="../../ProfileOrderStore.cs" Link="Host/ProfileOrderStore.cs" />
     <Compile Include="../../HostPreferencesStore.cs" Link="Host/HostPreferencesStore.cs" />
+    <EmbeddedResource Include="../../Assets/VidVnc.tray-on-dark.ico" LogicalName="VidVnc.tray-on-dark.ico" />
+    <EmbeddedResource Include="../../Assets/VidVnc.tray-on-light.ico" LogicalName="VidVnc.tray-on-light.ico" />
     <Compile Include="../../ProfileInputs.cs" Link="Host/ProfileInputs.cs" />
     <!-- Only the components the host uses; the metapackage adds unused AI/ML runtimes (~40 MB). -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.2.1" />

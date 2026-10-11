@@ -30,8 +30,9 @@ may include breaking changes.
 ### Changed
 
 - Closing the VidVNC app's window on Windows no longer stops sharing and exits. VidVNC
-  keeps running behind a new icon in the notification area, whose tooltip says whether
-  sharing is on; select it to open the window again, or right-click it to start or stop
+  keeps running behind a new icon in the notification area, a white or black outline like
+  Windows' own icons that follows the taskbar's light or dark theme, whose tooltip says
+  whether sharing is on; select it to open the window again, or right-click it to start or stop
   sharing or choose **Quit VidVNC**. The first close in each run shows a notice saying so.
   To have closing the window stop sharing, turn off **Keep sharing when the window closes**
   in Settings (saved in `host-settings.json`). The app's executable also has an icon now.
