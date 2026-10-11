@@ -6,6 +6,10 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
+// Paths are built with the target platform's own rules, so a macOS path stays a macOS path
+// when the tests run on Windows, and the other way round.
+const pathFor = (platform) => (platform === 'win32' ? path.win32 : path.posix);
+
 // The pinned GStreamer macOS framework, per-user or system-wide (docs/ARCHITECTURE.md).
 const GSTREAMER_FRAMEWORK = 'Library/Frameworks/GStreamer.framework/Versions/1.0';
 
@@ -15,16 +19,18 @@ export function dataDirectory({
   platform = process.platform,
   home = homedir(),
 } = {}) {
+  const { join } = pathFor(platform);
   return platform === 'win32'
-    ? path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'VidVNC')
-    : path.join(home, 'Library', 'Application Support', 'VidVNC');
+    ? join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'VidVNC')
+    : join(home, 'Library', 'Application Support', 'VidVNC');
 }
 
 // The development worker build, `out/native/<platform>-<arch>/Release/` (CMakePresets.json).
 export function defaultWorker(root, platform = process.platform) {
+  const { join } = pathFor(platform);
   return platform === 'win32'
-    ? path.join(root, 'out/native/windows-x64/Release/media-worker.exe')
-    : path.join(root, 'out/native/macos-arm64/Release/media-worker');
+    ? join(root, 'out/native/windows-x64/Release/media-worker.exe')
+    : join(root, 'out/native/macos-arm64/Release/media-worker');
 }
 
 // The GStreamer root for development runs: GSTREAMER_ROOT, else the repository's SDK on
@@ -37,9 +43,10 @@ export function defaultGStreamerRoot({
   exists = existsSync,
 } = {}) {
   if (env.GSTREAMER_ROOT) return env.GSTREAMER_ROOT;
-  if (platform === 'win32') return path.join(root, '.deps/gstreamer');
-  const user = path.join(home, GSTREAMER_FRAMEWORK);
-  return exists(user) ? user : path.join('/', GSTREAMER_FRAMEWORK);
+  const { join } = pathFor(platform);
+  if (platform === 'win32') return join(root, '.deps/gstreamer');
+  const user = join(home, GSTREAMER_FRAMEWORK);
+  return exists(user) ? user : join('/', GSTREAMER_FRAMEWORK);
 }
 
 // Every runtime path, from a loaded runtime manifest when there is one.
@@ -51,19 +58,20 @@ export function runtimePaths({
   home = homedir(),
   exists = existsSync,
 }) {
+  const { dirname, join, resolve } = pathFor(platform);
   const userData = dataDirectory({ env, platform, home });
   return {
     userData,
-    sdkRoot: path.resolve(
+    sdkRoot: resolve(
       manifest
-        ? path.dirname(manifest.mediaBin)
+        ? dirname(manifest.mediaBin)
         : defaultGStreamerRoot({ root, env, platform, home, exists }),
     ),
-    executable: path.resolve(
+    executable: resolve(
       manifest?.worker || env.VIDVNC_MEDIA_WORKER || defaultWorker(root, platform),
     ),
-    logDirectory: path.resolve(
-      (manifest?.mode !== 'packaged' && env.VIDVNC_LOG_DIR) || path.join(userData, 'logs'),
+    logDirectory: resolve(
+      (manifest?.mode !== 'packaged' && env.VIDVNC_LOG_DIR) || join(userData, 'logs'),
     ),
   };
 }

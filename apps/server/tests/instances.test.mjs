@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { dataDirectory, settingsFiles } from '../src/paths.mjs';
 import { isAlive, registerInstance, runningInstances } from '../src/instances.mjs';
 
@@ -13,15 +13,15 @@ test('settings live in the per-user VidVNC data folder', () => {
       platform: 'win32',
       home: 'C:\\Users\\u',
     }),
-    join('C:\\Users\\u\\AppData\\Local', 'VidVNC'),
+    win32.join('C:\\Users\\u\\AppData\\Local', 'VidVNC'),
   );
   assert.equal(
     dataDirectory({ env: {}, platform: 'win32', home: 'C:\\Users\\u' }),
-    join('C:\\Users\\u', 'AppData', 'Local', 'VidVNC'),
+    win32.join('C:\\Users\\u', 'AppData', 'Local', 'VidVNC'),
   );
   assert.equal(
     dataDirectory({ env: {}, platform: 'darwin', home: '/Users/u' }),
-    join('/Users/u', 'Library', 'Application Support', 'VidVNC'),
+    posix.join('/Users/u', 'Library', 'Application Support', 'VidVNC'),
   );
   assert.deepEqual(settingsFiles('D'), {
     policy: join('D', 'stream-policy.json'),
