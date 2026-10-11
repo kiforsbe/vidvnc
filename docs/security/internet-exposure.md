@@ -477,7 +477,12 @@ the public host avoids the rest.
     AV1 skipped (no hardware encoder), including the session checks that waited for the
     sandbox; input reported unavailable, as Terminal has no Device Control & Data Access
     grant. `control-permission-check.mjs` passed.
-  - **Not run yet:** `relay-check.mjs`, `audio-only-check.mjs`,
+  - `audio-only-check.mjs` passed: headless Chromium connected to the sandboxed media-net.
+  - `relay-check.mjs` (audio, 2 peers): both workers offered only `127.0.0.1`, ICE and DTLS
+    completed through the relay on the Mac's LAN address, `lsof` showed every worker UDP
+    socket on `127.0.0.1` and no TCP listener, 4 `media-worker` processes for 2 sources,
+    both peers on port 4384; mean ICE round trip 19.73 ms, 1,003 packets and 0 lost.
+  - **Not run yet:**
     `multi-stream-check.mjs` and `shared-stream-check.mjs` from a terminal with Screen &
     System Audio Recording; a browser or iPhone viewing a Mac; the official Node.js 24
     under the relay profile in this build (MG5 ran it in the prototype); the Windows build
