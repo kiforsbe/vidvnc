@@ -210,7 +210,8 @@ extension StreamProfile {
   ].map {
     StreamProfile(
       id: $0.0, name: $0.1, description: $0.2, enabled: true, width: $0.3, height: $0.4, fps: $0.5,
-      bitrateKbps: $0.6, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed")
+      bitrateKbps: $0.6, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed",
+      sizing: "height", scalePercent: 100, aspect: "keep")
   }
 }
 

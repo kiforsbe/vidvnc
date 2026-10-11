@@ -117,7 +117,8 @@ public sealed partial class HostWindow
             {
                 var restored = new JsonObject { ["id"] = d.Id, ["name"] = d.Name, ["description"] = d.Description, ["enabled"] = true,
                     ["width"] = d.Width, ["height"] = d.Height, ["fps"] = d.Fps, ["bitrateKbps"] = d.BitrateKbps,
-                    ["frameDelivery"] = "fixed", ["bitrateMode"] = "cbr", ["quality"] = "balanced" };
+                    ["frameDelivery"] = "fixed", ["bitrateMode"] = "cbr", ["quality"] = "balanced",
+                    ["sizing"] = "height", ["scalePercent"] = 100, ["aspect"] = "keep" };
                 var at = rows.ToList().FindIndex(p => p!["id"]!.GetValue<string>() == d.Id);
                 if (at >= 0) rows[at] = restored; else rows.Add(restored);
             }
