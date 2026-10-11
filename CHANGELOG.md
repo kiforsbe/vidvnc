@@ -9,9 +9,8 @@ may include breaking changes.
 
 ### Added
 
-- The coming macOS version has its VidVNC app: a window with Overview, Displays, Connections,
-  Access, Network, Activity and Permissions, a Settings window for streaming profiles,
-  codecs and the encoder, and a menu bar item that keeps sharing running when the window is
+- The coming macOS version has its VidVNC app: a window with Overview, Displays, Streaming
+  (profiles, codecs and the encoder), Connections, Access, Network, Activity and Permissions, and a menu bar item that keeps sharing running when the window is
   closed (unless **Keep sharing when the window closes** is off). It asks for nothing at
   launch: the first time you turn sharing on it explains, then macOS asks for Screen & System
   Audio Recording and Local Network; Device Control & Data Access is explained the first time

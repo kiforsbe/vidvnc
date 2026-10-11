@@ -47,7 +47,7 @@ final class NavigationTests: XCTestCase {
     let app = try launch()
     let window = app.windows.firstMatch
     XCTAssertTrue(window.waitForExistence(timeout: 10))
-    for section in ["Connections", "Access", "Network", "Activity", "Displays", "Permissions", "Overview"] {
+    for section in ["Displays", "Streaming", "Connections", "Access", "Network", "Activity", "Permissions", "Overview"] {
       window.outlines.staticTexts[section].click()
       XCTAssertTrue(window.staticTexts[section].firstMatch.waitForExistence(timeout: 5), section)
     }

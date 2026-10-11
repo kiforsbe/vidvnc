@@ -10,6 +10,7 @@
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <gst/audio/audio.h>
+#include "audio-timeline.hpp"
 #include <gst/base/gstpushsrc.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -570,6 +571,7 @@ static void vidvnc_screen_src_init(VidVncScreenSrc *self) {
 
 struct AudioState {
     CaptureQueue queue;
+    AudioTimeline timeline;
 };
 
 struct VidVncAudioSrc {
@@ -586,6 +588,7 @@ static AudioState &audio(gpointer self) { return *reinterpret_cast<VidVncAudioSr
 
 static gboolean audio_start(GstBaseSrc *source) {
     auto &state = audio(source);
+    state.timeline.reset();
     @autoreleasepool {
         state.queue.error.clear();
         state.queue.flushing = false;
@@ -680,8 +683,26 @@ static GstFlowReturn audio_create(GstPushSrc *source, GstBuffer **out) {
         GST_ELEMENT_ERROR(source, RESOURCE, READ, ("%s", message.c_str()), (nullptr));
         return GST_FLOW_ERROR;
     }
-    *out = queue.audio.front();
+    auto *buffer = queue.audio.front();
     queue.audio.pop_front();
+    lock.unlock();
+    // Timestamps from the sample count (audio-timeline.hpp), anchored to the running time.
+    std::int64_t now = 0;
+    if (GstClock *clock = gst_element_get_clock(GST_ELEMENT(source))) {
+        const auto time = gst_clock_get_time(clock);
+        const auto base = gst_element_get_base_time(GST_ELEMENT(source));
+        now = time > base ? static_cast<std::int64_t>(time - base) : 0;
+        gst_object_unref(clock);
+    }
+    const auto frames =
+        static_cast<std::int64_t>(gst_buffer_get_size(buffer) / (queue.channels * sizeof(float)));
+    const auto stamp = audio(source).timeline.next(now, frames);
+    GST_BUFFER_PTS(buffer) = static_cast<GstClockTime>(stamp.pts_ns);
+    GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
+    GST_BUFFER_DURATION(buffer) = static_cast<GstClockTime>(stamp.duration_ns);
+    if (stamp.discont)
+        GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DISCONT);
+    *out = buffer;
     return GST_FLOW_OK;
 }
 
@@ -713,7 +734,8 @@ static void vidvnc_audio_src_init(VidVncAudioSrc *self) {
     self->state = new AudioState;
     gst_base_src_set_live(GST_BASE_SRC(self), TRUE);
     gst_base_src_set_format(GST_BASE_SRC(self), GST_FORMAT_TIME);
-    gst_base_src_set_do_timestamp(GST_BASE_SRC(self), TRUE);
+    // audio_create stamps buffers itself, from their sample counts.
+    gst_base_src_set_do_timestamp(GST_BASE_SRC(self), FALSE);
 }
 
 // ---- Registration and frame hand-over.

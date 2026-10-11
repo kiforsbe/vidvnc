@@ -22,6 +22,7 @@ app to see the sidebar, its sharing footer, the menu bar item, sheets and Settin
 | ----------- | ---------------------------------------------- | -------------------------------------------- |
 | Overview    | [overview-light.png](overview-light.png)       | [overview-dark.png](overview-dark.png)       |
 | Displays    | [displays-light.png](displays-light.png)       | [displays-dark.png](displays-dark.png)       |
+| Streaming   | [streaming-light.png](streaming-light.png)     | [streaming-dark.png](streaming-dark.png)     |
 | Connections | [connections-light.png](connections-light.png) | [connections-dark.png](connections-dark.png) |
 | Access      | [access-light.png](access-light.png)           | [access-dark.png](access-dark.png)           |
 | Network     | [network-light.png](network-light.png)         | [network-dark.png](network-dark.png)         |

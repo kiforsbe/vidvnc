@@ -81,6 +81,7 @@ struct SectionView: View {
     case .network: NetworkView(model: model)
     case .activity: ActivityView(model: model)
     case .displays: DisplaysView(model: model)
+    case .streaming: StreamingView(model: model)
     case .permissions: PermissionsView(model: model)
     }
   }

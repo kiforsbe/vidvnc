@@ -10,11 +10,13 @@ in the plan's task 5.4; the plan itself is not edited.
 ## Decisions
 
 - **Sections, not Windows pages.** The window has a sidebar with Overview, Displays,
-  Connections, Access, Network, Activity and Permissions (Displays moved up at the owner's
-  request; Overview shows its displays strip above Connection Details too). Streaming profiles, allowed options,
-  the encoder and codecs go to the Settings window (Streaming tab), with General (open at
-  login, keep sharing when the window closes, logs) and About (versions). Parity with Windows
-  is kept function by function, not page by page.
+  Streaming, Connections, Access, Network, Activity and Permissions. Two changes followed
+  the owner's first runs: Displays moved up (Overview shows its displays strip above
+  Connection Details too), and the streaming profiles, allowed options, encoder and codecs
+  moved from a Settings tab into the Streaming section, like the Windows host's Streaming
+  profiles page. The Settings window keeps General (open at login, keep sharing when the
+  window closes, logs) and About (versions). Parity with Windows is kept function by
+  function, not page by page.
 - **Sharing control.** A switch on Overview, a status line in the sidebar footer, and a menu
   bar item that starts and stops sharing with the window closed. The Overview stop button of
   the mockups is dropped in favour of the switch and **Connect a Device**.
@@ -42,7 +44,7 @@ and sends every command in the contract: `access-set`, `policy-set`,
 | Plan task | What changed                                                                                                                                                                               |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 5.2       | No capture-helper target yet: the helper bundle wraps the CMake-built worker and carries its own provisioning profile, so it is assembled by packaging (phase 6) with the bundled Node.js. |
-| 5.4       | Seven sections and a Settings window instead of eleven pages, as above.                                                                                                                    |
+| 5.4       | Eight sections and a Settings window instead of eleven pages, as above.                                                                                                                    |
 | 5.5       | The Local Network state is inferred by browsing for `_vidvnc._tcp`; macOS has no API to read it.                                                                                           |
 | 5.6       | Deferred to packaging: **Install command-line tool** links the bundled `Helpers/vidvnc`, which exists only in a packaged app.                                                              |
 

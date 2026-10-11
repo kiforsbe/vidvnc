@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
-  case overview, displays, connections, access, network, activity, permissions
+  case overview, displays, streaming, connections, access, network, activity, permissions
 
   var id: Self { self }
 
@@ -13,6 +13,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
     case .network: "Network"
     case .activity: "Activity"
     case .displays: "Displays"
+    case .streaming: "Streaming"
     case .permissions: "Permissions"
     }
   }
@@ -25,6 +26,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
     case .network: "network"
     case .activity: "waveform.path.ecg"
     case .displays: "display.2"
+    case .streaming: "slider.horizontal.3"
     case .permissions: "hand.raised"
     }
   }
