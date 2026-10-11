@@ -32,8 +32,9 @@ The tray icons follow the same conventions as the tray icons of
 apps look alike in the notification area: each size (16, 20, 24, 32, 40, 48 and 64 px) is
 drawn separately, strokes are size/16 px wide on the pixel grid with anti-aliasing off, the
 ink is white for a dark taskbar and RGB 26,26,26 for a light one, and the entries are
-uncompressed 32-bit DIBs. The glyph is a monitor outline with the Fluent share-screen arrow
-inside it. The frame's width has the same parity as the stroke, so the arrow, its head and
+uncompressed 32-bit DIBs. The glyph is drawn like the monitor in Windows' network icon: a
+rectangular frame with only the outermost corner square left out, on an open stand of two
+legs and a foot, with the Fluent share-screen arrow inside it. The frame's width has the same parity as the stroke, so the arrow, its head and
 the stand share one exact centre column, and the arrow has equal space above and below it
 in the screen; the generator fails if any size's glyph isn't mirror-symmetric. The Windows host embeds that "sharing" glyph as
 `apps/windows-host/Assets/VidVnc.tray-on-dark.ico` and `VidVnc.tray-on-light.ico` and shows

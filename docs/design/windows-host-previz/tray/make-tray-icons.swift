@@ -81,21 +81,23 @@ func draw(_ state: State, size n: Int, ink: RGB) -> CGImage {
   fill(0, bottom - k, width, k)
   fill(0, top, k, bottom - top)
   fill(width - k, top, k, bottom - top)
-  // Rounded corners: notch the outer corners and fill the inner ones, one stroke square each.
+  // Near-square corners, like the monitor in Windows' network icon: only the outermost
+  // stroke-sized square at each corner is left out, with no inner rounding.
   context.setBlendMode(.clear)
   for (x, y) in [(0, top), (width - k, top), (0, bottom - k), (width - k, bottom - k)] {
     fill(x, y, k, k)
   }
   context.setBlendMode(.normal)
-  for (x, y) in [(k, top + k), (width - 2 * k, top + k), (k, bottom - 2 * k), (width - 2 * k, bottom - 2 * k)] {
-    fill(x, y, k, k)
-  }
 
-  // Stand: stem under the frame, then the foot, centred on the same axis.
+  // Stand, also as in the network icon: a hollow neck of two legs on a wider foot. Their
+  // widths get the frame's parity so they centre on the same axis.
+  func centred(_ w: Int) -> Int { (width - w) % 2 == 0 ? w : w + 1 }
   let footY = min(r(14 * u), n - k)
-  fill(stemX, bottom, k, footY - bottom)
-  let footHalf = r(3 * u)
-  fill(stemX - footHalf, footY, 2 * footHalf + k, k)
+  let neck = centred(r(5 * u)), neckX = (width - neck) / 2
+  fill(neckX, bottom, k, footY - bottom)
+  fill(neckX + neck - k, bottom, k, footY - bottom)
+  let foot = centred(r(8 * u)), footX = (width - foot) / 2
+  fill(footX, footY, foot, k)
 
   if state.arrow {
     // Share-screen arrow: a stem and a 45° head stepped one pixel at a time, centred in the
