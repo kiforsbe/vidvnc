@@ -67,6 +67,8 @@ editing an old one.
   notice, in the product's words (the VidVNC app, the command line, the viewer). Name
   commands, settings and pages exactly as they appear. Leave out refactors, test-only and
   documentation-only changes unless they change what someone does.
+- Keep entries brief: one or two lines saying what changed. Put the explanation in the
+  README, the app's README or the architecture document, and link to it from the entry.
 - One entry per change; extend an existing `Unreleased` entry instead of adding a second
   one for the same feature.
 
