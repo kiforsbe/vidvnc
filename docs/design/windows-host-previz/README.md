@@ -25,6 +25,25 @@ off so that closing the window stops sharing; VidVNC stays in the notification a
 way. This matches the macOS host, which stays in the menu bar
 ([prototype](../../../apps/macos-host/README.md#ui-prototype)).
 
+### Tray icon
+
+Proposed set: [tray/preview.png](tray/preview.png). Like Windows 11's own tray icons, the
+icon is a thin single-colour line glyph, white on a dark taskbar and near-black on a light
+one, drawn on each size's pixel grid (16, 20, 24 and 32 px for 100% to 200% scaling) so it
+stays crisp. A monitor outline means sharing is off; the Fluent share-screen arrow inside
+it means sharing is on. State badges sit in the lower-right corner with a transparent gap,
+like the system's Safely Remove Hardware check: a globe for remote access, a pointer when
+someone is controlling, an amber dot when something needs attention (an approval or a new
+network) and a red cross when the server stopped unexpectedly. Only the warning badges use
+colour. The tray should switch between the `-dark` and `-light` icons when the taskbar
+theme changes.
+
+[tray/make-tray-icons.swift](tray/make-tray-icons.swift) generates the SVGs (16 px
+master), the multi-size `.ico` files and the preview on a Mac:
+`swift docs/design/windows-host-previz/tray/make-tray-icons.swift`. Not yet used: the
+tray in [HostWindow.Tray.cs](../../../apps/windows-host/HostWindow.Tray.cs) still shows the
+executable's colour app icon.
+
 ## Session stability addition
 
 Approved layout: [session-stability-v1.png](session-stability-v1.png). Compact stream
