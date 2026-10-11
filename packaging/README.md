@@ -1,7 +1,8 @@
 # Distribution scaffolding
 
-Status: Windows development builds only: the CLI server ZIP (unsigned) and the
-server/host MSIX (self-signed). Nothing is published or release-signed.
+Status: Windows development builds, the CLI server ZIP (unsigned) and the server/host
+MSIX (self-signed); and the macOS server/host DMG and CLI ZIP, signed with the owner's
+Developer ID and notarized. Nothing is published yet.
 
 `targets.json` defines the six products and reusable payload groups. Paths are
 repository-relative source ownership locations, not installed bundle paths. The

@@ -127,7 +127,10 @@ Only cut a release when the owner asks for one. The owner decides the version nu
    The first command updates every declared version: the root and workspace
    `package.json` files and their `@vidvnc/*` dependencies, `package-lock.json`,
    `apps/windows-host/VidVnc.Host.csproj`, `apps/windows-host/app.manifest` (as
-   `0.9.2.0`), and `CMakeLists.txt` ([tools/version.mjs](tools/version.mjs)). The second,
+   `0.9.2.0`), the macOS app's `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+   `apps/macos-host/VidVNC.xcodeproj/project.pbxproj`, the capture helper's
+   `packaging/macos/capture-helper/Info.plist`, and `CMakeLists.txt`
+   ([tools/version.mjs](tools/version.mjs)). The second,
    with no argument, lists them and must end with `Version: 0.9.2`. Also search for the old
    version string to catch anything the tool doesn't own:
 
@@ -138,7 +141,8 @@ Only cut a release when the owner asks for one. The owner decides the version nu
 4. **Check the release commit.** Run `npm run format:check` and `npm test`. On Windows,
    also run `npm run test:hardware`, `npm run test:host` and, if packages are part of the
    release, `npm run build` and `npm run package` (see
-   [Windows packages](README.md#windows-packages)).
+   [Windows packages](README.md#windows-packages)); on a Mac, `npm run package:macos`
+   (see [Mac packages](README.md#mac-packages)).
 
 5. **Commit** only the version and changelog changes, with the message
    `Release v0.9.2`:

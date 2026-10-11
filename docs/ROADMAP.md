@@ -255,8 +255,12 @@ audit. The host app (phase 5) runs from source: the Swift app starts and stops t
 over the owner protocol, with the permissions onboarding, network confirmation and every
 section of the [accepted design](superpowers/specs/2026-10-11-macos-host-design.md), and its
 unit, UI and process-tree checks pass on the owner's Mac against a stand-in server and, for
-the process tree, the real one. Packaging (phase 6) is not in, so there is no Mac app to
-install yet, and a full viewer session from a Mac has not been checked end to end.
+the process tree, the real one. Packaging (phase 6) is in: `npm run package:macos` builds
+the app as a DMG and the command-line server as a ZIP, signed with the owner's Developer ID
+and notarized, and both pass their package checks on the owner's Mac (signatures,
+Gatekeeper, libraries, running from an unusual path, cleanup after a kill). Clean-Mac
+acceptance and documentation (phase 7) remain; persistent content capture is not approved
+yet, so no provisioning profile is embedded.
 It targets macOS 27 on Apple Silicon only, with the same packages as Windows: the VidVNC app
 (native Swift host, the server and the media worker, with the command-line server inside)
 and a standalone command-line server ZIP, both with Node.js bundled, signed with the owner's

@@ -23,8 +23,17 @@ may include breaking changes.
   closed (unless **Keep sharing when the window closes** is off). It asks for nothing at
   launch: the first time you turn sharing on it explains, then macOS asks for Screen & System
   Audio Recording and Local Network; Device Control & Data Access is explained the first time
-  you give a viewer control. It asks before sharing on a network it hasn't used. For now it
-  runs from source with `npm run start:host` on a Mac.
+  you give a viewer control. It asks before sharing on a network it hasn't used. It can be
+  built as a DMG, signed with a Developer ID and notarized, and runs from source with
+  `npm run start:host` on a Mac.
+- The coming macOS version has its packages: the VidVNC app in a notarized DMG, and the
+  command-line server as a notarized ZIP that runs from any folder with `./vidvnc`. Both
+  include Node.js and the media components, so a Mac needs nothing installed first, and
+  both use `~/Library/Application Support/VidVNC`. The first run of the command-line ZIP
+  checks with Apple online. In the app, **Install Command-Line Tool…** (VidVNC menu, or
+  Settings, General) links `/usr/local/bin/vidvnc` to the server inside the app after you
+  confirm, so Terminal can run it with the app's settings. Build them with
+  `npm run package:macos`.
 
 - The Windows host's Streaming profiles page has a **Restore defaults** button that puts the five standard profiles back as shipped (adding any you deleted) and keeps your own.
 

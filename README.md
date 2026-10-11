@@ -21,8 +21,9 @@ hardware acceptance is still in progress; see [the roadmap](docs/ROADMAP.md). De
 audio can currently sound crackly; video and input are not affected (see the
 [changelog](CHANGELOG.md)).
 
-Native macOS 27/Apple Silicon capture and native viewer clients are planned, not
-implemented. Browser testing on Apple devices is not native macOS server support.
+VidVNC also hosts on macOS 27 on Apple Silicon, from the [VidVNC app for Mac](#on-a-mac) or
+the command line; it is in development and not released yet. Native viewer clients are
+planned, not implemented.
 
 ## Install and run
 
@@ -133,6 +134,31 @@ listener binds only loopback and eligible Private-LAN addresses. With the defaul
 mode, the viewer is unavailable until HTTPS starts; an invalid TLS configuration or
 listener failure does not fall back to HTTP login or streaming. Only a valid, explicit
 `tls.mode: off` setting permits the full viewer on unencrypted LAN-only HTTP.
+
+### On a Mac
+
+> Not released yet. Both Mac packages can be built and notarized from a checkout (see
+> [Mac packages](#mac-packages)).
+
+The Mac packages need macOS 27 or later on Apple Silicon, and include everything else:
+Node.js, the media components and the server. Both are signed with the developer's
+Developer ID and notarized by Apple.
+
+- **The VidVNC app:** open the `.dmg` and drag **VidVNC** to Applications, then open it. To
+  run the server from Terminal too, choose **VidVNC > Install Command-Line Tool…** (or
+  **Install…** next to **Command-line tool** in Settings, General). After you confirm, it
+  links `/usr/local/bin/vidvnc` to the server inside the app, asking for an administrator's
+  password if that folder isn't yours; `vidvnc` then works like the command-line server
+  below, with the app's settings. To remove VidVNC, quit it and delete it from
+  Applications; remove the command first if you installed it.
+- **The command-line server:** unzip `VidVNC-Server-<version>-macos-arm64.zip` anywhere and
+  run `./vidvnc` in its folder (`./vidvnc config <command>` while it is stopped). The first
+  time, macOS checks with Apple's servers that it is notarized, because a ticket can't be
+  attached to a command-line program, so that first run needs an internet connection.
+
+Both keep settings and logs in `~/Library/Application Support/VidVNC`, shared by the app,
+its `vidvnc` command and the command-line server, so upgrading or deleting them keeps
+your settings.
 
 ## Build and run (Windows)
 
@@ -278,8 +304,8 @@ in the menu bar. The first time you turn sharing on, it explains and then macOS 
 Screen & System Audio Recording and Local Network, and the first stream with sound asks for
 System Audio Recording; Device Control & Data Access is asked
 the first time you give a viewer control. Set `VIDVNC_SIGN_IDENTITY` to a code-signing
-identity so rebuilds keep those permissions. There is no packaged Mac app yet; see
-[apps/macos-host](apps/macos-host/README.md).
+identity so rebuilds keep those permissions; see [apps/macos-host](apps/macos-host/README.md).
+To build the packaged app, see [Mac packages](#mac-packages).
 
 `npm run screenshot:host` regenerates the app screenshot at the top of this README: it starts that Debug
 host, waits 8 seconds for it to finish starting, saves its window to
@@ -356,6 +382,33 @@ each PC that trusts it. Then delete both files in `.deps/signing`, run
 `npm run package:prepare` and rebuild the MSIX. Because the MSIX is not timestamped,
 packages signed with an expired certificate cannot be installed.
 
+### Mac packages
+
+On a Mac with the tools for [building on macOS](#sdk-and-build-locations), a Developer ID
+Application certificate in your login keychain and a `notarytool` keychain profile:
+
+```sh
+npm run package:prepare:macos
+VIDVNC_SIGN_IDENTITY="Developer ID Application" VIDVNC_NOTARY_PROFILE=<profile> npm run package:macos
+```
+
+`package:prepare:macos` downloads the pinned Node.js archive and checks its hash.
+`package:macos` builds the Release worker and app, assembles the command-line ZIP and the
+app, signs every program inside out with the hardened runtime, has Apple notarize them,
+staples the app and the DMG, and writes `out/installers/macos-cli/<version>/` and
+`out/installers/macos-server/<version>/`. `npm run package:macos:cli` and
+`package:macos:app` build one; add `-- --no-notarize` to stop after signing (the names then
+say `not-notarized`). The signing identity and profile only come from the environment;
+`VIDVNC_APP_PROFILE` and `VIDVNC_CAPTURE_PROFILE` can name Developer ID provisioning
+profiles to embed once persistent content capture is approved. Signing many files asks
+for keychain access per file unless the key allows `codesign`
+(`security set-key-partition-list -S apple-tool:,apple:,codesign: -s ~/Library/Keychains/login.keychain-db`).
+
+`node packaging/macos/tests/package-check.mjs macos-server|macos-cli [file]` checks a
+package's signatures, notarization and libraries, then runs it from a path with spaces and
+non-ASCII characters. Layout, allow-list and signing are described in
+[packaging/macos](packaging/macos/README.md).
+
 ### SDK and build locations
 
 Set `GSTREAMER_ROOT` to the installed SDK directory. Without an override, the
@@ -369,8 +422,7 @@ checksum-verified portable CMake 3.31.6 there ([tools/deps.json](tools/deps.json
 ignored, not a checked-in dependency.
 Native output: `out/native/windows-x64/Release`. No automatic downloads at build/start.
 
-On macOS (support in development: the worker builds and its unit tests run, but it cannot
-capture yet), install Xcode, CMake 3.25 or newer and the GStreamer 1.28.6 framework's
+On macOS, install Xcode, CMake 3.25 or newer and the GStreamer 1.28.6 framework's
 runtime and development packages for your user ("Install for me only"). `npm run deps`
 checks all three and prints the package links when one is missing; it links nothing into
 `.deps`, because every checkout uses the one installed framework. Then:

@@ -25,6 +25,7 @@ private struct GeneralSettings: View {
         "Closing the window always leaves VidVNC in the menu bar. Turn this off to stop sharing when you close it."
       )
       .font(.callout).foregroundStyle(.secondary)
+      CommandLineToolRow()
       LabeledContent("Logs") {
         Button("Show in Finder") {
           let logs = FileManager.default.homeDirectoryForCurrentUser
@@ -38,6 +39,34 @@ private struct GeneralSettings: View {
       }
     }
     .formStyle(.grouped)
+  }
+}
+
+/// Install Command-Line Tool, with what is there now.
+private struct CommandLineToolRow: View {
+  private let tool = CommandLineTool.shared
+
+  var body: some View {
+    LabeledContent {
+      switch tool.state {
+      case .installed: Button("Remove") { tool.uninstall() }
+      case .unavailable: EmptyView()
+      case .notInstalled, .other: Button("Install…") { tool.install() }
+      }
+    } label: {
+      Text("Command-line tool")
+      Text(summary)
+    }
+    .onAppear { tool.refresh() }
+  }
+
+  private var summary: String {
+    switch tool.state {
+    case .installed: "vidvnc is installed in \(tool.link.deletingLastPathComponent().path)."
+    case .notInstalled: "Run the server from Terminal with vidvnc, using the app's settings."
+    case .other: "Another vidvnc command is installed in \(tool.link.deletingLastPathComponent().path)."
+    case .unavailable: "Only installed copies of VidVNC include the command-line tool."
+    }
   }
 }
 

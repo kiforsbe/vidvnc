@@ -39,7 +39,9 @@ User requirement revised 2026-09-15 (replaces the earlier "self-contained" rule)
   2 MB. Media Foundation also pulls in `gstwinrt-1.0-0.dll`. Which plugins load is a
   runtime decision on the user's PC, so a package built on an NVIDIA machine must
   still carry the Intel and AMD plugins or it will not encode there.
-- General-purpose runtimes are declared prerequisites the user installs. On Windows:
+- General-purpose runtimes are declared prerequisites the user installs. On macOS there
+  are none: both Mac packages bundle Node.js as plain files (design Q5), and macOS
+  provides the rest. On Windows:
   Microsoft Visual C++ Redistributable (x64) and Node.js for both server products, and
   .NET 10 Runtime plus Windows App Runtime for the host.
   Packages record them in `files.json`; launchers check them and say what to install.
@@ -86,7 +88,9 @@ Structural preparation now lives under `packaging/windows`, `packaging/macos` an
 payload membership. The Windows CLI bundle (`npm run package:cli`, unsigned ZIP) and
 the Windows server/host package (`npm run package:app`, MSIX signed with a self-signed
 development certificate) have working builders, and `npm run package` builds all of their
-variants; the other products are still
+variants. On macOS, `npm run package:macos` builds the VidVNC app as a DMG and the CLI
+bundle as a ZIP, both with Node.js bundled, signed with the owner's Developer ID and
+notarized ([packaging/macos](../packaging/macos/README.md)). The native viewers are still
 definitions and ownership guides, not working installer recipes.
 Stage generated payloads and installers under ignored `out/packages` and
 `out/installers`, organized by product, OS, architecture and version.

@@ -560,9 +560,13 @@ async function serve() {
   } catch (error) {
     console.error(
       `Unable to start VidVNC: ${error.message}\n${
-        runtimeManifest?.mode === 'packaged'
-          ? 'Check the graphics driver and the Microsoft Visual C++ Redistributable (x64).'
-          : 'Run build-native.cmd and check the graphics driver / GStreamer SDK.'
+        process.platform === 'darwin'
+          ? runtimeManifest?.mode === 'packaged'
+            ? 'Reinstall VidVNC if this keeps happening.'
+            : 'Run build-native.sh and check the GStreamer framework.'
+          : runtimeManifest?.mode === 'packaged'
+            ? 'Check the graphics driver and the Microsoft Visual C++ Redistributable (x64).'
+            : 'Run build-native.cmd and check the graphics driver / GStreamer SDK.'
       }`,
     );
     process.exitCode = 1;

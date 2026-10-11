@@ -1,7 +1,7 @@
 # Native macOS server host
 
-Status: the VidVNC app for Mac runs from source and drives the real server. It is not packaged
-or signed for distribution yet (plan phase 6).
+Status: the VidVNC app for Mac runs from source and drives the real server, and
+[packaging/macos](../../packaging/macos/README.md) builds it into a signed, notarized DMG.
 
 The host owns the Mac's server-management UI and the server process's lifetime: Swift 6,
 SwiftUI with AppKit where SwiftUI falls short (the Identify overlays), macOS 27 on Apple
@@ -17,7 +17,7 @@ the screens are in [docs/design/macos-host-previz/](../../docs/design/macos-host
 | `VidVNC.xcodeproj`                                  | The app, its unit tests and its UI tests; the shared `VidVNC` scheme                                                                                                      |
 | `VidVNC/Model/`                                     | `HostModel`, the protocol every view reads, and `FakeHostModel`, its sample-data stand-in for previews, screenshots and `-scenario`                                       |
 | `VidVNC/Server/`                                    | `ServerHostModel` (the real model), `ServerProcess` (`posix_spawn` with pipes), `RuntimeManifest`, the owner-protocol messages, and `OfflineSettings` (`main.mjs config`) |
-| `VidVNC/System/`                                    | Privacy checks, the Local Network probe, display ids, network interfaces, the login item                                                                                  |
+| `VidVNC/System/`                                    | Privacy checks, the Local Network probe, display ids, network interfaces, the login item, Install Command-Line Tool                                                       |
 | `VidVNC/Views/`, `Sheets/`, `Settings/`, `MenuBar/` | The window's eight sections, its sheets, the Settings window and the menu bar item                                                                                        |
 | `VidVNCTests/`                                      | Swift Testing unit tests: every owner-protocol example decodes, the manifest's path rules, `ServerProcess`                                                                |
 | `VidVNCUITests/`                                    | XCUITest navigation against the stand-in server                                                                                                                           |
@@ -75,6 +75,15 @@ its user defaults.
   and the server listens there only after **Allow** (`network-confirm`, Q2).
 - **Open at login** in Settings, General registers the app as a login item with
   `SMAppService`; it is off until the owner turns it on.
+- **Install Command-Line Tool…** (the VidVNC menu, or **Command-line tool** in Settings,
+  General) links `/usr/local/bin/vidvnc` to the packaged app's `Contents/Helpers/vidvnc`
+  after the owner confirms, directly when that folder is writable and otherwise through
+  `do shell script … with administrator privileges`, which shows macOS's password prompt.
+  It can replace another `vidvnc` there after saying so, and **Remove** deletes the link
+  only while it leads to this app. A development build has no launcher, so the item is
+  unavailable there.
+- A packaged app reads `Contents/Resources/runtime.json`, whose `root` is `..`, and never a
+  `VIDVNC_RUNTIME_MANIFEST` it inherits.
 - In Debug builds, `-scenario "Remote access"` (any Scenario menu title) runs the app on
   sample data with no server, with a Scenario menu to switch states.
 
@@ -97,10 +106,5 @@ of the Screen Recording permission, because no viewer connects and nothing is ca
 
 ## Not done yet
 
-- The capture helper bundle (`io.github.kiforsbe.vidvnc.capture`), the bundled Node.js and
-  the packaged runtime manifest come with packaging (plan phase 6); until then the app runs
-  the development worker and your Node.js.
-- **Install command-line tool** (plan task 5.6) needs the bundled `Helpers/vidvnc` launcher,
-  so it comes with packaging too.
 - The server reports only networks waiting for an answer, so the app cannot list or forget
   networks already allowed; `known-networks.json` in the settings folder holds them.

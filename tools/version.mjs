@@ -42,6 +42,19 @@ const textFile = (file, label, pattern, { format = (v) => v, parse = (v) => v } 
     text.replace(pattern, (_, before, current, after) => before + format(version) + after),
 });
 
+// Every match of a global pattern, as in the Xcode project, which repeats each build setting
+// once per target and configuration.
+const everyMatch = (file, label, pattern) => ({
+  file,
+  read(text) {
+    const matches = [...text.matchAll(pattern)];
+    if (!matches.length) throw new Error(`${file}: ${label} is missing`);
+    return matches.map((match, index) => ({ label: `${label} [${index + 1}]`, version: match[2] }));
+  },
+  write: (text, version) =>
+    text.replace(pattern, (_, before, current, after) => before + version + after),
+});
+
 function addChangelogSection(text, version) {
   if (text.includes(`\n## [${version}]`)) return text;
   const heading = `## [${version}] - Unreleased\n\n`;
@@ -65,6 +78,16 @@ const TARGETS = [
     'assemblyIdentity version',
     /(<assemblyIdentity version=")([^"]*)(" name="VidVnc\.Host")/,
     { format: msixVersion, parse: (v) => (/^\d+\.\d+\.\d+\.0$/.test(v) ? v.slice(0, -2) : v) },
+  ),
+  everyMatch(
+    'apps/macos-host/VidVNC.xcodeproj/project.pbxproj',
+    'MARKETING_VERSION and CURRENT_PROJECT_VERSION',
+    /^(\t+(?:MARKETING_VERSION|CURRENT_PROJECT_VERSION) = )([^;]*)(;)$/gm,
+  ),
+  everyMatch(
+    'packaging/macos/capture-helper/Info.plist',
+    'CFBundleShortVersionString and CFBundleVersion',
+    /(<key>CFBundle(?:ShortVersionString|Version)<\/key>\s*<string>)([^<]*)(<\/string>)/g,
   ),
   textFile('CMakeLists.txt', 'project VERSION', /^(project\(VidVNC VERSION )([^\s)]+)([\s)])/m),
   { file: 'CHANGELOG.md', read: () => [], write: addChangelogSection },

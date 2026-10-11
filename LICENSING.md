@@ -27,8 +27,8 @@ permission to convey the resulting work.
 VidVNC uses third-party components under their own licenses, including GStreamer, GLib
 and libnice (LGPL), OpenSSL (Apache-2.0), Opus, libsrtp and other libraries (BSD, MIT,
 Zlib), Node.js and .NET (MIT), and Microsoft runtimes under Microsoft's terms. The
-Windows packages list every included component in `notices/THIRD-PARTY-NOTICES.txt`
-together with its license texts. Nothing in VidVNC's license limits your rights under
+Windows and macOS packages list every included component in `notices/THIRD-PARTY-NOTICES.txt`
+(in the Mac app, `Contents/Resources/notices`) together with its license texts. Nothing in VidVNC's license limits your rights under
 the licenses of those components.
 
 ## Commercial licensing

@@ -52,6 +52,10 @@ struct VidVNCApp: App {
           }
         }
       }
+      CommandGroup(after: .appSettings) {
+        Button("Install Command-Line Tool…") { CommandLineTool.shared.install() }
+          .disabled(CommandLineTool.shared.state == .unavailable)
+      }
       CommandGroup(after: .sidebar) {
         ForEach(Array(SidebarSection.allCases.enumerated()), id: \.element) { index, section in
           Button(section.title) { presentation.section = section }
