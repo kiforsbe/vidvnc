@@ -67,6 +67,19 @@ struct StreamingView: View {
           }
           .disabled(selection == nil || model.profiles.filter(\.enabled).count <= 1)
           Spacer()
+          Button("Restore Defaults") {
+            // Put each default profile back as shipped; keep your own profiles and choices.
+            change { policy in
+              for profile in StreamProfile.defaults {
+                if let i = policy.profiles.firstIndex(where: { $0.id == profile.id }) {
+                  policy.profiles[i] = profile
+                } else {
+                  policy.profiles.append(profile)
+                }
+              }
+            }
+          }
+          .labelStyle(.titleOnly)
           Button("Edit\u{2026}") {
             if let profile = model.profiles.first(where: { $0.id == selection }) {
               editing = Editing(profile: profile, isNew: false)

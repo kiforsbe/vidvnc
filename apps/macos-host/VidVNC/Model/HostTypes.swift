@@ -198,6 +198,22 @@ struct DisplayInfo: Identifiable, Equatable {
 
 typealias StreamProfile = ProfileData
 
+extension StreamProfile {
+  /// The profiles a new install starts with, in order; keep in step with `defaultStreamPolicy()`
+  /// (stream-policy.mjs) and the profile table (profiles.mjs).
+  static let defaults: [StreamProfile] = [
+    ("iphone-720p-test", "iPhone 720p", "Conservative starting point for iPhone", 1280, 720, 15, 1000),
+    ("mobile", "Mobile", "Compact picture for smaller screens", 1280, 720, 15, 2000),
+    ("balanced", "Balanced", "Everyday desktop use", 1920, 1080, 30, 4000),
+    ("desktop", "Desktop", "More detail for larger screens", 2560, 1440, 30, 6000),
+    ("low-bandwidth", "Low bandwidth", "Lower data use", 960, 540, 15, 1000),
+  ].map {
+    StreamProfile(
+      id: $0.0, name: $0.1, description: $0.2, enabled: true, width: $0.3, height: $0.4, fps: $0.5,
+      bitrateKbps: $0.6, bitrateMode: "cbr", quality: "balanced", frameDelivery: "fixed")
+  }
+}
+
 struct FPSSample: Identifiable {
   var id: Date { time }
   let time: Date

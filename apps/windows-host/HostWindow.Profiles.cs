@@ -95,13 +95,47 @@ public sealed partial class HostWindow
         finally { if (currentPage == "Streaming profiles") RenderPage(); }
     }
 
+    // The profiles a new install starts with; keep in step with defaultStreamPolicy() in stream-policy.mjs.
+    static readonly (string Id, string Name, string Description, int Width, int Height, int Fps, int BitrateKbps)[] DefaultProfiles =
+    [
+        ("iphone-720p-test", "iPhone 720p", "Conservative starting point for iPhone", 1280, 720, 15, 1000),
+        ("mobile", "Mobile", "Compact picture for smaller screens", 1280, 720, 15, 2000),
+        ("balanced", "Balanced", "Everyday desktop use", 1920, 1080, 30, 4000),
+        ("desktop", "Desktop", "More detail for larger screens", 2560, 1440, 30, 6000),
+        ("low-bandwidth", "Low bandwidth", "Lower data use", 960, 540, 15, 1000),
+    ];
+
+    async Task RestoreDefaultProfiles()
+    {
+        try
+        {
+            if (streamPolicy is null || policySaving) return;
+            if (!await ConfirmProfileApply("Restore default profiles?")) return;
+            var candidate = streamPolicy.DeepClone().AsObject();
+            var rows = candidate["profiles"]!.AsArray();
+            foreach (var d in DefaultProfiles)
+            {
+                var restored = new JsonObject { ["id"] = d.Id, ["name"] = d.Name, ["description"] = d.Description, ["enabled"] = true,
+                    ["width"] = d.Width, ["height"] = d.Height, ["fps"] = d.Fps, ["bitrateKbps"] = d.BitrateKbps,
+                    ["frameDelivery"] = "fixed", ["bitrateMode"] = "cbr", ["quality"] = "balanced" };
+                var at = rows.ToList().FindIndex(p => p!["id"]!.GetValue<string>() == d.Id);
+                if (at >= 0) rows[at] = restored; else rows.Add(restored);
+            }
+            await SavePolicy(candidate, true);
+        }
+        catch (Exception error) { policyError = error.Message; }
+        finally { if (currentPage == "Streaming profiles") RenderPage(); }
+    }
+
     void RenderProfiles()
     {
         page.Children.Add(Secondary("Manage the profiles available to your clients."));
         var add = Command("＋ New profile", async () => await EditProfile(null, false));
         add.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         add.IsEnabled = streamPolicy is not null && server is not null && !policySaving;
-        pageAction.Content = add;
+        var restore = Command("Restore defaults", async () => await RestoreDefaultProfiles());
+        restore.IsEnabled = add.IsEnabled;
+        pageAction.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { restore, add } };
         if (policyError is not null) page.Children.Add(new InfoBar { IsOpen = true, Severity = InfoBarSeverity.Error,
             IsClosable = false, Message = policyError });
         if (streamPolicy is null) { page.Children.Add(Card(Label("Profiles appear when the server is ready."))); return; }
