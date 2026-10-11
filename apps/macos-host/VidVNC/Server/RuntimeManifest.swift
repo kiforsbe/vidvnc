@@ -60,7 +60,16 @@ nonisolated struct RuntimeManifest: Equatable, Sendable {
     guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw Failure.invalid("Runtime manifest must be an object")
     }
-    let root = resolve(URL(filePath: absolute).deletingLastPathComponent().path)
+    // Paths are relative to the manifest's folder, or to `root`, a parent of it: the app keeps
+    // the manifest in Contents/Resources and names the rest of Contents with root "..".
+    let folder = URL(filePath: absolute).deletingLastPathComponent().path
+    let root: String
+    switch object["root"] {
+    case nil: root = resolve(folder)
+    case let parent as String where parent.wholeMatch(of: /\.\.(\/\.\.)*/) != nil:
+      root = resolve(URL(filePath: folder).appending(path: parent).path)
+    default: throw Failure.invalid("Invalid runtime manifest root: expected a parent folder such as ..")
+    }
 
     func text(_ field: String, in parent: [String: Any]? = nil) throws -> String {
       guard let value = (parent ?? object)[field] as? String,

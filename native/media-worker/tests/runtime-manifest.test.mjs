@@ -70,6 +70,25 @@ for (const [field, value] of [
   });
 }
 
+test('root names a parent folder the paths are relative to, and nothing escapes it', (t) => {
+  // An app bundle: the manifest in Contents/Resources, the programs elsewhere in Contents.
+  const f = fixture(t);
+  const resources = path.join(f.root, 'Resources');
+  mkdirSync(resources);
+  const filename = path.join(resources, 'runtime.json');
+  const load = (value) => {
+    writeFileSync(filename, JSON.stringify(value));
+    return loadRuntimeManifest(filename);
+  };
+  const result = load({ ...f.value, root: '..' });
+  assert.equal(result.root, f.root);
+  assert.equal(result.worker, path.join(f.root, 'bin', 'worker.exe'));
+  assert.throws(() => load(f.value), /Invalid runtime manifest node/);
+  assert.throws(() => load({ ...f.value, root: '..', worker: '../outside.exe' }), /inside/);
+  for (const root of ['.', '../bin', '/', '../..x', '', 1])
+    assert.throws(() => load({ ...f.value, root }), /Invalid runtime manifest root/, String(root));
+});
+
 test('development permits explicit absolute paths without Release fallback', (t) => {
   const f = fixture(t);
   f.value.mode = 'development';

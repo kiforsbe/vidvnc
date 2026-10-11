@@ -53,7 +53,7 @@ const SYSTEMS = {
 // system is rejected rather than half-working.
 export function loadRuntimeManifest(filename, { platform } = {}) {
   const absolute = path.resolve(filename);
-  const root = realpathSync(path.dirname(absolute));
+  const folder = realpathSync(path.dirname(absolute));
   let data;
   try {
     data = JSON.parse(readFileSync(absolute, 'utf8'));
@@ -70,6 +70,15 @@ export function loadRuntimeManifest(filename, { platform } = {}) {
   })) {
     if (!allowed.includes(data[field])) throw new Error(`Invalid runtime manifest ${field}`);
   }
+  // Paths are relative to the manifest's folder, or to `root`, a parent of it: a macOS app
+  // keeps the manifest in Contents/Resources and names the rest of Contents with root "..".
+  // Nothing may escape that folder.
+  if (
+    data.root !== undefined &&
+    (typeof data.root !== 'string' || !/^\.\.(\/\.\.)*$/.test(data.root))
+  )
+    throw new Error('Invalid runtime manifest root: expected a parent folder such as ..');
+  const root = data.root === undefined ? folder : realpathSync(path.resolve(folder, data.root));
   const os = data.os ?? 'windows';
   if (data.architecture !== SYSTEMS[os].architecture)
     throw new Error(`Invalid runtime manifest architecture for ${os}`);

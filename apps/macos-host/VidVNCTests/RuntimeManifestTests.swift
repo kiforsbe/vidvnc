@@ -75,6 +75,24 @@ struct RuntimeManifestTests {
     }
   }
 
+  /// The app's layout: the manifest in Contents/Resources names the rest of Contents.
+  @Test func rootNamesAParentFolder() throws {
+    let (root, _) = try package()
+    let resources = root.appending(path: "Resources")
+    try files.createDirectory(at: resources, withIntermediateDirectories: true)
+    let manifest = try RuntimeManifest.load(try write(["root": ".."], to: resources))
+    #expect(manifest.root == RuntimeManifest.resolve(root.path))
+    #expect(manifest.worker == RuntimeManifest.resolve(root.appending(path: "MacOS/media-worker").path))
+    #expect(throws: RuntimeManifest.Failure.self) {
+      try RuntimeManifest.load(try write(["root": "..", "server": "../outside.mjs"], to: resources))
+    }
+    for parent in [".", "../MacOS", "/", "", "../..x"] {
+      #expect(throws: RuntimeManifest.Failure.self) {
+        try RuntimeManifest.load(try write(["root": parent], to: resources))
+      }
+    }
+  }
+
   @Test func developmentManifestsMayNameAnyPath() throws {
     let (root, outside) = try package()
     let manifest = try RuntimeManifest.load(try write(["mode": "development", "server": outside.path], to: root))
