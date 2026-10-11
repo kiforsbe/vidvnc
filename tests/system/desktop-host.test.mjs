@@ -22,7 +22,8 @@ test('desktop owner receives onboarding data and can shut down its server', asyn
       windowsHide: true,
     },
   );
-  const timer = setTimeout(() => child.kill(), 7000);
+  // A cold first run (the worker probe and TLS set-up) can take several seconds on Windows.
+  const timer = setTimeout(() => child.kill(), 20_000);
   const reader = createInterface({ input: child.stdout });
   let ready;
   child.stderr.resume();

@@ -1,5 +1,7 @@
-// Explicit Windows acceptance check for the authenticating media relay: prototype gates P1
-// and P2 of docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md.
+// Explicit acceptance check for the authenticating media relay: prototype gates P1 and P2 of
+// docs/superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md. Runs on
+// Windows and on macOS (gate MG1, with media-net under its sandbox profile); on a Mac, the
+// terminal that runs it needs Screen & System Audio Recording.
 //
 // Usage: node relay-check.mjs <playwright> [--video] [--direct] [--peers N] [--seconds N]
 //                             [--port N]
@@ -13,7 +15,8 @@
 //   --port N      the relay's UDP port (default 4384).
 //
 // Answers, with evidence, the P1 questions:
-//   1. the worker gathers on 127.0.0.1 only (candidate check and `netstat`);
+//   1. the worker gathers on 127.0.0.1 only (candidate check, and `netstat` on Windows or
+//      `lsof` on macOS);
 //   2. its answer passes the relay-mode validation (the SDP line allow-list);
 //   3. webrtcbin completes ICE and DTLS when the browser exists only as a peer-reflexive
 //      candidate arriving through the relay;
@@ -63,8 +66,38 @@ const lanAddress =
     .flat()
     .find((row) => row?.family === 'IPv4' && !row.internal)?.address ?? '127.0.0.1';
 
+const macos = process.platform === 'darwin';
+const worker = macos ? 'media-worker' : 'media-worker.exe';
+const socketTool = macos ? 'lsof' : 'netstat';
+
+// A process's UDP sockets, or its listening TCP sockets, as `{ local }` rows.
 function sockets(pid, protocol) {
   const rows = [];
+  if (macos) {
+    let output = '';
+    try {
+      output = execFileSync(
+        'lsof',
+        [
+          '-n',
+          '-P',
+          '-a',
+          '-p',
+          String(pid),
+          `-i${protocol.toUpperCase()}`,
+          ...(protocol === 'tcp' ? ['-sTCP:LISTEN'] : []),
+        ],
+        { encoding: 'utf8' },
+      );
+    } catch {
+      // lsof exits 1 when it finds nothing.
+    }
+    for (const line of output.split('\n').slice(1)) {
+      const name = line.trim().split(/\s+/)[8];
+      if (name) rows.push({ local: name, state: protocol === 'tcp' ? 'LISTENING' : null });
+    }
+    return rows;
+  }
   for (const line of execFileSync('netstat', ['-ano', '-p', protocol], {
     encoding: 'utf8',
   }).split(/\r?\n/)) {
@@ -250,35 +283,36 @@ try {
       selected.every((row) => row.local && row.remote),
     );
 
-  // Every media-worker.exe: the workers and their sandboxed network processes, which own the
+  // Every media worker: the workers and their sandboxed network processes, which own the
   // sockets since the privilege split.
-  const pids = execFileSync(
-    'tasklist',
-    ['/FI', 'IMAGENAME eq media-worker.exe', '/FO', 'CSV', '/NH'],
-    {
-      encoding: 'utf8',
-    },
-  )
-    .split(/\r?\n/)
-    .map((line) => Number(line.split('","')[1]))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
+  const pids = macos
+    ? execFileSync('pgrep', ['-x', worker], { encoding: 'utf8' })
+        .split('\n')
+        .map(Number)
+        .filter((pid) => Number.isInteger(pid) && pid > 0)
+    : execFileSync('tasklist', ['/FI', `IMAGENAME eq ${worker}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf8',
+      })
+        .split(/\r?\n/)
+        .map((line) => Number(line.split('","')[1]))
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
   const exposed = pids.flatMap((pid) =>
     sockets(pid, 'udp').filter(({ local }) => !local.startsWith('127.0.0.1:')),
   );
   if (!DIRECT) {
     report(
-      'netstat: every worker UDP socket is on 127.0.0.1',
+      `${socketTool}: every worker UDP socket is on 127.0.0.1`,
       pids.length > 0 && exposed.length === 0,
       exposed.map(({ local }) => local).join(', '),
     );
     const listening = pids.flatMap((pid) =>
       sockets(pid, 'tcp').filter(({ state }) => state === 'LISTENING'),
     );
-    report('netstat: no worker listens on TCP', listening.length === 0);
+    report(`${socketTool}: no worker listens on TCP`, listening.length === 0);
     report(
       'the workers and their network processes are running',
       pids.length >= 2 * PEERS,
-      `${pids.length} media-worker.exe processes for ${PEERS} sources`,
+      `${pids.length} ${worker} processes for ${PEERS} sources`,
     );
     report(
       `all ${PEERS} peers share the relay's port ${PORT}`,

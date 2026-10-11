@@ -385,13 +385,51 @@ the process, display inventory, the video and audio pipelines and encoder probin
 sink, media-net's launch and port attestation, and media-net's own sandbox steps. The Windows
 implementation is in [platform/windows/](../native/media-worker/src/platform/windows/) (the
 code described here). The macOS one, in [platform/macos/](../native/media-worker/src/platform/macos/),
-has POSIX pipes, port attestation, `--adapters`, and capture, encode, audio and input
-([below](#capture-and-encode-on-macos)). The launcher's sandbox profile (phase 4 of the
-[macOS plan](superpowers/plans/2026-10-09-macos-support.md)) fails by name until it lands, and
-the worker never starts media-net or the relay without its sandbox, so a macOS worker cannot
-serve a viewer yet. On macOS, media-net reports tier `none` and has no code guard; it is
-reached only by the check in
-[media-net-posix.test.mjs](../native/media-worker/tests/media-net-posix.test.mjs) until then.
+has POSIX pipes, port attestation, `--adapters`, capture, encode, audio and input
+([below](#capture-and-encode-on-macos)), and the sandbox described next.
+
+#### media-net's sandbox on macOS
+
+macOS has no restricted tokens. media-net and the relay run instead under a sandbox profile
+that the launcher applies before `exec` (decision D3 of the
+[macOS design](superpowers/specs/2026-10-09-macos-support-design.md), gate MG4):
+[sandbox-profile.hpp](../native/media-worker/src/platform/macos/sandbox-profile.hpp) writes
+it and [process.cpp](../native/media-worker/src/platform/macos/process.cpp) applies it with
+`sandbox_init`, which is deprecated but still works on macOS 27 (risk R1). Both profiles deny
+by default and allow:
+
+- no `mach-lookup` at all, which keeps the window server, ScreenCaptureKit (`replayd`) and
+  `tccd` out of reach, so a compromised process can neither capture the screen nor post
+  events with VidVNC's Screen Recording or Accessibility grants, which macOS attributes to
+  the app that started it;
+- no fork, no exec but of the program itself, and no file writes;
+- reads of the system (`/System`, `/usr/lib`, `/usr/share`, the cryptexes, the root folder
+  itself) and of the folders of the files the program maps at start-up, found by following
+  its Mach-O load commands ([macho-images.hpp](../native/media-worker/src/platform/macos/macho-images.hpp)),
+  plus the metadata of the links dyld follows to reach them;
+- for media-net, GStreamer's plugin folders and its registry, read-only, and UDP on
+  loopback only; for the relay, UDP on any address.
+
+The worker starts media-net with `posix_spawn` as `media-worker --sandbox --network 3 4 5 6`,
+with only the four pipe ends and the null device inherited and `GST_REGISTRY_UPDATE=no`;
+that launcher applies the media-net profile and execs `media-worker --network` in place, so
+the pid the worker attests ports against is media-net's own. media-net reports tier
+`profile` and has no code guard. The relay's launcher (`--sandbox -- <node> ...`) applies the
+relay profile in a child and waits, as on Windows: it forwards `SIGTERM`, `SIGINT` and
+`SIGHUP` to the program and kills it if the server goes away.
+
+**Residual and socket audit.** SBPL's network filters take only `*` or `localhost`, and
+`localhost` on the local side matches every local address, so media-net could still bind a
+LAN address and receive there, though it can never send off loopback. The owner accepted
+that receive-only residual (MG4). The worker checks media-net's sockets every second
+([udp-ports.hpp](../native/media-worker/src/platform/macos/udp-ports.hpp),
+`outside_loopback`) and ends the source if any IPv4 or IPv6 socket is bound or connected
+off loopback, or if the sockets cannot be read.
+
+**Parent watch.** On macOS an orphaned process is re-parented rather than ended, so besides
+the owner pipe the worker and the relay's launcher each watch the process that started them
+with a `kqueue` `EVFILT_PROC` `NOTE_EXIT` and stop when it exits (the worker as if its owner
+pipe had closed). media-net ends when its pipes close.
 
 ### Capture and encode on macOS
 
@@ -475,7 +513,7 @@ with the relay, the server asks the worker to attest the answer's loopback port
 (`check-port`): the worker confirms that `127.0.0.1:<port>` is owned by its own media-net
 (`GetExtendedUdpTable` on Windows; on macOS `proc_pidinfo` and `proc_pidfdinfo` over
 media-net's own descriptors, [udp-ports.hpp](../native/media-worker/src/platform/macos/udp-ports.hpp)), so a compromised media-net cannot point the relay at another
-program's socket. media-net's standard handles are the `NUL` device, and its GLib and
+program's socket. media-net's standard handles are the `NUL` device (`/dev/null` on macOS), and its GLib and
 GStreamer messages go to the worker's log. Viewers that arrive before
 media-net is ready wait in the worker, in order. media-net writes no files: its log lines go
 to the worker, which writes them to `native-worker.log` with a `NET` prefix. Capture starts
@@ -578,14 +616,15 @@ access, child processes, add-ons or workers. It can therefore neither read nor w
 anything that grants access to the user alone, nor send input to the desktop; it can read
 world-readable locations such as Program Files and System32, and reach the network. On macOS
 the same launcher, `media-worker --sandbox -- <node> --jitless ...`, applies the relay's
-sandbox profile instead (UDP only, no fork or exec, reads limited to the system and Node.js;
-[macOS design](superpowers/specs/2026-10-09-macos-support-design.md), D3), from `/` and
-without the JIT, as gate MG5 found it needs
-([gate results](investigations/MACOS-PROTOTYPE-GATES.md)). A packaged macOS server whose
+sandbox profile instead ([media-net's sandbox on macOS](#media-nets-sandbox-on-macos): UDP
+only, no Mach services, no fork or exec, reads limited to the system and Node.js), from `/`
+and without the JIT, as gate MG5 found it needs
+([gate results](investigations/MACOS-PROTOTYPE-GATES.md)), and with no OpenSSL configuration
+(`--openssl-config=/dev/null`; the relay uses no TLS). Its standard streams are the
+server's pipes. A packaged macOS server whose
 launcher is missing does not start the relay at all, so media is unavailable with that
 reason; a development checkout without a built worker runs the relay unsandboxed and logs a
-warning ([media-relay.mjs](../apps/server/src/media-relay.mjs), `relayLaunch`). The macOS
-launcher and profile arrive with the worker port (phases 2 and 3). The server starts the
+warning ([media-relay.mjs](../apps/server/src/media-relay.mjs), `relayLaunch`). The server starts the
 relay before it reports `ready`. If the port cannot be bound, sign-in still works, offers are refused with the reason (for example "UDP 4384 is
 in use"), and the host shows it. If the relay exits, every stream stops and the relay is
 restarted, at most three times a minute. Changing `mediaPort` restarts it and stops live
@@ -1371,19 +1410,23 @@ server; the receiving page strips it and refuses to replace a different stored s
   self-signed certificate is created in `Cert:\CurrentUser` for the same reason. Each
   source's network process, media-net, runs with a restricted version of that user's token
   at low integrity, in its own job and desktop
-  ([Network process](#network-process-media-net)).
+  ([Network process](#network-process-media-net)); on macOS, under a sandbox profile with no
+  Mach services, no fork or exec and loopback UDP only, and a socket audit by the worker
+  ([media-net's sandbox on macOS](#media-nets-sandbox-on-macos)).
 - The host places the server in a Win32 job object with `KILL_ON_JOB_CLOSE`; the server owns
   the media relay and one worker process per source. No process outlives its parent: the
   job covers the server's children, and the relay and workers also exit when their input
-  pipe closes.
+  pipe closes. macOS has no job objects: there the server, the worker and the relay's
+  launcher also watch their parent and stop when it exits.
 - The worker never authenticates anyone, trusts only its owner pipe and holds no network
   socket; the server never handles pixels. WebRTC runs in media-net, which listens on
   `127.0.0.1` only and is reached only through the media relay, for senders that proved a
   stream's ICE password ([Media relay](#media-relay)). A flaw in the WebRTC stack exploited
   by forged DTLS or RTP from an authenticated address therefore lands in the sandbox: it can
   act as the viewer that holds control while the owner has granted it, and nothing more
-  (R4). The relay runs under the same restricted token, in its own job and desktop, from a
-  bundle with no file access ([Media relay](#media-relay)).
+  (R4). The relay runs under the same restricted token, in its own job and desktop (on
+  macOS under its own sandbox profile), from a bundle with no file access
+  ([Media relay](#media-relay)).
 - Diagnostics run on a separate listener bound to `127.0.0.1`, not routed by the main
   handler at all.
 
@@ -1430,28 +1473,30 @@ server; the receiving page strips it and refuses to replace a different stored s
 STRIDE applied to the elements and boundaries above. "Residual" refers to the findings
 register in the [security analysis](security/internet-exposure.md#findings-register).
 
-| ID  | Element or flow         | STRIDE | Threat                                                                       | Mitigation                                                                                                                                                                                                                                                                     | Residual                   |
-| --- | ----------------------- | ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
-| T1  | Admission (B1, B3)      | S      | Guess a code or the standing password                                        | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`                                                                                                                                                                              | F1                         |
-| T2  | Approved sign-in (B1)   | S      | Use a copied device secret and password                                      | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration                                                                                                                                                                 | F5                         |
-| T3  | Peer classification     | S      | Appear local through source NAT or a proxy                                   | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)                                                                                                                                                                   | R2                         |
-| T4  | Session bearer (B1)     | S      | Replay a stolen bearer                                                       | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                                                                                                                                                                                              | —                          |
-| T5  | Enrolment (B3)          | S, T   | Serve a forged trust anchor on the LAN                                       | Local peers only; fingerprint shown on the host screen for comparison (A4)                                                                                                                                                                                                     | F3                         |
-| T6  | Signaling (B1)          | T      | Aim the host's ICE at internal addresses with crafted candidates             | The server removes every candidate from every offer; the worker sends checks to nobody                                                                                                                                                                                         | R3 fixed                   |
-| T7  | Settings files          | T      | Change policy or approved devices on disk                                    | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope                                                                                                                                                                         | —                          |
-| T8  | Owner pipe (B4, B5, B8) | T, E   | Start or command a server, relay or worker from another process              | Inherited pipes only; exact approval line; no owner route on any listener; job object; desktop server stops when its parent changes; the relay exits on any invalid command                                                                                                    | —                          |
-| T9  | Browser page            | T, I   | Script injection or framing                                                  | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                                                                                                                                                                                              | —                          |
-| T10 | Owner actions           | R      | A viewer denies having connected or acted                                    | Sessions view shows each session's address live; lifecycle log                                                                                                                                                                                                                 | No persistent audit trail  |
-| T11 | Control plane (B3)      | I      | Read admission or signaling on the LAN                                       | HTTPS by default and fail closed; `off` only by explicit choice                                                                                                                                                                                                                | F3 (off mode)              |
-| T12 | Media (B2)              | I      | Capture screen or audio on the network                                       | DTLS-SRTP with fingerprints from authenticated signaling                                                                                                                                                                                                                       | —                          |
-| T13 | Public endpoints        | I      | Learn host details before sign-in                                            | `/api/info` returns the public name only; certificate omits the hostname in remote mode                                                                                                                                                                                        | R7                         |
-| T14 | Diagnostics (B6)        | I      | Read diagnostics from the network or a proxy                                 | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                                                                                                                                                                                   | F4 fixed                   |
-| T15 | Admission endpoints     | D      | Flood sign-in to lock devices out                                            | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                                                                                                                                                                                    | R1, F7                     |
-| T16 | Listeners and media     | D      | Exhaust connections, memory, relay registrations or the encoder              | Connection caps, body and SDP caps, timeouts, bounded maps; relay budgets before parsing in two lanes, at most 64 registrations and 4 paths each; keyframe damping, leaky queues                                                                                               | F7 (volumetric)            |
-| T17 | Media port (B2, B7)     | E      | Exploit native STUN/DTLS parsing before authentication                       | The relay checks MESSAGE-INTEGRITY in JavaScript before anything reaches libnice; media-net is on loopback only; only DTLS and RTP from an authenticated 5-tuple pass unchecked, and they reach media-net, which is sandboxed and holds no input capability; current GStreamer | R4                         |
-| T18 | Input path (B2, B9)     | E      | Inject input without a grant, or keep it after revoke                        | Broker in the worker: lease from the owner pipe only, 5 s expiry, per-peer control flag, allow-lists, rate limit, release of held keys; media-net can only relay what a viewer sent; `hostControl` required                                                                    | F2 (queued message window) |
-| T19 | Viewer assets           | E      | Load the viewer or its code without admission                                | Session- and peer-bound `HttpOnly` grant cookie                                                                                                                                                                                                                                | —                          |
-| T20 | Media relay (B2, B8)    | S, T   | Send media into another viewer's stream, or confirm a live port to strangers | Pins keyed by 5-tuple and stream; a valid check for another stream on a pinned path is dropped; the worker's replies go only to the pinned tuple; no reply before authentication                                                                                               | R4                         |
+| ID  | Element or flow          | STRIDE | Threat                                                                                      | Mitigation                                                                                                                                                                                                                                                                     | Residual                      |
+| --- | ------------------------ | ------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| T1  | Admission (B1, B3)       | S      | Guess a code or the standing password                                                       | 40-bit codes, rolling and per-generation failure budgets, single use, short expiry, uniform `401`                                                                                                                                                                              | F1                            |
+| T2  | Approved sign-in (B1)    | S      | Use a copied device secret and password                                                     | 256-bit secret plus password, one live session per identity, generation revocation, zone label at registration                                                                                                                                                                 | F5                            |
+| T3  | Peer classification      | S      | Appear local through source NAT or a proxy                                                  | Socket address only, never headers; remote access forces `approved-only`; required source-address check (A3)                                                                                                                                                                   | R2                            |
+| T4  | Session bearer (B1)      | S      | Replay a stolen bearer                                                                      | Bound to the socket address; memory only; 20 s idle expiry; HTTPS                                                                                                                                                                                                              | —                             |
+| T5  | Enrolment (B3)           | S, T   | Serve a forged trust anchor on the LAN                                                      | Local peers only; fingerprint shown on the host screen for comparison (A4)                                                                                                                                                                                                     | F3                            |
+| T6  | Signaling (B1)           | T      | Aim the host's ICE at internal addresses with crafted candidates                            | The server removes every candidate from every offer; the worker sends checks to nobody                                                                                                                                                                                         | R3 fixed                      |
+| T7  | Settings files           | T      | Change policy or approved devices on disk                                                   | Per-user permissions; atomic writes; whole-document validation on load; attacker at A1 is out of scope                                                                                                                                                                         | —                             |
+| T8  | Owner pipe (B4, B5, B8)  | T, E   | Start or command a server, relay or worker from another process                             | Inherited pipes only; exact approval line; no owner route on any listener; job object; desktop server stops when its parent changes; the relay exits on any invalid command                                                                                                    | —                             |
+| T9  | Browser page             | T, I   | Script injection or framing                                                                 | Strict CSP, `frame-ancestors 'none'`, `nosniff`, `Origin` check, no inline script                                                                                                                                                                                              | —                             |
+| T10 | Owner actions            | R      | A viewer denies having connected or acted                                                   | Sessions view shows each session's address live; lifecycle log                                                                                                                                                                                                                 | No persistent audit trail     |
+| T11 | Control plane (B3)       | I      | Read admission or signaling on the LAN                                                      | HTTPS by default and fail closed; `off` only by explicit choice                                                                                                                                                                                                                | F3 (off mode)                 |
+| T12 | Media (B2)               | I      | Capture screen or audio on the network                                                      | DTLS-SRTP with fingerprints from authenticated signaling                                                                                                                                                                                                                       | —                             |
+| T13 | Public endpoints         | I      | Learn host details before sign-in                                                           | `/api/info` returns the public name only; certificate omits the hostname in remote mode                                                                                                                                                                                        | R7                            |
+| T14 | Diagnostics (B6)         | I      | Read diagnostics from the network or a proxy                                                | Separate `127.0.0.1` listener, `404` on main ports, 256-bit 15-minute bearer                                                                                                                                                                                                   | F4 fixed                      |
+| T15 | Admission endpoints      | D      | Flood sign-in to lock devices out                                                           | Per-zone budgets, per-source and per-/64 limits, bounded scrypt concurrency                                                                                                                                                                                                    | R1, F7                        |
+| T16 | Listeners and media      | D      | Exhaust connections, memory, relay registrations or the encoder                             | Connection caps, body and SDP caps, timeouts, bounded maps; relay budgets before parsing in two lanes, at most 64 registrations and 4 paths each; keyframe damping, leaky queues                                                                                               | F7 (volumetric)               |
+| T17 | Media port (B2, B7)      | E      | Exploit native STUN/DTLS parsing before authentication                                      | The relay checks MESSAGE-INTEGRITY in JavaScript before anything reaches libnice; media-net is on loopback only; only DTLS and RTP from an authenticated 5-tuple pass unchecked, and they reach media-net, which is sandboxed and holds no input capability; current GStreamer | R4                            |
+| T18 | Input path (B2, B9)      | E      | Inject input without a grant, or keep it after revoke                                       | Broker in the worker: lease from the owner pipe only, 5 s expiry, per-peer control flag, allow-lists, rate limit, release of held keys; media-net can only relay what a viewer sent; `hostControl` required                                                                    | F2 (queued message window)    |
+| T19 | Viewer assets            | E      | Load the viewer or its code without admission                                               | Session- and peer-bound `HttpOnly` grant cookie                                                                                                                                                                                                                                | —                             |
+| T20 | Media relay (B2, B8)     | S, T   | Send media into another viewer's stream, or confirm a live port to strangers                | Pins keyed by 5-tuple and stream; a valid check for another stream on a pinned path is dropped; the worker's replies go only to the pinned tuple; no reply before authentication                                                                                               | R4                            |
+| T21 | media-net, relay (macOS) | E      | Use VidVNC's Screen Recording or Accessibility grants from a compromised media-net or relay | Launcher-applied sandbox profile: no `mach-lookup` (window server, `replayd`, `tccd`), no fork or exec, no file writes, reads limited to the system and the program; checked by `sandbox-check.mjs` (gate MG4)                                                                 | `sandbox_init` deprecated     |
+| T22 | media-net (macOS, B2)    | I, E   | Receive traffic on a LAN address from a compromised media-net                               | The profile refuses every send off loopback; the worker's socket audit ends the source within a second of a socket off loopback                                                                                                                                                | Receive-only window, accepted |
 
 ### Residual risk and open items
 
@@ -1728,18 +1773,19 @@ The macOS worker builds with Apple clang through CMake's Xcode generator (preset
 `macos-arm64`, `macos-arm64-debug` and `macos-arm64-release`, run by `build-native.sh`),
 against the GStreamer framework the user installed: `~/Library/Frameworks`, else
 `/Library/Frameworks`, or `GSTREAMER_ROOT`. Every checkout uses that one copy; nothing is
-linked into `.deps`. Its CTest suite is the portable unit tests plus port attestation
-(`udp-ports`) and the VideoToolbox rate-control mapping (`vt-rate-control`), and the
+linked into `.deps`. Its CTest suite is the portable unit tests plus port attestation and
+the socket audit (`udp-ports`), the sandbox profiles and the start-up image walk
+(`sandbox-profile`) and the VideoToolbox rate-control mapping (`vt-rate-control`), and the
 input-policy test also checks the macOS key table against the SDK's `kVK_*` names.
 
 `npm test` is portable and uses stubbed hardware. On a Mac with the worker built it also runs
 [media-net-posix.test.mjs](../native/media-worker/tests/media-net-posix.test.mjs), the real
-media-net over POSIX pipes. `npm run test:hardware` requires Windows 25H2+, a GPU with a
-supported hardware encoder (NVIDIA, Intel or AMD) and an interactive desktop, or macOS 27
-with Screen & System Audio Recording allowed for the terminal that runs it. On macOS it runs
-the worker's checks (probe, self-tests, H.264 and HEVC) and skips the session checks, which
-need media-net's sandbox (phase 4 of the macOS plan), and the Windows host tests. CTest registers the native unit suites; assert-based checks
-remain enabled in Release.
+media-net over POSIX pipes under its sandbox profile. `npm run test:hardware` requires
+Windows 25H2+, a GPU with a supported hardware encoder (NVIDIA, Intel or AMD) and an
+interactive desktop, or macOS 27 with Screen & System Audio Recording allowed for the
+terminal that runs it. On macOS it runs the worker's checks (probe, self-tests, H.264 and
+HEVC) and the session checks, but not the Windows host tests. CTest registers the native
+unit suites; assert-based checks remain enabled in Release.
 The GitHub Actions workflow `Portable checks` runs formatting and portable tests on
 Windows, macOS and Linux. It runs only when started manually from the Actions tab, not
 on pushes or pull requests. It does not claim native capture support on those other
@@ -1757,13 +1803,18 @@ node native/media-worker/tests/relay-sandbox-check.mjs
 
 `relay-check.mjs` checks the media relay's core with a loopback-only worker
 (`VIDVNC_ICE_BIND=loopback`) against headless Chromium, and reports gates P1 and P2 of the
-[R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md).
-`sandbox-check.mjs` runs gate P3: `sandbox-probe.exe` starts itself under the planned sandbox for
-the network process and reports what it can and cannot do. If the full sandbox fails, it runs
-the probe again with one part turned off at a time (`sandbox-probe --relax <part>`) and shows
-which part the failure depends on. When it passes, it runs gate P4: the probe again with
-Arbitrary Code Guard and Win32k lockdown turned on (`--harden`), reporting what breaks. The
-sandbox is not part of the product yet.
+[R4 design](superpowers/specs/2026-09-26-r4-media-relay-and-privilege-split-design.md); on
+macOS it lists the worker's sockets with `lsof`. `sandbox-check.mjs` runs this platform's
+check. On Windows, gate P3: `sandbox-probe.exe` starts itself under the network process's
+sandbox and reports what it can and cannot do. If the full sandbox fails, it runs the probe
+again with one part turned off at a time (`sandbox-probe --relax <part>`) and shows which part
+the failure depends on. When it passes, it runs gate P4: the probe again with Arbitrary Code
+Guard and Win32k lockdown turned on (`--harden`), reporting what breaks. On macOS, gate MG4:
+`sandbox-probe` applies media-net's profile to itself and must be refused the window server,
+`replayd` and `tccd`, screen capture, posting access, `~/Documents` and VidVNC's data, file
+writes, fork, exec, UDP off loopback and TCP, while loopback UDP works; a run without the
+profile first shows those services are reachable. `relay-sandbox-check.mjs` does the same for
+the relay on both platforms, then runs the real relay under its sandbox.
 
 The second captures the real desktop and requires Windows and a hardware encoder.
 Chromium with an

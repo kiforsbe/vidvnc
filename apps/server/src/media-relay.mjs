@@ -26,7 +26,9 @@ export const RELAY_RESTARTS = Object.freeze({ limit: 3, windowMs: 60_000 });
 // On macOS the same launcher applies the relay's sandbox profile instead (decision D3 of the
 // macOS design: UDP only, no fork or exec, reads limited to the system and Node.js). Gate MG5
 // found that Node.js runs there only with `--jitless` (the relay's copy has no `allow-jit`
-// entitlement) and from `/`, because it reads its working directory at start-up.
+// entitlement) and from `/`, because it reads its working directory at start-up. It reads no
+// OpenSSL configuration either: the relay uses no TLS, and a Node.js linked against a shared
+// OpenSSL (Homebrew's, in development) would otherwise open one outside the profile.
 export function sandboxedRelayLaunch({
   executable,
   env,
@@ -43,7 +45,7 @@ export function sandboxedRelayLaunch({
         '--sandbox',
         '--',
         node,
-        ...(macos ? ['--jitless'] : []),
+        ...(macos ? ['--jitless', '--openssl-config=/dev/null'] : []),
         ...permissionFlags(),
         '--input-type=module',
         '-e',

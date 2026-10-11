@@ -120,6 +120,18 @@ if(BUILD_TESTING)
     configure_worker_target(udp-ports-test)
     target_compile_options(udp-ports-test PRIVATE -UNDEBUG)
     add_test(NAME media-worker.udp-ports COMMAND udp-ports-test)
+    # The sandbox profiles and the start-up image walk they are built from.
+    add_executable(sandbox-profile-test tests/sandbox-profile.cpp)
+    configure_worker_target(sandbox-profile-test)
+    target_compile_options(sandbox-profile-test PRIVATE -UNDEBUG)
+    target_link_libraries(sandbox-profile-test PRIVATE gstreamer_sdk)
+    add_test(NAME media-worker.sandbox-profile COMMAND sandbox-profile-test)
+    # Gate MG4's checks against the media-net profile. Run through tests/sandbox-check.mjs,
+    # not CTest: it needs the owner's session.
+    add_executable(sandbox-probe tests/sandbox-probe-macos.mm)
+    configure_worker_target(sandbox-probe)
+    target_link_libraries(sandbox-probe PRIVATE "-framework CoreGraphics" "-framework Foundation"
+      "-framework ScreenCaptureKit")
     # VideoToolbox rate control from the same intents as encoder-properties.
     add_executable(vt-rate-control-test tests/vt-rate-control.cpp)
     configure_worker_target(vt-rate-control-test)

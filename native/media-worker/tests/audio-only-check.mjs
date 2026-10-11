@@ -1,4 +1,5 @@
-// Explicit Windows SDK-backed WebRTC check. System loopback audio only; no desktop video or input.
+// Explicit SDK-backed WebRTC check (Windows and macOS). System loopback audio only; no desktop
+// video or input.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { NativeMedia } from '../../../apps/server/src/native-media.mjs';

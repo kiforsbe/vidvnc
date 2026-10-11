@@ -259,7 +259,7 @@ test('on Windows the relay starts through the worker sandbox launcher, from its 
   assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe']);
 });
 
-test('on macOS the launcher runs the relay jitless from the root folder', () => {
+test('on macOS the launcher runs the relay jitless from the root folder, without OpenSSL configuration', () => {
   const calls = [];
   sandboxedRelayLaunch({
     executable: '/Applications/VidVNC.app/Contents/MacOS/media-worker',
@@ -269,8 +269,14 @@ test('on macOS the launcher runs the relay jitless from the root folder', () => 
     bundle: 'runRelay();',
   })();
   const [[, args, options]] = calls;
-  assert.deepEqual(args.slice(0, 4), ['--sandbox', '--', process.execPath, '--jitless']);
-  assert.deepEqual(args.slice(4, -3), permissionFlags());
+  assert.deepEqual(args.slice(0, 5), [
+    '--sandbox',
+    '--',
+    process.execPath,
+    '--jitless',
+    '--openssl-config=/dev/null',
+  ]);
+  assert.deepEqual(args.slice(5, -3), permissionFlags());
   assert.equal(options.cwd, '/');
 });
 
