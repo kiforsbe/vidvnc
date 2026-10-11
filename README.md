@@ -132,18 +132,28 @@ listener failure does not fall back to HTTP login or streaming. Only a valid, ex
 ## Build and run (Windows)
 
 Prerequisites: Node.js 20.6+ (use a maintained LTS), npm, Visual Studio 2022 C++
-desktop tools/Windows SDK, CMake 3.25+, a current GPU driver, and GStreamer **1.28.6 MSVC
-x86_64 development SDK**. The optional WinUI host also requires .NET 10.
+desktop tools/Windows SDK, a current GPU driver, and GStreamer **1.28.6 MSVC x86_64
+development SDK**. The optional WinUI host also requires .NET 10.
 
 From the repository root:
 
 ```powershell
-npm ci
+npm run deps
 npm run build
 npm test
 npm run test:hardware
 npm start
 ```
+
+`npm run deps` ([tools/deps.mjs](tools/deps.mjs)) sets up everything the checkout keeps in
+`.deps/`, skipping what is already there: the npm packages, the GStreamer SDK in
+`.deps/gstreamer` (the pinned official installer, run silently for the current user with
+the development files), portable CMake 3.31.6 in `.deps/cmake`, the packaging installers
+in `.deps/downloads` and the [development certificate](#development-certificate). Each
+download is checked against its SHA-256 pin before it is used. Run it again in each new
+checkout, for example a second one for a branch. The GStreamer installer registers an
+uninstaller in `.deps/gstreamer` and lists GStreamer under Installed apps; uninstall an
+SDK of another version before running it. Builds and tests never download anything.
 
 `npm start` prints a viewer address once HTTPS is ready, or immediately in explicit
 LAN-only TLS-off mode. Before HTTPS is ready, the CLI reports that viewer access is
@@ -326,8 +336,9 @@ Use the [official GStreamer installer](https://gstreamer.freedesktop.org/downloa
 to change its installation location; do not move a registered installation blindly.
 
 `build-native.cmd` invokes CMake presets and CTest. It finds CMake on PATH, in
-Visual Studio, or at `.deps/cmake/bin`. This checkout has checksum-verified portable
-CMake 3.31.6 there; it is ignored, not a checked-in dependency.
+Visual Studio, or at `.deps/cmake/bin`, which wins when present; `npm run deps` puts
+checksum-verified portable CMake 3.31.6 there ([tools/deps.json](tools/deps.json)). It is
+ignored, not a checked-in dependency.
 Native output: `out/native/windows-x64/Release`. No automatic downloads at build/start.
 The media worker listens only on `127.0.0.1` and needs no firewall exception. The media
 relay runs in Node.js, so Windows Firewall must allow that `node.exe` to receive on the

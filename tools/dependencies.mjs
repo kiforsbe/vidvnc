@@ -10,8 +10,8 @@ import { buildWorker, workerIsStale, workerPath } from './debug/host-build.mjs';
 //     package-lock.json;
 //   - the development media worker is rebuilt (build-native.cmd, which also runs its C++ unit
 //     tests) when it is older than native/ sources;
-//   - the GStreamer SDK is checked against the version packaging pins. It is never downloaded
-//     automatically (see the README), so a mismatch stops the run with install instructions.
+//   - the GStreamer SDK is checked against the version packaging pins. A test run never
+//     downloads it; a mismatch stops the run and points to `npm run deps` (tools/deps.mjs).
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -76,7 +76,7 @@ export function gstreamerProblem({
 } = {}) {
   const pinned = readJson(path.join(directory, 'packaging/windows/inputs.json')).gstreamer;
   const pc = path.join(sdk, 'lib/pkgconfig/gstreamer-1.0.pc');
-  const install = `Install GStreamer ${pinned.version} (${pinned.installer.file}, SHA-256 ${pinned.installer.sha256}) to ${sdk}, or set GSTREAMER_ROOT.`;
+  const install = `Run npm run deps to install GStreamer ${pinned.version} (${pinned.installer.file}, SHA-256 ${pinned.installer.sha256}) to ${sdk}, or set GSTREAMER_ROOT.`;
   if (!existsSync(path.join(sdk, 'bin')))
     return `The GStreamer SDK was not found at ${sdk}. ${install}`;
   // An SDK without its pkg-config file cannot say its version; the build still decides.

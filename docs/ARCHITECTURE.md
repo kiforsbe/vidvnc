@@ -1583,7 +1583,7 @@ tools/            Root orchestration and formatting; tools/tests/ owns its tests
 packaging/        Six-product catalog; shared and OS-specific packaging ownership
 docs/             Architecture, mockups, research history
 out/              Ignored CMake outputs and preserved legacy artifacts
-.deps/            Ignored local SDKs/tools/download cache
+.deps/            Ignored local SDKs/tools/download cache, set up by `npm run deps`
 ```
 
 Tests follow **ownership**, not one mandatory naming convention. JS unit/module

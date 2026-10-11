@@ -5,6 +5,7 @@
     "version": "1.28.6",
     "installer": {
       "file": "gstreamer-1.0-msvc-x86_64-1.28.6.exe",
+      "url": "https://gstreamer.freedesktop.org/data/pkg/windows/1.28.6/msvc/gstreamer-1.0-msvc-x86_64-1.28.6.exe",
       "sha256": "059251444d1267b486eba390b18d25fed87e10315e72f757ec6c7e912fa746b5"
     },
     "plugins": [

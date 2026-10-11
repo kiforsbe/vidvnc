@@ -93,7 +93,10 @@ test('the GStreamer SDK version is checked against the pinned version', async (t
     }),
   );
   const sdk = path.join(directory, 'sdk');
-  assert.match(gstreamerProblem({ directory, sdk }), /was not found.*Install GStreamer 1\.28\.6/);
+  assert.match(
+    gstreamerProblem({ directory, sdk }),
+    /was not found.*npm run deps to install GStreamer 1\.28\.6/,
+  );
   await mkdir(path.join(sdk, 'bin'), { recursive: true });
   assert.equal(gstreamerProblem({ directory, sdk }), null, 'no pkg-config file: the build decides');
   await mkdir(path.join(sdk, 'lib/pkgconfig'), { recursive: true });

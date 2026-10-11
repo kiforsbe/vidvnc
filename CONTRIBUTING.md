@@ -36,6 +36,7 @@ from the repository root:
 | Command                 | What it does                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------- |
 | `npm ci`                | Installs the pinned JavaScript dependencies                                                 |
+| `npm run deps`          | Sets up `.deps/` and the npm packages: GStreamer SDK, CMake, packaging inputs (Windows)     |
 | `npm run format:check`  | Checks formatting                                                                           |
 | `npm test`              | Runs the portable tests, with hardware stubbed                                              |
 | `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop) |
@@ -51,8 +52,12 @@ Every test run first brings its dependencies up to date
   `npm ci`.
 - **Media worker:** the hardware suite and the manual `*-check.mjs` acceptance scripts
   rebuild it with `build-native.cmd` when it is older than `native/` sources.
-- **GStreamer SDK:** checked against the version `packaging/windows/inputs.json` pins. It is
-  never downloaded automatically; a mismatch stops the run with install instructions.
+- **GStreamer SDK:** checked against the version `packaging/windows/inputs.json` pins. A test
+  run never downloads it; a mismatch stops the run and points to `npm run deps`.
+
+To bring a pinned dependency up to date, change its version, URL and SHA-256 in
+`packaging/windows/inputs.json` (GStreamer and packaging inputs) or `tools/deps.json`
+(CMake), then run `npm run deps`.
 
 Forks are welcome under the AGPL. If you distribute a modified VidVNC, or let people
 interact with it over a network, you must offer them its source code under the same

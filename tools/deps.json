@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "cmake": {
+    "directory": ".deps/cmake",
+    "version": "3.31.6",
+    "archive": {
+      "file": "cmake-3.31.6-windows-x86_64.zip",
+      "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-x86_64.zip",
+      "sha256": "d163cd3ab4959b0a53fa8988f2ddbd2e6c501658201e6a154386bad9dbe4f836"
+    }
+  }
+}

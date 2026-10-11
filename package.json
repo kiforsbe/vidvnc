@@ -15,6 +15,7 @@
   "scripts": {
     "build": "npm run build:native && npm run build:host",
     "build:native": ".\\build-native.cmd",
+    "deps": "node tools/deps.mjs",
     "prestart": "npm run format:web",
     "start": "node apps/server/src/main.mjs",
     "start:cli": "npm start",
