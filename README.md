@@ -5,6 +5,8 @@ a server-hosted browser client, and native server hosts: a WinUI 3 app on Window
 SwiftUI app on macOS. Share your desktop from either, and watch and control it from a browser
 on a phone, tablet or another computer.
 
+**Website:** <https://kiforsbe.github.io/vidvnc/>
+
 > **Windows and Mac are both in this repository.** Each has the VidVNC app and a
 > command-line server; see how to use the app on [Windows](apps/windows-host/README.md) and
 > on a [Mac](apps/macos-host/README.md). You can build either from source today: see
@@ -529,6 +531,7 @@ app, see [Mac packages](#mac-packages).
 | `npm run package`                         | Every Windows package (see [Windows packages](#windows-packages))                                      |
 | `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                                                       |
 | `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them                                        |
+| `npm run site`                            | Builds the [website](site/README.md) into `out/site/`                                                  |
 
 For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`; on macOS
 configure `macos-arm64`, build/test `macos-arm64-release`.
@@ -553,6 +556,7 @@ None of these generated/dependency directories belongs in version control.
 ## Design and history
 
 - [Changelog](CHANGELOG.md)
+- [Website source](site/README.md)
 - [Repository conventions and module boundaries](docs/ARCHITECTURE.md)
 - [Packages and their prerequisites](docs/PACKAGING.md)
 - [Distribution scaffolding and six-target catalog](packaging/README.md)

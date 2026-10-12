@@ -1519,7 +1519,9 @@ server; the receiving page strips it and refuses to replace a different stored s
   run; its headers and runtime DLLs must come from the same install. `npm audit` does not
   cover GStreamer or libnice, so they are tracked separately (R4).
 - The repository does not accept outside pull requests (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
-  CI runs only when started manually.
+  The checks run only when started manually. The one workflow that runs on its own,
+  **Website**, publishes `site/` from `main`; only its deploy job holds `pages: write` and
+  `id-token: write`.
 - Packaging produces self-contained products per [PACKAGING.md](PACKAGING.md). Code signing
   and SBOM generation are not in place yet.
 
@@ -1554,6 +1556,7 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T22 | media-net (macOS, B2)    | I, E   | Receive traffic on a LAN address from a compromised media-net                                                                    | The profile refuses every send off loopback; the worker's socket audit ends the source within a second of a socket off loopback                                                                                                                                                                                                                            | Receive-only window, accepted |
 | T23 | Owner actions            | I      | Sharing stays on after the owner closes the window, believing it stopped                                                         | Notification-area icon with the state in its tooltip and menu; a one-time notice on the first close; Settings can make closing stop sharing                                                                                                                                                                                                                | —                             |
 | T24 | Mac packages             | T, E   | Run other code with VidVNC's grants: inherited `NODE_OPTIONS`, a swapped library or plugin, or a manifest path out of the bundle | Every program is Developer ID signed with the hardened runtime and library validation; the `vidvnc` launcher and the host drop inherited `NODE_` variables; packaged manifest paths stay inside the bundle; **Install Command-Line Tool** writes only the `/usr/local/bin/vidvnc` link, after the owner confirms, through macOS's own administrator prompt | None                          |
+| T25 | Project website          | T      | Publish misleading instructions or a harmful link on the project's site                                                          | Built only from `main` by the Website workflow; only its deploy job can publish; the page hosts no downloads and loads nothing from other sites                                                                                                                                                                                                            | —                             |
 
 ### Residual risk and open items
 
@@ -1753,6 +1756,7 @@ tools/            Root orchestration and formatting; tools/tests/ owns its tests
   debug/          Cross-process debug target definitions and implementation contract
 packaging/        Six-product catalog; shared and OS-specific packaging ownership
 docs/             Architecture, mockups, research history
+site/             The project website (GitHub Pages); built by tools/build-site.mjs
 out/              Ignored CMake outputs and preserved legacy artifacts
 .deps/            Ignored local SDKs/tools/download cache, set up by `npm run deps`
 ```
@@ -1866,6 +1870,12 @@ The GitHub Actions workflow `Portable checks` runs formatting and portable tests
 Windows, macOS and Linux. It runs only when started manually from the Actions tab, not
 on pushes or pull requests. It does not claim native capture support on those other
 OSes or replace device acceptance tests.
+
+The **Website** workflow ([pages.yml](../.github/workflows/pages.yml)) runs
+[tools/build-site.mjs](../tools/build-site.mjs), which copies `site/` and the screenshots it
+uses into `out/site/`, and publishes that to GitHub Pages. It runs on pushes to `main` that
+change the site, a screenshot or the build script, and from the Actions tab. The portable
+suite checks the build ([build-site.test.mjs](../tools/tests/build-site.test.mjs)).
 
 Existing opt-in browser checks require an installed Playwright module path:
 

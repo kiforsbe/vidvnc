@@ -31,6 +31,9 @@ Windows and macOS packages list every included component in `notices/THIRD-PARTY
 (in the Mac app, `Contents/Resources/notices`) together with its license texts. Nothing in VidVNC's license limits your rights under
 the licenses of those components.
 
+The [website](site/README.md) uses the Instrument Sans and JetBrains Mono fonts under the SIL
+Open Font License 1.1; their license texts are next to them in `site/fonts/`.
+
 ## Commercial licensing
 
 If the AGPL does not suit your use, for example because you want to distribute or host

@@ -47,7 +47,15 @@ export async function formatSources(scope, check = false) {
     const directories =
       part === 'native'
         ? ['native']
-        : ['apps/server', 'apps/web-client', 'native/media-worker', 'packaging', 'tests', 'tools'];
+        : [
+            'apps/server',
+            'apps/web-client',
+            'native/media-worker',
+            'packaging',
+            'site',
+            'tests',
+            'tools',
+          ];
     const files = (
       await Promise.all(directories.map((dir) => sourceFiles(path.join(root, dir), part)))
     ).flat();

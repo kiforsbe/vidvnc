@@ -15,6 +15,8 @@ may include breaking changes.
 - **Install Command-Line Tool…** in the Mac app links `vidvnc` into `/usr/local/bin`
   ([how it works](apps/macos-host/README.md#how-it-works)).
 - The Mac app has its icon.
+- A project website at <https://kiforsbe.github.io/vidvnc/>, in light and dark
+  ([site/](site/README.md)).
 
 ### Changed
 
