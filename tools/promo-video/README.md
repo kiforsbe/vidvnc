@@ -27,7 +27,11 @@ node tools/promo-video/promo.mjs rough    # draft 3: out/promo-video/drafts/03-r
 node tools/promo-video/promo.mjs final    # out/promo-video/final/ (60 fps)
 ```
 
-Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
+Each run writes to a folder named after the commit it was built from, such as
+`drafts/03-rough-cut/f906111/`, with a `build-info.txt` naming the full commit. Earlier
+revisions are kept, and any of them can be rebuilt by checking out its commit. Commit script
+changes before rendering a draft for review: uncommitted changes give a `-dirty` folder and a
+warning. Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
 (`PROMO_CACHE` moves it); `PROMO_OUT` moves the output. `CHROMIUM=/path/to/chrome` picks a
 browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's. Render on
 a machine with a real GPU: under software rendering (a cloud machine, for example) the WebGL

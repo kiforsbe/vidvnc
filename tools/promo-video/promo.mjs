@@ -7,7 +7,7 @@
 //   node tools/promo-video/promo.mjs rough     draft 3: the whole film at 30 fps
 //   node tools/promo-video/promo.mjs final     the finished film at 60 fps
 //
-// Outputs go to out/promo-video/ (ignored by git). Runs on Windows, macOS and Linux with
+// Outputs go to out/promo-video/ (ignored by git), one folder per commit. Runs on Windows, macOS and Linux with
 // Node 20+, Python 3.10+ and Chrome or Edge (or CHROMIUM=/path/to/chrome); ffmpeg comes
 // from ffmpeg-static unless FFMPEG names one. See README.md.
 import { spawn, spawnSync } from 'node:child_process';
@@ -32,6 +32,30 @@ const repo = path.resolve(here, '../..');
 const cache = process.env.PROMO_CACHE || path.join(repo, '.deps', 'promo-video');
 const outRoot = process.env.PROMO_OUT || path.join(repo, 'out', 'promo-video');
 const win = process.platform === 'win32';
+
+// Every draft and cut goes in a folder named after the commit it was built from, so each
+// revision is kept and can be rebuilt exactly. Uncommitted script changes add "-dirty".
+function revision() {
+  const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+  const head = git('rev-parse', '--short=7', 'HEAD').stdout?.trim();
+  if (!head) return 'no-git';
+  const dirty = git('status', '--porcelain', '--', 'tools/promo-video').stdout?.trim();
+  if (dirty) console.warn('warning: tools/promo-video has uncommitted changes; commit them first');
+  return dirty ? `${head}-dirty` : head;
+}
+function outDir(...parts) {
+  const d = path.join(outRoot, ...parts, revision());
+  rmSync(d, { recursive: true, force: true });
+  mkdirSync(d, { recursive: true });
+  const commit = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+  writeFileSync(
+    path.join(d, 'build-info.txt'),
+    `commit: ${commit.stdout?.trim() || 'unknown'}\n` +
+      `command: promo.mjs ${process.argv.slice(2).join(' ')}\n` +
+      `built: ${new Date().toISOString()}\n`,
+  );
+  return d;
+}
 const venvPython = path.join(cache, 'venv', win ? 'Scripts/python.exe' : 'bin/python');
 const DURATION = 95.5;
 
@@ -296,8 +320,7 @@ function sound(work) {
 
 async function film(kind) {
   const fps = kind === 'final' ? 60 : 30;
-  const out =
-    kind === 'final' ? path.join(outRoot, 'final') : path.join(outRoot, 'drafts', '03-rough-cut');
+  const out = kind === 'final' ? outDir('final') : outDir('drafts', '03-rough-cut');
   const work = path.join(cache, `work-${kind}`);
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
@@ -330,7 +353,7 @@ async function film(kind) {
 }
 
 async function voices() {
-  const out = path.join(outRoot, 'drafts', '01-voice-samples');
+  const out = outDir('drafts', '01-voice-samples');
   const work = path.join(cache, 'work-voices');
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
@@ -360,7 +383,7 @@ const steps = {
   setup,
   voices,
   frames: async () => {
-    const d = path.join(outRoot, 'drafts', '02-style-frames');
+    const d = outDir('drafts', '02-style-frames');
     await stills(d, FRAME_TIMES);
     await contactSheet(d);
     console.log(`Wrote ${d}`);
