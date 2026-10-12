@@ -6,7 +6,8 @@ SwiftUI app on macOS. Share your desktop from either, and watch and control it f
 on a phone, tablet or another computer.
 
 > **Windows and Mac are both in this repository.** Each has the VidVNC app and a
-> command-line server, and you can build either from source today: see
+> command-line server; see how to use the app on [Windows](apps/windows-host/README.md) and
+> on a [Mac](apps/macos-host/README.md). You can build either from source today: see
 > [Build and run (Windows)](#build-and-run-windows) and [Build and run (Mac)](#build-and-run-mac).
 > No compiled release has been published yet; the first one will come later. VidVNC is a
 > development preview, **not** production-ready.
@@ -73,6 +74,9 @@ so you never install GStreamer or developer tools. Both need:
 > your PC, please open an issue.
 
 ### VidVNC app
+
+**How to use it:** the [VidVNC app for Windows guide](apps/windows-host/README.md#using-the-app)
+walks through every page with screenshots.
 
 Also needs the [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0),
 the [Windows App Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads)
@@ -158,6 +162,9 @@ listener failure does not fall back to HTTP login or streaming. Only a valid, ex
 
 ### On a Mac
 
+**How to use it:** the [VidVNC app for Mac guide](apps/macos-host/README.md#using-the-app)
+walks through every section with screenshots.
+
 > Not released yet. Both Mac packages can be built and notarized from a checkout (see
 > [Mac packages](#mac-packages)).
 
@@ -197,6 +204,9 @@ you run the command-line server, macOS asks on behalf of the terminal app you ru
 so that is the app to allow.
 
 ## Build and run (Windows)
+
+The Windows app's own README, [apps/windows-host](apps/windows-host/README.md), explains how
+to use it and what its folder holds.
 
 Prerequisites: Node.js 20.6+ (use a maintained LTS), npm, Visual Studio 2022 C++
 desktop tools/Windows SDK, a current GPU driver, and GStreamer **1.28.6 MSVC x86_64
@@ -476,6 +486,9 @@ needs its own. Allow it on trusted Private networks only; do not disable the fir
 globally.
 
 ## Build and run (Mac)
+
+The Mac app's own README, [apps/macos-host](apps/macos-host/README.md), explains how to use
+it and how it is built and tested.
 
 Prerequisites: macOS 27 on Apple Silicon, Node.js 20.6+ and npm, Xcode, CMake 3.25 or newer,
 and the GStreamer 1.28.6 framework's runtime and development packages (see
