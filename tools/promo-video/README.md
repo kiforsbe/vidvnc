@@ -11,7 +11,6 @@ kept in the repository; it all goes to `out/promo-video/` (ignored by git).
 | [voiceover.json](voiceover.json)     | The voiceover: each line, when it starts, and its caption if that differs                               |
 | [voiceover.py](voiceover.py)         | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions |
 | [music.py](music.py)                 | Synthesises the score and sound effects with numpy, so there is nothing to license                      |
-| [scenes3d.html](scenes3d.html)       | An optional WebGL (Three.js) look test of three shots, for comparison                                   |
 | [voice-samples.py](voice-samples.py) | Reads four sample lines in six candidate voices                                                         |
 
 ## Build it
@@ -25,14 +24,11 @@ node tools/promo-video/promo.mjs voices   # draft 1: out/promo-video/drafts/01-v
 node tools/promo-video/promo.mjs frames   # draft 2: out/promo-video/drafts/02-style-frames/
 node tools/promo-video/promo.mjs rough    # draft 3: out/promo-video/drafts/03-rough-cut/ (30 fps)
 node tools/promo-video/promo.mjs final    # out/promo-video/final/ (60 fps)
-node tools/promo-video/promo.mjs look3d   # draft 4: out/promo-video/drafts/04-3d-look-test/
 ```
 
 Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
 (`PROMO_CACHE` moves it); `PROMO_OUT` moves the output. `CHROMIUM=/path/to/chrome` picks a
-browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's. The 2D film
-renders the same anywhere; the WebGL look test needs a real GPU, and under software rendering
-(a cloud machine, for example) its lighting and glow come out wrong.
+browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's.
 
 ## Where the pictures and words come from
 

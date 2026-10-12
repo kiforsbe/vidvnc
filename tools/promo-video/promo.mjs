@@ -6,7 +6,6 @@
 //   node tools/promo-video/promo.mjs frames    draft 2: one still per shot and a contact sheet
 //   node tools/promo-video/promo.mjs rough     draft 3: the whole film at 30 fps
 //   node tools/promo-video/promo.mjs final     the finished film at 60 fps
-//   node tools/promo-video/promo.mjs look3d    draft 4: a 20 s WebGL look test (needs a GPU to look right)
 //
 // Outputs go to out/promo-video/ (ignored by git). Runs on Windows, macOS and Linux with
 // Node 20+, Python 3.10+ and Chrome or Edge (or CHROMIUM=/path/to/chrome); ffmpeg comes
@@ -37,7 +36,7 @@ const venvPython = path.join(cache, 'venv', win ? 'Scripts/python.exe' : 'bin/py
 const DURATION = 95.5;
 
 const PINS = {
-  npm: ['playwright-core@1.56.1', 'ffmpeg-static@5.2.0', 'three@0.180.0'],
+  npm: ['playwright-core@1.56.1', 'ffmpeg-static@5.2.0'],
   pip: ['kokoro-onnx==0.6.1', 'soundfile==0.13.1', 'numpy>=2,<3'],
   models: 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/',
   modelFiles: ['kokoro-v1.0.onnx', 'voices-v1.0.bin'],
@@ -116,8 +115,7 @@ function serve() {
     .createServer((req, res) => {
       const u = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
       let file = null;
-      if (u === 'scenes.html' || u === 'scenes3d.html') file = path.join(here, u);
-      else if (u.startsWith('vendor/')) file = path.join(cache, 'node', 'node_modules', u.slice(7));
+      if (u === 'scenes.html') file = path.join(here, u);
       else if (u.startsWith('assets/')) {
         const rest = u.slice(7);
         for (const [prefix, target] of Object.entries(ASSETS)) {
@@ -367,15 +365,9 @@ const steps = {
   },
   rough: () => film('rough'),
   final: () => film('final'),
-  look3d: async () => {
-    const d = path.join(outRoot, 'drafts', '04-3d-look-test');
-    await stills(d, [4, 12.5, 17.5], 'scenes3d.html');
-    await video(path.join(d, 'look-test-3d.mp4'), 30, 'scenes3d.html', 20);
-    console.log(`Wrote ${d}`);
-  },
 };
 if (!steps[cmd]) {
-  console.error('usage: promo.mjs setup | voices | frames | rough | final | look3d');
+  console.error('usage: promo.mjs setup | voices | frames | rough | final');
   process.exit(2);
 }
 await steps[cmd]();
