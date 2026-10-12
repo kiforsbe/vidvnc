@@ -3,6 +3,9 @@
 // function of time t, so any frame can be rendered on its own.
 import * as THREE from 'three';
 
+// Colours are the page's sRGB hex values, used as they are, so the backdrop matches the CSS.
+THREE.ColorManagement.enabled = false;
+
 const W = 1920;
 const H = 1080;
 const COUNT = 2600;
@@ -33,9 +36,10 @@ const bg = new THREE.Mesh(
       'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: `varying vec2 vUv; uniform vec3 uTint;
       void main() {
-        vec2 p = (vUv - vec2(0.5, 0.45)) * vec2(1.6, 1.0);
-        float d = clamp(length(p) / 0.75, 0.0, 1.0);
-        vec3 col = mix(uTint, vec3(0.039, 0.059, 0.110), smoothstep(0.0, 1.0, d));
+        // the same glow as the page's radial-gradient(ellipse 70% 60% at 50% 45%, ... 70%)
+        vec2 p = (vUv - vec2(0.5, 0.55)) * vec2(1920.0 / 1344.0, 1080.0 / 648.0);
+        float d = clamp(length(p) / 0.7, 0.0, 1.0);
+        vec3 col = mix(uTint, vec3(0.039, 0.059, 0.110), d);
         gl_FragColor = vec4(col, 1.0);
       }`,
   }),
