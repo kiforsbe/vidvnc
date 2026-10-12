@@ -1,8 +1,15 @@
 # VidVNC
 
 Low-latency desktop streaming with a native capture/encode worker, a Node.js server,
-a server-hosted browser client, and native server hosts: WinUI 3 on Windows and, in
-development, SwiftUI on macOS. It is a development preview, **not** production-ready.
+a server-hosted browser client, and native server hosts: a WinUI 3 app on Windows and a
+SwiftUI app on macOS. Share your desktop from either, and watch and control it from a browser
+on a phone, tablet or another computer.
+
+> **Windows and Mac are both in this repository.** Each has the VidVNC app and a
+> command-line server, and you can build either from source today: see
+> [Build and run (Windows)](#build-and-run-windows) and [Build and run (Mac)](#build-and-run-mac).
+> No compiled release has been published yet; the first one will come later. VidVNC is a
+> development preview, **not** production-ready.
 
 <p align="center">
   <picture>
@@ -11,7 +18,17 @@ development, SwiftUI on macOS. It is a development preview, **not** production-r
   </picture>
 </p>
 
-Currently implemented: Windows 11 **25H2/build 26200 or newer**, x64, hardware
+|                    | Windows                                                                      | Mac                                                                                |
+| ------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Runs on            | Windows 11 25H2 (build 26200) or later, x64                                  | macOS 27 or later, Apple Silicon                                                   |
+| Capture            | DXGI desktop duplication, WASAPI desktop audio                               | ScreenCaptureKit, a Core Audio tap for desktop audio                               |
+| Hardware encoding  | H.264, H.265 and AV1 on NVIDIA, Intel and AMD graphics                       | H.264 and H.265 with VideoToolbox                                                  |
+| Keyboard and mouse | `SendInput`, when the host grants control                                    | `CGEventPost`, when the host grants control                                        |
+| The VidVNC app     | WinUI 3; [how to use it](apps/windows-host/README.md#using-the-app)          | SwiftUI, in the menu bar; [how to use it](apps/macos-host/README.md#using-the-app) |
+| Packages           | MSIX app and ZIP, development-signed ([Windows packages](#windows-packages)) | DMG app and ZIP, Developer ID-signed and notarized ([Mac packages](#mac-packages)) |
+| Status             | Multi-session hardware acceptance in progress                                | Clean-Mac acceptance in progress                                                   |
+
+On Windows: Windows 11 **25H2/build 26200 or newer**, x64, hardware
 H.264/H.265/AV1 encoding on NVIDIA, Intel and AMD graphics, selectable-monitor DXGI
 capture, WASAPI desktop audio compressed with Opus, and host-granted browser
 keyboard/mouse control. VidVNC picks the encoder on the graphics card driving the
@@ -22,16 +39,19 @@ at once by default (the host can allow 1 to 8), each with up to two video stream
 independent audio stream. Only one device holds input permission at a time. Multi-session
 hardware acceptance is still in progress; see [the roadmap](docs/ROADMAP.md).
 
-VidVNC also hosts on macOS 27 on Apple Silicon, from the [VidVNC app for Mac](#on-a-mac) or
-the command line; it is in development and not released yet. Native viewer clients are
-planned, not implemented.
+On a Mac, the [VidVNC app](#on-a-mac) and the command-line server share the same server,
+settings and browser viewer as on Windows; the
+[acceptance checklist](docs/investigations/MACOS-ACCEPTANCE.md) is what remains before its
+first release. Native viewer clients are planned, not implemented.
 
 ## Install and run
 
-> Nothing is published yet. Both packages can be built as development builds (see
-> [Windows packages](#windows-packages)): the VidVNC Server ZIP is unsigned and the
-> VidVNC app package is signed with a self-signed development certificate. You can
-> also use [Build and run (Windows)](#build-and-run-windows).
+> Nothing is published yet; the first release built from this repository will come later.
+> Until then, build the packages yourself: on Windows (see
+> [Windows packages](#windows-packages)) the VidVNC Server ZIP is unsigned and the VidVNC
+> app package is signed with a self-signed development certificate; on a Mac, see
+> [Mac packages](#mac-packages). Or run from source: [Build and run (Windows)](#build-and-run-windows),
+> [Build and run (Mac)](#build-and-run-mac).
 
 VidVNC comes in two Windows packages. Both include VidVNC's own media components,
 so you never install GStreamer or developer tools. Both need:
@@ -316,14 +336,7 @@ is the same as `npm start`.
 This development output depends on the checkout/SDK; it is not the distribution
 payload described in [packaging](docs/PACKAGING.md).
 
-On a Mac (macOS 27, Apple Silicon), the same two commands build the Swift host with Xcode
-into `out/macos-host/` and open VidVNC through Launch Services; closing its window leaves it
-in the menu bar. The first time you turn sharing on, it explains and then macOS asks for
-Screen & System Audio Recording and Local Network, and the first stream with sound asks for
-System Audio Recording; Device Control & Data Access is asked
-the first time you give a viewer control. Set `VIDVNC_SIGN_IDENTITY` to a code-signing
-identity so rebuilds keep those permissions; see [apps/macos-host](apps/macos-host/README.md).
-To build the packaged app, see [Mac packages](#mac-packages).
+On a Mac, see [Build and run (Mac)](#build-and-run-mac).
 
 `npm run screenshot:host` regenerates the app screenshots in
 [docs/images/windows-host](docs/images/README.md): it starts that Debug host, waits 8 seconds for it to finish starting, opens every
@@ -462,6 +475,32 @@ media port. Firewall permissions are executable-path-specific, so a different No
 needs its own. Allow it on trusted Private networks only; do not disable the firewall
 globally.
 
+## Build and run (Mac)
+
+Prerequisites: macOS 27 on Apple Silicon, Node.js 20.6+ and npm, Xcode, CMake 3.25 or newer,
+and the GStreamer 1.28.6 framework's runtime and development packages (see
+[SDK and build locations](#sdk-and-build-locations)). From the repository root:
+
+```sh
+npm run deps
+./build-native.sh
+npm test
+npm run prepare:host -- Debug
+npm run start:host -- Debug
+```
+
+`./build-native.sh` builds the media worker and runs its tests. `prepare:host` builds the
+worker and the Swift app with Xcode into `out/macos-host/` and writes the development runtime
+manifest; `start:host` opens VidVNC through Launch Services, and closing its window leaves it
+in the menu bar. `npm start` runs the command-line server instead.
+
+The first time you turn sharing on, the app explains and then macOS asks for Screen & System
+Audio Recording and Local Network; the first stream with sound asks for System Audio
+Recording, and Device Control & Data Access is asked the first time you give a viewer
+control. Set `VIDVNC_SIGN_IDENTITY` to a code-signing identity so rebuilds keep those
+permissions; see [apps/macos-host](apps/macos-host/README.md#run-it). To build the packaged
+app, see [Mac packages](#mac-packages).
+
 ## Commands and ownership
 
 | Command                                   | Scope                                                                                                  |
@@ -489,7 +528,7 @@ Native host/client formatting remains deferred as requested.
 
 - `VIDVNC_HOST` / `VIDVNC_PORT`: bind address/port; default all interfaces/4382.
 - `GSTREAMER_ROOT`: SDK used for building and launching the native worker. On macOS
-  (support in development) the default is the GStreamer framework in
+  the default is the GStreamer framework in
   `~/Library/Frameworks`, else in `/Library/Frameworks`.
 - `VIDVNC_MEDIA_WORKER`: optional absolute executable override for another build.
 - `VIDVNC_LOG_DIR`: log directory override; Windows default `%LOCALAPPDATA%/VidVNC/logs`,
