@@ -4,10 +4,10 @@ import { A, el, fade, lerp } from '../engine/kit.mjs';
 
 export const build = (root) => {
   const imgs = [
-    ['win/overview-light.png', 986, 713],
-    ['mac/overview-light.png', 1800, 1520],
     ['win/overview-dark.png', 986, 713],
     ['mac/overview-dark.png', 1800, 1520],
+    ['win/streaming-profiles-dark.png', 986, 713],
+    ['mac/streaming-dark.png', 1800, 1520],
   ];
   const shots = imgs.map(([f, w, h]) => {
     const H = 820,

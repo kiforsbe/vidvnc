@@ -226,6 +226,36 @@ async function stills(dir) {
     }
   await p.close();
 }
+// storyboard/index.html: each scene's stills with the voiceover lines spoken over it, so the
+// storyboard reads like a script. Open it in any browser.
+function storyboardPage(dir) {
+  const vo = JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8')).lines;
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const secs = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+  const rows = SCENES.map((s) => {
+    const name = s.file.replace(/\.mjs$/, '');
+    const imgs = s.stills
+      .map((_, i) => `<img src="frame-${name}${s.stills.length > 1 ? `-${i + 1}` : ''}.png">`)
+      .join('');
+    const lines = vo
+      .filter((l) => l.at >= s.start && l.at < s.end)
+      .map((l) => `<p><span>${secs(l.at)}</span>${esc(l.caption || l.text)}</p>`)
+      .join('');
+    return (
+      `<section><h2>${name.slice(0, 2)} · ${esc(s.id)} <small>${secs(s.start)} to ${secs(s.end)}</small></h2>` +
+      `<div class="imgs">${imgs}</div>${lines || '<p class="none">No voiceover</p>'}</section>`
+    );
+  }).join('');
+  writeFileSync(
+    path.join(dir, 'index.html'),
+    `<!doctype html><meta charset="utf-8"><title>VidVNC promo storyboard</title><style>` +
+      `body{margin:0 auto;max-width:1100px;padding:24px;background:#0a0f1c;color:#e6ebf5;font:16px system-ui,sans-serif}` +
+      `section{margin:0 0 40px}h2{font-size:20px;margin:0 0 10px}small{color:#8693ab;font-weight:400;margin-left:8px}` +
+      `.imgs{display:flex;gap:8px}.imgs img{flex:1;min-width:0;border-radius:8px}` +
+      `p{margin:10px 0;font-size:18px;line-height:1.4}p span{color:#8693ab;font:14px monospace;margin-right:12px}` +
+      `.none{color:#8693ab;font-style:italic}</style><h1>VidVNC promo storyboard</h1>${rows}`,
+  );
+}
 async function contactSheet(dir) {
   const files = readdirSync(dir)
     .filter((f) => f.startsWith('frame-'))
@@ -345,6 +375,7 @@ async function film(kind) {
     const board = path.join(out, 'storyboard');
     await stills(board);
     await contactSheet(board);
+    storyboardPage(board);
   }
   console.log(`== picture (${fps} fps)`);
   await video(path.join(work, 'picture.mp4'), fps);

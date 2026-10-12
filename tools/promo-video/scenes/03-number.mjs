@@ -35,7 +35,7 @@ export const build = (root) => {
     'abs',
     root,
     { left: 0, right: 0, top: '800px' },
-    '<div class="title">About <span class="mono" style="color:#8db8ff">63 ms</span>, glass to glass.</div><div class="sub" style="margin-top:14px">1080p at 60 frames a second, measured on a Mac</div>',
+    '<div class="title">About <span class="mono" style="color:#8db8ff">63 ms</span>, glass to glass.</div><div class="sub" style="margin-top:14px">Measured at 1080p, 60 frames a second, on a Mac. Streams up to 4K.</div>',
   );
   const tag1 = el(
     'abs',

@@ -41,7 +41,8 @@ Each draft gets the next number and never overwrites an earlier one. A draft fol
 drafts/04/
   vidvnc-promo.mp4      the cut
   vidvnc-promo.en.srt   its captions
-  storyboard/           one still per scene (`frame-02-race.png`), and contact-sheet.png with all of them
+  storyboard/           one still per scene (`frame-02-race.png`), contact-sheet.png with all of
+                        them, and index.html: each scene's stills with the lines spoken over it
   audio/                voiceover.wav, music.wav and mix.wav
   build-info.txt        the commit, the command and when it was built
   commit.url            opens that commit on GitHub
