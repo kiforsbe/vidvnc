@@ -4,15 +4,24 @@ Scripts that generate the VidVNC promo film from code: the voiceover, the music,
 shot, the mix and the captions. Nothing is filmed or edited by hand, and no generated media is
 kept in the repository; it all goes to `out/promo-video/` (ignored by git).
 
-| File                                 | What it does                                                                                                                                                                  |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [promo.mjs](promo.mjs)               | The build: installs the tools, then renders the drafts or the final film                                                                                                      |
-| [scenes.html](scenes.html)           | Every shot, drawn as a web page at any moment `t` (HTML, CSS, SVG and canvas); `promo.mjs` records it                                                                         |
-| [backdrop.mjs](backdrop.mjs)         | A WebGL (Three.js) light field behind the 2D shots that only adds depth and glow                                                                                              |
-| [voiceover.json](voiceover.json)     | The voiceover: each line, when it starts, and its caption if that differs                                                                                                     |
-| [voiceover.py](voiceover.py)         | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions                                                                       |
-| [music.py](music.py)                 | Synthesises the score, the song playing on the shared desktop and its spectrum (`eq.json`, which drives the desktop's visualiser), with numpy, so there is nothing to license |
-| [voice-samples.py](voice-samples.py) | Reads four sample lines in six candidate voices                                                                                                                               |
+| File                                       | What it does                                                                                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [promo.mjs](promo.mjs)                     | The build: installs the tools, then renders the drafts or the final film                                                                                                 |
+| [timeline.mjs](timeline.mjs)               | The order of the scenes, when each starts and ends, and the moments taken as storyboard stills                                                                           |
+| [scenes/](scenes)                          | One file per scene, each drawing its shot at any moment (HTML, CSS, SVG and canvas)                                                                                      |
+| [engine/film.mjs](engine/film.mjs)         | The engine: plays every scene in the timeline back to back as one film, over the backdrop                                                                                |
+| [engine/kit.mjs](engine/kit.mjs)           | What the scenes share: timing helpers, the shared desktop and its music player, the devices and the screenshot shots                                                     |
+| [engine/backdrop.mjs](engine/backdrop.mjs) | A WebGL (Three.js) light field behind the 2D shots that only adds depth and glow                                                                                         |
+| [engine/film.html](engine/film.html)       | The page the film is recorded from, with the shared styles                                                                                                               |
+| [voiceover.json](voiceover.json)           | The voiceover: each line, when it starts, and its caption if that differs                                                                                                |
+| [voiceover.py](voiceover.py)               | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions                                                                  |
+| [music.py](music.py)                       | Synthesises the score, the song on the shared desktop (heard in the race only) and its spectrum for the desktop's visualiser, with numpy, so there is nothing to license |
+| [voice-samples.py](voice-samples.py)       | Reads four sample lines in six candidate voices                                                                                                                          |
+
+The scenes are only source: every draft and final cut is one continuous film with one
+soundtrack. To change the order or length of a scene, edit `timeline.mjs`; the stills, the
+music's cues and the film follow it. Voiceover lines keep their own start times in
+`voiceover.json`, so move those too.
 
 ## Build it
 
@@ -32,7 +41,7 @@ Each draft gets the next number and never overwrites an earlier one. A draft fol
 drafts/04/
   vidvnc-promo.mp4      the cut
   vidvnc-promo.en.srt   its captions
-  storyboard/           one still per shot, and contact-sheet.png with all of them
+  storyboard/           one still per scene (`frame-02-race.png`), and contact-sheet.png with all of them
   audio/                voiceover.wav, music.wav and mix.wav
   build-info.txt        the commit, the command and when it was built
   commit.url            opens that commit on GitHub

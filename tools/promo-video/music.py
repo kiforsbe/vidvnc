@@ -1,12 +1,12 @@
 """Synthesises the score and sound effects for the promo, so nothing needs licensing.
 
-usage: python music.py <out.wav> [duration] [eq.json]
+usage: python music.py <out.wav> <timeline.json> [eq.json]
 
-Writes 44.1 kHz stereo. The centrepiece is the "desktop track": a full, wide, polished song
-that plays on the shared desktop, so the film can show sound arriving with the picture. It
-is heard from the race on, and its spectrum goes to eq.json, which drives the player's
-visualiser in scenes.html, so what you see on the desktop is what you hear. The cue times
-below match the scenes in scenes.html.
+Writes 44.1 kHz stereo. Two kinds of music: the film's own quiet score (pads, soft keys and
+a gentle pulse), and the "desktop track", a full, wide song that plays on the shared desktop
+in the race scene only, to show sound arriving with the picture. Its spectrum goes to
+eq.json, which drives the desktop player's visualiser (engine/kit.mjs), so what you see is
+what you hear. Cue times come from timeline.json, which promo.mjs writes from timeline.mjs.
 """
 import base64
 import json
@@ -17,14 +17,18 @@ import soundfile as sf
 
 SR = 44100
 out_path = sys.argv[1]
-DUR = float(sys.argv[2]) if len(sys.argv) > 2 else 95.5
+with open(sys.argv[2]) as fh:
+    TIMELINE = json.load(fh)
+DUR = TIMELINE['duration']
 eq_path = sys.argv[3] if len(sys.argv) > 3 else None
 N = int(DUR * SR)
 rng = np.random.default_rng(7)
 
-# Scene starts in scenes.html
-RACE, NUMBER, APP, TRUST, PIPES, NETWORK, END = 12.2, 24.0, 32.0, 50.0, 54.0, 80.0, 89.2
-SPOTLIGHTS = [60.0, 66.2, 73.4]  # the pipes infographic moves its spotlight here
+# Cue times from the timeline
+SC = {s['id']: s for s in TIMELINE['scenes']}
+RACE, NUMBER = SC['race']['start'], SC['race']['end']
+TRUST, NETWORK, END = SC['trust']['start'], SC['network']['start'], SC['end']['start']
+SPOTLIGHTS = [SC['security']['start'] + m for m in SC['security']['marks']]  # the spotlight moves
 
 BPM = 96
 BEAT = 60 / BPM
@@ -227,35 +231,42 @@ track = desktop_track()
 
 # ---- the score ----------------------------------------------------------------------------------
 score = Bus()
-
-
-def gain_at(t):
-    """How loud the desktop track is in the film: silent until the race, then featured."""
-    pts = [(0, 0), (RACE + 0.5, 0), (RACE + 1.6, 0.6), (RACE + 3.0, 1.0), (NUMBER, 1.0), (APP, 0.8), (TRUST - 2.0, 0.65), (TRUST, 0),
-           (NETWORK, 0), (NETWORK + 1.2, 0.55), (END - 0.4, 0.55), (END + 0.6, 0)]
-    xs, ys = zip(*pts)
-    return np.interp(t, xs, ys)
-
-
 tt = np.arange(N) / SR
-score.x += track * gain_at(tt)
 
-# Soft pads under the lag, the security act and the end card.
+# The desktop's song plays in the race only: it comes in after the first line and fades out
+# as the race ends.
+race_gain = np.interp(tt, [RACE + 0.5, RACE + 1.6, RACE + 3.0, NUMBER - 0.8, NUMBER + 0.2], [0, 0.6, 1.0, 1.0, 0])
+score.x += track * race_gain
+
+# The film's own score: soft pads and keys on the same chords, a quiet bass and kick under
+# the middle and the close, a drone under the security act, and a resolve on the end card.
 PADS = [['D3', 'F#3', 'A3', 'C#4'], ['B2', 'D3', 'F#3', 'A3'], ['G2', 'B2', 'D3', 'F#3'], ['A2', 'C#3', 'E3', 'A3']]
-for a, b, g in [(0, RACE + 1.5, 0.07), (TRUST - 1.0, NETWORK + 1.0, 0.06)]:
+under = Bus()
+for a, b, g, keys in [(0, RACE + 1.5, 0.07, False), (NUMBER - 0.5, TRUST + 1.0, 0.07, True),
+                      (TRUST - 1.0, NETWORK + 1.0, 0.06, False), (NETWORK - 0.5, END + 0.5, 0.07, True)]:
     t = a
     while t < b:
         c = int(t // (2 * BAR)) % 4
         ln = min(2 * BAR + 1.5, b - t + 1.5)
-        for n in PADS[c]:
-            score.add(pad(hz(n), ln), t, g, pan=0.0)
+        for i, n in enumerate(PADS[c]):
+            under.add(pad(hz(n), ln), t, g)
+            if keys:
+                under.add(epiano(hz(n), 2 * BAR - 0.2, 0.55), t + 0.04 + i * 0.03, 0.07)
         t += 2 * BAR
+for a, b, g in [(NUMBER + 0.2, TRUST - 0.4, 0.55), (NETWORK + 0.6, END - 0.2, 0.45)]:
+    t = np.ceil(a / BEAT) * BEAT
+    while t < b:
+        under.add(kick(), t, 0.32 * g)
+        root = hz(ROOTS[int(t // (2 * BAR)) % 4])
+        under.add(bass(root, BEAT * 0.9), t, 0.32 * g)
+        t += BEAT
+score.x += reverb(under.x, 2.8, 0.35)
 # Low drone and a heartbeat kick under the security act.
 d = tvec(NETWORK - TRUST)
 score.add(np.sin(2 * np.pi * hz('D1') * d) * np.minimum(1, d / 1.5) * np.minimum(1, (NETWORK - TRUST - d) / 2), TRUST, 0.16)
 t = SPOTLIGHTS[0]
 while t < NETWORK - 0.1:
-    score.add(kick(), t, 0.25)
+    score.add(kick(), t, 0.22)
     t += BEAT
 # The end card resolves on D major and rings out.
 for n in ['D3', 'F#3', 'A3', 'D4', 'A4']:
@@ -274,21 +285,8 @@ def chime():
     return (np.sin(2 * np.pi * 1318.5 * t) + 0.7 * np.sin(2 * np.pi * 1975.5 * t) * (t > 0.09)) * np.exp(-t * 3.5) * 0.5
 
 
-# Late frames in the lag shot: a low tick on each stale frame update (8 to 12 s).
-def vnc_time(x):
-    step = 0.2 + 0.12 * abs(np.sin(np.floor(x * 3)))
-    return np.floor((x - 0.45) / step) * step
-
-
-prev = None
-for k in range(int(8 * 60), int(12 * 60)):
-    x = k / 60
-    v = vnc_time(x)
-    if prev is not None and v != prev:
-        score.add(click(420, 0.04), x, 0.22)
-    prev = v
-score.add(click(2400, 0.025), 33.8, 0.35)  # cursor click on Connect a Device
-score.add(chime(), 38.6, 0.4)  # the desktop opens on the phone
+score.add(click(2400, 0.025), SC['app-code']['start'] + 1.8, 0.35)  # cursor click on Connect a Device
+score.add(chime(), SC['scan']['start'] + 2.6, 0.4)  # the desktop opens on the phone
 for i, t in enumerate(SPOTLIGHTS):  # the spotlight moves to the next part
     score.add(click(1500 - i * 150, 0.05), t, 0.4)
 

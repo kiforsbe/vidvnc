@@ -30,42 +30,46 @@
     },
     {
       "at": 36.4,
-      "text": "Scan it, and you're in. No app to install on the phone."
+      "text": "Scan the code, or type the short key. No app to install."
     },
     {
-      "at": 41.3,
+      "at": 41.4,
+      "text": "Or, if the host allows it, register a device once. Then it signs in with a username and password. Passkeys come in a later release."
+    },
+    {
+      "at": 50.8,
       "text": "Hand over the keyboard and mouse only when you choose."
     },
     {
-      "at": 45.3,
+      "at": 54.8,
       "text": "On a Mac or a Windows PC, the graphics hardware does the work."
     },
     {
-      "at": 50.4,
+      "at": 59.9,
       "text": "Fast is easy to promise. Trusted takes design."
     },
     {
-      "at": 55.0,
+      "at": 64.5,
       "text": "Every part is placed by how much it trusts what reaches it."
     },
     {
-      "at": 60.0,
+      "at": 69.5,
       "text": "Traffic from the network meets one guarded port, and only proven senders get through."
     },
     {
-      "at": 66.2,
+      "at": 75.7,
       "text": "The video connection runs in a sandbox. Break in, and it still can't see your screen, send input, or read your files."
     },
     {
-      "at": 73.5,
+      "at": 83.0,
       "text": "It reaches the trusted side only through narrow pipes. Screen capture never touches the network."
     },
     {
-      "at": 80.3,
+      "at": 89.8,
       "text": "Everything is encrypted. Remote access stays off until you turn it on, and codes work once."
     },
     {
-      "at": 89.4,
+      "at": 98.9,
       "text": "VidVNC. Your desktop, in real time, on your network."
     }
   ]

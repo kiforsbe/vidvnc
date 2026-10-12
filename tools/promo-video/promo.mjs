@@ -25,6 +25,7 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SCENES, DURATION } from './timeline.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
@@ -61,7 +62,6 @@ function outDir(group) {
   return d;
 }
 const venvPython = path.join(cache, 'venv', win ? 'Scripts/python.exe' : 'bin/python');
-const DURATION = 95.5;
 
 const PINS = {
   npm: ['playwright-core@1.56.1', 'ffmpeg-static@5.2.0', 'three@0.180.0'],
@@ -70,7 +70,6 @@ const PINS = {
   modelFiles: ['kokoro-v1.0.onnx', 'voices-v1.0.bin'],
 };
 const VOICES = ['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'bf_emma', 'bf_isabella'];
-const FRAME_TIMES = [10.5, 20, 29.5, 34.5, 40, 43.5, 47, 52, 63, 69, 76, 83, 88, 92];
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: 'inherit', ...opts });
@@ -146,7 +145,10 @@ function serve() {
     .createServer((req, res) => {
       const u = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
       let file = null;
-      if (u === 'scenes.html' || u === 'backdrop.mjs') file = path.join(here, u);
+      // the page and its modules: the engine, the scenes and the timeline
+      if (u === 'film.html') file = path.join(here, 'engine', u);
+      else if (/^(engine|scenes)\/[\w.-]+\.mjs$/.test(u) || u === 'timeline.mjs')
+        file = path.join(here, u);
       else if (u === 'eq.json') file = eqFile;
       else if (u.startsWith('vendor/')) file = path.join(cache, 'node', 'node_modules', u.slice(7));
       else if (u.startsWith('assets/')) {
@@ -169,7 +171,7 @@ function serve() {
     .listen(0, '127.0.0.1');
   return new Promise((r) => server.once('listening', () => r(server)));
 }
-async function openPage(pageName = 'scenes.html') {
+async function openPage() {
   const { chromium } = nodeRequire()('playwright-core');
   const tries = process.env.CHROMIUM
     ? [{ executablePath: process.env.CHROMIUM }]
@@ -196,7 +198,7 @@ async function openPage(pageName = 'scenes.html') {
     deviceScaleFactor: 1,
   });
   page.on('pageerror', (e) => console.error('page error:', e.message));
-  await page.goto(`http://127.0.0.1:${server.address().port}/${pageName}`);
+  await page.goto(`http://127.0.0.1:${server.address().port}/film.html`);
   await page.waitForFunction(() => window.ready, null, { timeout: 120000 });
   await page.evaluate(() => window.ready);
   const shot = async (t, type) => {
@@ -211,15 +213,17 @@ async function openPage(pageName = 'scenes.html') {
     },
   };
 }
-async function stills(dir, times, pageName) {
+// One still per moment the timeline names, named after its scene: frame-02-race.png, or
+// frame-09-security-1.png when a scene has several.
+async function stills(dir) {
   mkdirSync(dir, { recursive: true });
-  for (const f of readdirSync(dir)) if (f.startsWith('frame-')) rmSync(path.join(dir, f));
-  const p = await openPage(pageName);
-  for (const [i, t] of times.entries())
-    writeFileSync(
-      path.join(dir, `frame-${String(i + 1).padStart(2, '0')}-${t}s.png`),
-      await p.shot(t, 'png'),
-    );
+  const p = await openPage();
+  for (const s of SCENES)
+    for (const [i, t] of s.stills.entries()) {
+      const n = s.stills.length > 1 ? `-${i + 1}` : '';
+      const name = `frame-${s.file.replace(/\.mjs$/, '')}${n}.png`;
+      writeFileSync(path.join(dir, name), await p.shot(t, 'png'));
+    }
   await p.close();
 }
 async function contactSheet(dir) {
@@ -250,8 +254,8 @@ async function contactSheet(dir) {
   ]);
   rmSync(list);
 }
-async function video(file, fps, pageName, duration = DURATION) {
-  const p = await openPage(pageName);
+async function video(file, fps, duration = DURATION) {
+  const p = await openPage();
   const ff = spawn(
     ffmpeg(),
     [
@@ -304,7 +308,9 @@ function sound(work) {
   );
   console.log('== music');
   eqFile = path.join(work, 'eq.json');
-  py('music.py', path.join(work, 'music.wav'), String(DURATION), eqFile);
+  const cues = path.join(work, 'timeline.json'); // music.py places its cues on the scenes
+  writeFileSync(cues, JSON.stringify({ duration: DURATION, scenes: SCENES }));
+  py('music.py', path.join(work, 'music.wav'), cues, eqFile);
   console.log('== mix'); // the music ducks under the voice, then the mix is levelled for the web (-14 LUFS)
   run(ffmpeg(), [
     '-loglevel',
@@ -337,7 +343,7 @@ async function film(kind) {
   if (kind === 'draft') {
     console.log('== storyboard');
     const board = path.join(out, 'storyboard');
-    await stills(board, FRAME_TIMES);
+    await stills(board);
     await contactSheet(board);
   }
   console.log(`== picture (${fps} fps)`);
