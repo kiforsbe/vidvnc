@@ -12,19 +12,19 @@ the screens are in [docs/design/macos-host-previz/](../../docs/design/macos-host
 
 ## Layout
 
-| Path                                                | What it holds                                                                                                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VidVNC.xcodeproj`                                  | The app, its unit tests and its UI tests; the shared `VidVNC` scheme                                                                                                      |
-| `VidVNC/Model/`                                     | `HostModel`, the protocol every view reads, and `FakeHostModel`, its sample-data stand-in for previews, screenshots and `-scenario`                                       |
-| `VidVNC/Server/`                                    | `ServerHostModel` (the real model), `ServerProcess` (`posix_spawn` with pipes), `RuntimeManifest`, the owner-protocol messages, and `OfflineSettings` (`main.mjs config`) |
-| `VidVNC/System/`                                    | Privacy checks, the Local Network probe, display ids, network interfaces, the login item, Install Command-Line Tool                                                       |
-| `VidVNC/Views/`, `Sheets/`, `Settings/`, `MenuBar/` | The window's eight sections, its sheets, the Settings window and the menu bar item                                                                                        |
-| `VidVNCTests/`                                      | Swift Testing unit tests: every owner-protocol example decodes, the manifest's path rules, `ServerProcess`                                                                |
-| `VidVNCUITests/`                                    | XCUITest navigation against the stand-in server                                                                                                                           |
-| `tests/`                                            | The stand-in server, its contract check (part of `npm test`) and the process-tree check                                                                                   |
-| `Config/`                                           | `Info.plist` additions and the signing settings                                                                                                                           |
-| `screenshots.sh`                                    | Saves light and dark images of each section to `docs/design/macos-host-previz/`                                                                                           |
-| `docs-screenshots.sh`                               | Saves the whole window of each section, Connect a Device's QR code and each Settings tab to `docs/images/macos-host/` ([Screenshots](../../docs/images/README.md))        |
+| Path                                                | What it holds                                                                                                                                                                       |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VidVNC.xcodeproj`                                  | The app, its unit tests and its UI tests; the shared `VidVNC` scheme                                                                                                                |
+| `VidVNC/Model/`                                     | `HostModel`, the protocol every view reads, and `FakeHostModel`, its sample-data stand-in for previews, screenshots and `-scenario`                                                 |
+| `VidVNC/Server/`                                    | `ServerHostModel` (the real model), `ServerProcess` (`posix_spawn` with pipes), `RuntimeManifest`, the owner-protocol messages, and `OfflineSettings` (`main.mjs config`)           |
+| `VidVNC/System/`                                    | Privacy checks, the Local Network probe, display ids, network interfaces, the login item, Install Command-Line Tool                                                                 |
+| `VidVNC/Views/`, `Sheets/`, `Settings/`, `MenuBar/` | The window's eight sections, its sheets, the Settings window and the menu bar item                                                                                                  |
+| `VidVNCTests/`                                      | Swift Testing unit tests: every owner-protocol example decodes, the manifest's path rules, `ServerProcess`                                                                          |
+| `VidVNCUITests/`                                    | XCUITest navigation against the stand-in server                                                                                                                                     |
+| `tests/`                                            | The stand-in server, its contract check (part of `npm test`) and the process-tree check                                                                                             |
+| `Config/`                                           | `Info.plist` additions and the signing settings                                                                                                                                     |
+| `screenshots.sh`                                    | Saves light and dark images of each section to `docs/design/macos-host-previz/`                                                                                                     |
+| `docs-screenshots.sh`                               | Saves the whole window of each section, Connect a Device's QR code and each Settings tab, light and dark, to `docs/images/macos-host/` ([Screenshots](../../docs/images/README.md)) |
 
 ## Run it
 

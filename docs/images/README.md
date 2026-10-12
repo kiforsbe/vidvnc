@@ -1,29 +1,32 @@
 # Screenshots
 
-Whole-window screenshots of the VidVNC app, one per page, for the README and other
-documents. Each host has its own folder, and both name their files after the page.
+Whole-window screenshots of the VidVNC app, one per page in light and dark, for the README
+and other documents. Each host has its own folder, and both name their files after the page,
+then `-light` or `-dark`.
 
-| Page                     | Windows ([windows-host/](windows-host/))                      | Mac ([macos-host/](macos-host/))                                                                             |
-| ------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Overview                 | [overview.png](windows-host/overview.png)                     | [overview.png](macos-host/overview.png)                                                                      |
-| Displays                 | [displays.png](windows-host/displays.png)                     | [displays.png](macos-host/displays.png)                                                                      |
-| Streaming                | [streaming-profiles.png](windows-host/streaming-profiles.png) | [streaming.png](macos-host/streaming.png)                                                                    |
-| Sessions, Activity       | [sessions.png](windows-host/sessions.png)                     | [activity.png](macos-host/activity.png)                                                                      |
-| Clients, Connections     | [clients.png](windows-host/clients.png)                       | [connections.png](macos-host/connections.png)                                                                |
-| Access                   | [access.png](windows-host/access.png)                         | [access.png](macos-host/access.png)                                                                          |
-| Network                  | (part of Access and Settings)                                 | [network.png](macos-host/network.png)                                                                        |
-| Permissions              | (none on Windows)                                             | [permissions.png](macos-host/permissions.png)                                                                |
-| Settings                 | [settings.png](windows-host/settings.png)                     | [settings-general.png](macos-host/settings-general.png), [settings-about.png](macos-host/settings-about.png) |
-| Connect a device QR code | [connect-device-qr.png](windows-host/connect-device-qr.png)   | [connect-device-qr.png](macos-host/connect-device-qr.png)                                                    |
+| Page                     | Windows ([windows-host/](windows-host/))                                                                                  | Mac ([macos-host/](macos-host/))                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Overview                 | overview ([light](windows-host/overview-light.png), [dark](windows-host/overview-dark.png))                               | overview ([light](macos-host/overview-light.png), [dark](macos-host/overview-dark.png))                            |
+| Displays                 | displays ([light](windows-host/displays-light.png), [dark](windows-host/displays-dark.png))                               | displays ([light](macos-host/displays-light.png), [dark](macos-host/displays-dark.png))                            |
+| Streaming                | streaming-profiles ([light](windows-host/streaming-profiles-light.png), [dark](windows-host/streaming-profiles-dark.png)) | streaming ([light](macos-host/streaming-light.png), [dark](macos-host/streaming-dark.png))                         |
+| Sessions, Activity       | sessions ([light](windows-host/sessions-light.png), [dark](windows-host/sessions-dark.png))                               | activity ([light](macos-host/activity-light.png), [dark](macos-host/activity-dark.png))                            |
+| Clients, Connections     | clients ([light](windows-host/clients-light.png), [dark](windows-host/clients-dark.png))                                  | connections ([light](macos-host/connections-light.png), [dark](macos-host/connections-dark.png))                   |
+| Access                   | access ([light](windows-host/access-light.png), [dark](windows-host/access-dark.png))                                     | access ([light](macos-host/access-light.png), [dark](macos-host/access-dark.png))                                  |
+| Network                  | (part of Access and Settings)                                                                                             | network ([light](macos-host/network-light.png), [dark](macos-host/network-dark.png))                               |
+| Permissions              | (none on Windows)                                                                                                         | permissions ([light](macos-host/permissions-light.png), [dark](macos-host/permissions-dark.png))                   |
+| Settings                 | settings ([light](windows-host/settings-light.png), [dark](windows-host/settings-dark.png))                               | settings-general ([light](macos-host/settings-general-light.png), [dark](macos-host/settings-general-dark.png))    |
+|                          |                                                                                                                           | settings-about ([light](macos-host/settings-about-light.png), [dark](macos-host/settings-about-dark.png))          |
+| Connect a device QR code | connect-device-qr ([light](windows-host/connect-device-qr-light.png), [dark](windows-host/connect-device-qr-dark.png))    | connect-device-qr ([light](macos-host/connect-device-qr-light.png), [dark](macos-host/connect-device-qr-dark.png)) |
 
 ## Regenerate them
 
 - **Windows:** `npm run screenshot:host` runs [tools/screenshot-host.ps1](../../tools/screenshot-host.ps1)
   against the Debug host from `npm run prepare:host`. It drives the real app, which starts
-  sharing, so the images show the PC's name and addresses in Windows' own theme. Close
+  sharing, so the images show the PC's name and addresses. It switches Settings > Appearance
+  to Light, then Dark (`-Themes Light` for one); that choice isn't saved. Close
   VidVNC and any CLI server first.
 - **Mac:** [apps/macos-host/docs-screenshots.sh](../../apps/macos-host/docs-screenshots.sh)
-  `[light|dark] [scenario]` builds the Debug app and runs it on its sample data
+  `[light|dark|both] [scenario]` builds the Debug app and runs it on its sample data
   (`-scenario "Local network"` by default), so no server starts and no real names show.
   `screencapture` takes each window, so the app you run it from (Terminal) needs Screen &
   System Audio Recording; without it the images come out blank. Keep the window on screen

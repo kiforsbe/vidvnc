@@ -5,7 +5,7 @@ a server-hosted browser client, and native server hosts: WinUI 3 on Windows and,
 development, SwiftUI on macOS. It is a development preview, **not** production-ready.
 
 <p align="center">
-  <img src="docs/images/windows-host/overview.png" alt="The VidVNC app's Overview page: sharing is on, with two displays and no connected devices">
+  <img src="docs/images/windows-host/overview-dark.png" alt="The VidVNC app's Overview page: sharing is on, with two displays and no connected devices">
 </p>
 
 Currently implemented: Windows 11 **25H2/build 26200 or newer**, x64, hardware
@@ -325,9 +325,9 @@ To build the packaged app, see [Mac packages](#mac-packages).
 `npm run screenshot:host` regenerates the app screenshots in
 [docs/images/windows-host](docs/images/README.md), including the one at the top of this
 README: it starts that Debug host, waits 8 seconds for it to finish starting, opens every
-page and Connect a device's QR code, saves the window for each and closes it. Close VidVNC
-and any CLI server first. The images show this PC's name, and their size follows the display
-scale. On a Mac, `apps/macos-host/docs-screenshots.sh` does the same from sample data; see
+page and Connect a device's QR code, saves the window for each in light and dark and closes
+it. Close VidVNC and any CLI server first. The images show this PC's name, and their size
+follows the display scale. On a Mac, `apps/macos-host/docs-screenshots.sh` does the same from sample data; see
 [Screenshots](docs/images/README.md).
 
 ### Windows packages

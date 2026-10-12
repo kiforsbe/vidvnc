@@ -1,15 +1,17 @@
 # Regenerates the screenshots of the Windows host in docs\images\windows-host: starts the
 # development build, waits for it to finish starting, then opens every page and Connect a
 # device's QR code through UI Automation and saves the whole window (without the invisible
-# resize border) as a PNG for each, then closes it.
+# resize border) as a PNG for each, once with Settings > Appearance on Light and once on Dark
+# (name-light.png, name-dark.png), then closes it. That Appearance choice isn't saved.
 #   npm run screenshot:host
-#   powershell -ExecutionPolicy Bypass -File tools\screenshot-host.ps1 [-Seconds 8] [-OutDir path]
+#   powershell -ExecutionPolicy Bypass -File tools\screenshot-host.ps1 [-Seconds 8] [-OutDir path] [-Themes Light,Dark]
 # Build the host first with npm run prepare:host. The images are in physical pixels, so their
-# size follows the display scale, and the theme is Windows' own. They show this PC's name and
-# addresses; the QR code holds a key that stops working when the host closes.
+# size follows the display scale. They show this PC's name and addresses; the QR code holds a
+# key that stops working when the host closes.
 param(
   [int]$Seconds = 8,
   [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot) 'docs\images\windows-host'),
+  [ValidateSet('Light', 'Dark')][string[]]$Themes = @('Light', 'Dark'),
   [string]$Executable = (Join-Path (Split-Path $PSScriptRoot) 'apps\windows-host\bin\Debug\net10.0-windows10.0.26100.0\win-x64\VidVnc.Host.exe')
 )
 $ErrorActionPreference = 'Stop'
@@ -113,7 +115,22 @@ function Invoke-Element($element) {
   }
 }
 
+# Picks Light or Dark in Settings > Appearance.
+function Set-Theme($root, [string]$theme) {
+  Invoke-Element (Find-Element $root $listItem 'Settings')
+  $combo = Find-Element $root ([System.Windows.Automation.ControlType]::ComboBox) 'Appearance'
+  $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+  Invoke-Element (Find-Element $combo $listItem $theme)
+  $pattern = $null
+  if ($combo.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern) -and
+      $pattern.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Collapsed) {
+    $pattern.Collapse()
+  }
+  Start-Sleep -Milliseconds 800
+}
+
 $button = [System.Windows.Automation.ControlType]::Button
+$listItem = [System.Windows.Automation.ControlType]::ListItem
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 # Closing the window would otherwise leave the host running in the notification area.
@@ -135,33 +152,37 @@ try {
   [void][VidVncScreenshot]::SetForegroundWindow($window)
   $root = [System.Windows.Automation.AutomationElement]::FromHandle($window)
 
-  foreach ($page in $pages.GetEnumerator()) {
-    Invoke-Element (Find-Element $root ([System.Windows.Automation.ControlType]::ListItem) $page.Key)
-    Start-Sleep -Milliseconds 1200
-    Save-Window $window (Join-Path $OutDir "$($page.Value).png")
-  }
+  foreach ($theme in $Themes) {
+    Set-Theme $root $theme
+    $suffix = $theme.ToLowerInvariant()
+    foreach ($page in $pages.GetEnumerator()) {
+      Invoke-Element (Find-Element $root $listItem $page.Key)
+      Start-Sleep -Milliseconds 1200
+      Save-Window $window (Join-Path $OutDir "$($page.Value)-$suffix.png")
+    }
 
-  # Connect a device from Overview: the session password's QR code when there is one,
-  # otherwise a new one-time or client-registration code, which goes straight to its QR code.
-  Invoke-Element (Find-Element $root ([System.Windows.Automation.ControlType]::ListItem) 'Overview')
-  Start-Sleep -Milliseconds 800
-  Invoke-Element (Find-Element $root $button 'Connect a device' -Enabled)
-  $showQr = Find-Element $root $button 'Show QR code'
-  if ($showQr.Current.IsEnabled) {
-    Invoke-Element $showQr
-  } else {
-    $generate = @('Generate one-time code', 'Generate client-registration code') |
-      ForEach-Object { try { Find-Element $root $button $_ -timeout 1 } catch { $null } } |
-      Where-Object { $_ } | Select-Object -First 1
-    if (-not $generate) { throw 'Connect a device offers no QR code and no code to generate.' }
-    Invoke-Element $generate
+    # Connect a device from Overview: the session password's QR code when there is one,
+    # otherwise a new one-time or client-registration code, which goes straight to its QR code.
+    Invoke-Element (Find-Element $root $listItem 'Overview')
+    Start-Sleep -Milliseconds 800
+    Invoke-Element (Find-Element $root $button 'Connect a device' -Enabled)
+    $showQr = Find-Element $root $button 'Show QR code'
+    if ($showQr.Current.IsEnabled) {
+      Invoke-Element $showQr
+    } else {
+      $generate = @('Generate one-time code', 'Generate client-registration code') |
+        ForEach-Object { try { Find-Element $root $button $_ -timeout 1 } catch { $null } } |
+        Where-Object { $_ } | Select-Object -First 1
+      if (-not $generate) { throw 'Connect a device offers no QR code and no code to generate.' }
+      Invoke-Element $generate
+    }
+    [void](Find-Element $root $button 'Back')
+    # The QR code image is drawn asynchronously.
+    Start-Sleep -Milliseconds 1500
+    Save-Window $window (Join-Path $OutDir "connect-device-qr-$suffix.png")
+    Invoke-Element (Find-Element $root $button 'Done')
+    Start-Sleep -Milliseconds 500
   }
-  [void](Find-Element $root $button 'Back')
-  # The QR code image is drawn asynchronously.
-  Start-Sleep -Milliseconds 1500
-  Save-Window $window (Join-Path $OutDir 'connect-device-qr.png')
-  Invoke-Element (Find-Element $root $button 'Done')
-  Start-Sleep -Milliseconds 500
 } finally {
   if (-not $process.HasExited) {
     [void]$process.CloseMainWindow()

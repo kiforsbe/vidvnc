@@ -6,7 +6,7 @@ import SwiftUI
 /// By default it saves light and dark images of every section, drawing the window into a
 /// bitmap itself, so it needs no Screen Recording permission (`screenshots.sh`). With
 /// `-snapshotStyle window` it instead saves the whole window as macOS shows it, sidebar and
-/// title bar included, for every section, Connect a Device's QR code and each Settings tab
+/// title bar included, light or dark (`-snapshotAppearance`), for every section, Connect a Device's QR code and each Settings tab
 /// (`docs-screenshots.sh`). macOS gives those pixels only to an app allowed to record the
 /// screen, so the script takes them: VidVNC writes a request line to standard output, and the
 /// script answers on standard input once `screencapture` has saved the window.
@@ -52,13 +52,14 @@ enum Snapshotter {
   ) async {
     let dark = UserDefaults.standard.string(forKey: "snapshotAppearance") == "dark"
     NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+    let suffix = dark ? "dark" : "light"
     // An app started from Terminal can't bring itself to the front, so the script opens it.
     _ = await ask("activate")
     try? await Task.sleep(for: .milliseconds(700))
     var failures: [String] = []
     func shoot(_ window: NSWindow, _ name: String) async {
       do {
-        try await capture(window, to: directory.appending(path: "\(name).png"))
+        try await capture(window, to: directory.appending(path: "\(name)-\(suffix).png"))
       } catch {
         failures.append("\(name): \(error.localizedDescription)")
       }
