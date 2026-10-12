@@ -21,17 +21,17 @@ From the repository root:
 
 ```sh
 node tools/promo-video/promo.mjs setup    # once: playwright-core, ffmpeg-static, three, Kokoro and its model
-node tools/promo-video/promo.mjs voices   # draft 1: out/promo-video/drafts/01-voice-samples/
-node tools/promo-video/promo.mjs frames   # draft 2: out/promo-video/drafts/02-style-frames/
-node tools/promo-video/promo.mjs rough    # draft 3: out/promo-video/drafts/03-rough-cut/ (30 fps)
-node tools/promo-video/promo.mjs final    # out/promo-video/final/ (60 fps)
+node tools/promo-video/promo.mjs voices   # out/promo-video/drafts/NN-voice-samples/
+node tools/promo-video/promo.mjs frames   # out/promo-video/drafts/NN-style-frames/
+node tools/promo-video/promo.mjs rough    # out/promo-video/drafts/NN-rough-cut/ (30 fps)
+node tools/promo-video/promo.mjs final    # out/promo-video/final/NN-final-cut/ (60 fps)
 ```
 
-Each run writes to a folder named after the commit it was built from, such as
-`drafts/03-rough-cut/f906111/`, with a `build-info.txt` naming the full commit. Earlier
-revisions are kept, and any of them can be rebuilt by checking out its commit. Commit script
-changes before rendering a draft for review: uncommitted changes give a `-dirty` folder and a
-warning. Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
+Each run writes to the next numbered folder, such as `drafts/05-rough-cut/` or
+`final/01-final-cut/`, and never overwrites an earlier one. In it, `commit.url` opens the commit
+that built it on GitHub and `build-info.txt` names it, so any revision can be rebuilt by
+checking out that commit. Commit and push script changes before rendering a draft for review:
+uncommitted changes are noted in `build-info.txt` with a warning. Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
 (`PROMO_CACHE` moves it); `PROMO_OUT` moves the output. `CHROMIUM=/path/to/chrome` picks a
 browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's. Render on
 a machine with a real GPU: under software rendering (a cloud machine, for example) the WebGL

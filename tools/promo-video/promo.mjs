@@ -2,12 +2,12 @@
 // Builds the VidVNC promo video from code: voiceover, music, picture, mix and captions.
 //
 //   node tools/promo-video/promo.mjs setup     install the tools into .deps/promo-video
-//   node tools/promo-video/promo.mjs voices    draft 1: female voice samples
-//   node tools/promo-video/promo.mjs frames    draft 2: one still per shot and a contact sheet
-//   node tools/promo-video/promo.mjs rough     draft 3: the whole film at 30 fps
+//   node tools/promo-video/promo.mjs voices    female voice samples
+//   node tools/promo-video/promo.mjs frames    one still per shot and a contact sheet
+//   node tools/promo-video/promo.mjs rough     the whole film at 30 fps
 //   node tools/promo-video/promo.mjs final     the finished film at 60 fps
 //
-// Outputs go to out/promo-video/ (ignored by git), one folder per commit. Runs on Windows, macOS and Linux with
+// Outputs go to out/promo-video/ (ignored by git), one numbered folder per run. Runs on Windows, macOS and Linux with
 // Node 20+, Python 3.10+ and Chrome or Edge (or CHROMIUM=/path/to/chrome); ffmpeg comes
 // from ffmpeg-static unless FFMPEG names one. See README.md.
 import { spawn, spawnSync } from 'node:child_process';
@@ -33,27 +33,32 @@ const cache = process.env.PROMO_CACHE || path.join(repo, '.deps', 'promo-video')
 const outRoot = process.env.PROMO_OUT || path.join(repo, 'out', 'promo-video');
 const win = process.platform === 'win32';
 
-// Every draft and cut goes in a folder named after the commit it was built from, so each
-// revision is kept and can be rebuilt exactly. Uncommitted script changes add "-dirty".
-function revision() {
-  const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
-  const head = git('rev-parse', '--short=7', 'HEAD').stdout?.trim();
-  if (!head) return 'no-git';
-  const dirty = git('status', '--porcelain', '--', 'tools/promo-video').stdout?.trim();
+// Every draft and cut gets the next numbered folder (drafts/05-rough-cut, final/01-final-cut)
+// and is never overwritten. In it, build-info.txt and commit.url link back to the commit that
+// built it, so any revision can be rebuilt exactly.
+const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).stdout?.trim();
+function outDir(group, name) {
+  const parent = path.join(outRoot, group);
+  mkdirSync(parent, { recursive: true });
+  const last = Math.max(0, ...readdirSync(parent).map((f) => parseInt(f, 10) || 0));
+  const d = path.join(parent, `${String(last + 1).padStart(2, '0')}-${name}`);
+  mkdirSync(d);
+  const commit = git('rev-parse', 'HEAD') || 'unknown';
+  const remote = (git('remote', 'get-url', 'origin') || 'https://github.com/kiforsbe/vidvnc')
+    .replace(/^git@github\.com:/, 'https://github.com/')
+    .replace(/\.git$/, '');
+  const url = `${remote}/commit/${commit}`;
+  const dirty = git('status', '--porcelain', '--', 'tools/promo-video');
   if (dirty) console.warn('warning: tools/promo-video has uncommitted changes; commit them first');
-  return dirty ? `${head}-dirty` : head;
-}
-function outDir(...parts) {
-  const d = path.join(outRoot, ...parts, revision());
-  rmSync(d, { recursive: true, force: true });
-  mkdirSync(d, { recursive: true });
-  const commit = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
   writeFileSync(
     path.join(d, 'build-info.txt'),
-    `commit: ${commit.stdout?.trim() || 'unknown'}\n` +
+    `commit: ${commit}${dirty ? ' (plus uncommitted changes)' : ''}\n` +
+      `link: ${url}\n` +
       `command: promo.mjs ${process.argv.slice(2).join(' ')}\n` +
       `built: ${new Date().toISOString()}\n`,
   );
+  writeFileSync(path.join(d, 'commit.url'), `[InternetShortcut]\r\nURL=${url}\r\n`);
+  console.log(`Output: ${d}`);
   return d;
 }
 const venvPython = path.join(cache, 'venv', win ? 'Scripts/python.exe' : 'bin/python');
@@ -320,7 +325,7 @@ function sound(work) {
 
 async function film(kind) {
   const fps = kind === 'final' ? 60 : 30;
-  const out = kind === 'final' ? outDir('final') : outDir('drafts', '03-rough-cut');
+  const out = kind === 'final' ? outDir('final', 'final-cut') : outDir('drafts', 'rough-cut');
   const work = path.join(cache, `work-${kind}`);
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
@@ -353,7 +358,7 @@ async function film(kind) {
 }
 
 async function voices() {
-  const out = outDir('drafts', '01-voice-samples');
+  const out = outDir('drafts', 'voice-samples');
   const work = path.join(cache, 'work-voices');
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
@@ -383,7 +388,7 @@ const steps = {
   setup,
   voices,
   frames: async () => {
-    const d = outDir('drafts', '02-style-frames');
+    const d = outDir('drafts', 'style-frames');
     await stills(d, FRAME_TIMES);
     await contactSheet(d);
     console.log(`Wrote ${d}`);
