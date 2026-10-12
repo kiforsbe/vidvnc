@@ -43,7 +43,7 @@
         position: absolute;
         inset: 0;
         overflow: hidden;
-        background: radial-gradient(ellipse 70% 60% at 50% 45%, #13203d 0%, var(--bg) 70%);
+        /* the WebGL backdrop (backdrop.mjs) shows through */
       }
       .abs {
         position: absolute;
@@ -270,6 +270,9 @@
         filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
       }
     </style>
+    <script type="importmap">
+      { "imports": { "three": "/vendor/three/build/three.module.js" } }
+    </script>
   </head>
   <body>
     <div id="stage"></div>
@@ -1181,14 +1184,18 @@
         s.st = s.build(s.root);
       }
       window.DURATION = 95.5;
+      // The WebGL backdrop only adds depth and glow behind the 2D shots.
+      let backdrop = null;
+      const backdropLoaded = import('./backdrop.mjs').then((m) => (backdrop = m));
       window.render = function (t) {
+        backdrop?.render(t);
         for (const s of scenes) {
           const on = t >= s.start && t < s.end;
           s.root.style.display = on ? 'block' : 'none';
           if (on) s.update(s.st, t - s.start, s.end - s.start, s.root);
         }
       };
-      window.ready = document.fonts.ready.then(() =>
+      window.ready = Promise.all([backdropLoaded, document.fonts.ready]).then(() =>
         Promise.all(
           [
             ...new Set(

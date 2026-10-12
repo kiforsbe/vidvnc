@@ -36,7 +36,7 @@ const venvPython = path.join(cache, 'venv', win ? 'Scripts/python.exe' : 'bin/py
 const DURATION = 95.5;
 
 const PINS = {
-  npm: ['playwright-core@1.56.1', 'ffmpeg-static@5.2.0'],
+  npm: ['playwright-core@1.56.1', 'ffmpeg-static@5.2.0', 'three@0.180.0'],
   pip: ['kokoro-onnx==0.6.1', 'soundfile==0.13.1', 'numpy>=2,<3'],
   models: 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/',
   modelFiles: ['kokoro-v1.0.onnx', 'voices-v1.0.bin'],
@@ -107,6 +107,7 @@ const ASSETS = {
 const TYPES = {
   '.html': 'text/html',
   '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
   '.png': 'image/png',
   '.woff2': 'font/woff2',
 };
@@ -115,7 +116,8 @@ function serve() {
     .createServer((req, res) => {
       const u = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
       let file = null;
-      if (u === 'scenes.html') file = path.join(here, u);
+      if (u === 'scenes.html' || u === 'backdrop.mjs') file = path.join(here, u);
+      else if (u.startsWith('vendor/')) file = path.join(cache, 'node', 'node_modules', u.slice(7));
       else if (u.startsWith('assets/')) {
         const rest = u.slice(7);
         for (const [prefix, target] of Object.entries(ASSETS)) {

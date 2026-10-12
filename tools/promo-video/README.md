@@ -8,6 +8,7 @@ kept in the repository; it all goes to `out/promo-video/` (ignored by git).
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | [promo.mjs](promo.mjs)               | The build: installs the tools, then renders the drafts or the final film                                |
 | [scenes.html](scenes.html)           | Every shot, drawn as a web page at any moment `t` (HTML, CSS and SVG); `promo.mjs` records it           |
+| [backdrop.mjs](backdrop.mjs)         | A WebGL (Three.js) light field behind the 2D shots that only adds depth and glow                        |
 | [voiceover.json](voiceover.json)     | The voiceover: each line, when it starts, and its caption if that differs                               |
 | [voiceover.py](voiceover.py)         | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions |
 | [music.py](music.py)                 | Synthesises the score and sound effects with numpy, so there is nothing to license                      |
@@ -19,7 +20,7 @@ Needs Node 20 or later, Python 3.10 or later and Chrome or Edge, on Windows, mac
 From the repository root:
 
 ```sh
-node tools/promo-video/promo.mjs setup    # once: playwright-core, ffmpeg-static, Kokoro and its model
+node tools/promo-video/promo.mjs setup    # once: playwright-core, ffmpeg-static, three, Kokoro and its model
 node tools/promo-video/promo.mjs voices   # draft 1: out/promo-video/drafts/01-voice-samples/
 node tools/promo-video/promo.mjs frames   # draft 2: out/promo-video/drafts/02-style-frames/
 node tools/promo-video/promo.mjs rough    # draft 3: out/promo-video/drafts/03-rough-cut/ (30 fps)
@@ -28,7 +29,9 @@ node tools/promo-video/promo.mjs final    # out/promo-video/final/ (60 fps)
 
 Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
 (`PROMO_CACHE` moves it); `PROMO_OUT` moves the output. `CHROMIUM=/path/to/chrome` picks a
-browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's.
+browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's. Render on
+a machine with a real GPU: under software rendering (a cloud machine, for example) the WebGL
+backdrop's glow comes out wrong.
 
 ## Where the pictures and words come from
 
