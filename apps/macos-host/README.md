@@ -10,6 +10,172 @@ as the Windows host does. The design is
 [2026-10-11-macos-host-design.md](../../docs/superpowers/specs/2026-10-11-macos-host-design.md);
 the screens are in [docs/design/macos-host-previz/](../../docs/design/macos-host-previz/README.md).
 
+## Using the app
+
+Open **VidVNC** from Applications. The first time you turn sharing on, it explains the
+permissions macOS will ask for (see [Mac permissions](../../README.md#on-a-mac)). The sections
+are in the sidebar, and the bottom of the sidebar says whether sharing is on; ⌘1 to ⌘8 jump to
+them. Closing the window leaves VidVNC in the menu bar, whose menu can start or stop sharing,
+start with remote access, connect a device, open the window or quit. These screenshots come
+from the app's sample data ([docs-screenshots.sh](docs-screenshots.sh)) and follow your
+GitHub theme; all of them are in [docs/images](../../docs/images/README.md).
+
+### Overview
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/overview-dark.png">
+  <img src="../../docs/images/macos-host/overview-light.png" width="720" alt="Overview: sharing on the local network, two displays, connection details and access">
+</picture></p>
+
+- The **VidVNC** switch next to **Screen Sharing** turns sharing on and off; the line below
+  it says whether it is running and where.
+- **Connect a Device…** shows the address and a key or QR code for another device (below).
+- **Displays**, **Connection Details** (the computer name, viewer address and local hostname,
+  with a copy button) and **Access** summarise the other sections; select a row to go there.
+- **Connected Clients** lists who is connected; **View All** opens Activity.
+
+### Connect a Device
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/connect-device-qr-dark.png">
+  <img src="../../docs/images/macos-host/connect-device-qr-light.png" width="720" alt="Connect a Device: a QR code with its key and the viewer address">
+</picture></p>
+
+1. Choose **Connect a Device…** on Overview, on Connections or in the menu bar.
+2. Pick how the device connects: **Use the session key**, **Create a one-time key** (works
+   once, for a few minutes) or **Approve this client** (the device becomes an approved
+   client after one sign-in). Which ones are offered depends on the connection method in
+   Access. Choose **Continue**.
+3. On the other device, scan the QR code with the camera, or open the address and enter the
+   code. On an iPhone or iPad, use Safari.
+
+**New Key** replaces the session key, so devices using the old one can't sign in with it
+again. **Back** returns to the choices; **Done** closes the sheet.
+
+### Displays
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/displays-dark.png">
+  <img src="../../docs/images/macos-host/displays-light.png" width="720" alt="Displays: two displays side by side, the built-in display selected">
+</picture></p>
+
+Your displays as they are arranged. Select one to change how it is shared.
+
+- **Share this display** chooses whether viewers can see it, and **Default profile** which
+  streaming profile they start with on it.
+- **Host Defaults** sets the default profile for every display and **Share desktop audio**.
+- **Identify** in the toolbar shows each display's number on its screen; the numbers match
+  the viewer's display list.
+
+Choose **Apply** to save the changes, or **Cancel**.
+
+### Streaming
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/streaming-dark.png">
+  <img src="../../docs/images/macos-host/streaming-light.png" width="720" alt="Streaming: three profiles, client customization and encoding">
+</picture></p>
+
+- **Profiles** are what viewers pick from, in this order: drag to reorder, **+** and **−** to
+  add or remove, **Edit…** to change one, **Restore Defaults** for the built-in set.
+- **Client Customization**: **Approved profiles only**, or **Approved options**, where
+  viewers combine any allowed output size, frame rate and bitrate.
+- **Encoding**: the encoder and which codecs are offered. H.264 always stays on, so every
+  browser can play the stream.
+
+Devices whose streams change reconnect to them.
+
+### Connections
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/connections-dark.png">
+  <img src="../../docs/images/macos-host/connections-light.png" width="720" alt="Connections: approved clients and the viewer address">
+</picture></p>
+
+- **Needs Your Approval**: devices that signed in with a setup code wait here; choose
+  **Approve** or **Reject**.
+- **Approved Clients** connect again without a key, from the internet too when remote access
+  is on. The menu next to each sets what it may do with the keyboard and mouse (**Follow Access
+  setting**, **Require host approval**, **Allow when available** or **View only**); **⊖**
+  removes it.
+- **Connect a Browser** shows the viewer address and **Connect a Device…**.
+- **Disconnect Ordinary Sessions** ends every session that isn't an approved client.
+
+### Access
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/access-dark.png">
+  <img src="../../docs/images/macos-host/access-light.png" width="720" alt="Access: reusable session key, host approval for control, up to 4 devices">
+</picture></p>
+
+- **Connection method**: **Reusable session key**, **One-time connection keys** or
+  **Approved clients only**. With remote access on, only approved clients can sign in.
+- **Keyboard and mouse**: **Require host approval** (you grant control in Activity) or
+  **Allow when available** (a viewer takes control when nobody else has it).
+- **Maximum connected devices**, and the **Public login name** shown on the viewer's
+  sign-in page (press Return to save it; it is not a password).
+
+### Network
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/network-dark.png">
+  <img src="../../docs/images/macos-host/network-light.png" width="720" alt="Network: Wi-Fi and Ethernet offered, remote access settings and HTTPS">
+</picture></p>
+
+- **Local Network** lists the Mac's networks and whether VidVNC offers itself on each. It
+  listens on Wi-Fi and Ethernet ports with a private address once you have allowed each
+  network; VPNs, bridges and link-local addresses aren't offered.
+- **Remote Access** turns on access from the internet (approved clients only) and holds the
+  public names, the public HTTPS port and the media port to forward on your router. Choose
+  **Save** after changing them.
+- **HTTPS** shows the certificate, where it comes from and its fingerprint, with
+  **Regenerate…** and **Show Enrolment QR Code…** for installing it on another device.
+
+### Activity
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/activity-dark.png">
+  <img src="../../docs/images/macos-host/activity-light.png" width="720" alt="Activity: two connected devices, one expanded with its capture, encode and decode graph">
+</picture></p>
+
+Who is connected and how their streams are doing. Expand a device to see each stream's size,
+codec, frame rate and a graph of the last 60 seconds.
+
+- **Grant Control** lets that device use the keyboard and mouse; **Take Back Control** ends
+  it. One device can control at a time.
+- **Disconnect** ends that device's session.
+- **Diagnostics** in the toolbar opens live diagnostics in your browser.
+
+### Permissions
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/permissions-dark.png">
+  <img src="../../docs/images/macos-host/permissions-light.png" width="720" alt="Permissions: every permission allowed">
+</picture></p>
+
+Each macOS permission VidVNC uses and whether it is allowed. **Open System Settings** opens
+the right pane; changes show here within a few seconds.
+
+- **Screen & System Audio Recording**: viewers see the screen and hear desktop audio.
+- **Device Control & Data Access**: viewers use the keyboard and mouse when you allow it.
+- **Local Network**: devices on your network can reach the Mac.
+- **New network confirmation**: VidVNC asks before sharing on a network you haven't used it
+  on; **Review…** answers a waiting one.
+
+**Show Permissions Introduction…** shows the explanation from the first start again.
+
+### Settings
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/settings-general-dark.png">
+  <img src="../../docs/images/macos-host/settings-general-light.png" width="720" alt="Settings, General: open at login, keep sharing when the window closes, command-line tool and logs">
+</picture></p>
+
+**VidVNC > Settings…** (⌘,): **Open at login**, **Keep sharing when the window closes**
+(turn it off to stop sharing when you close the window), the command-line tool, and **Show
+in Finder** for the logs. **About** lists the versions of VidVNC, the server, Node.js,
+GStreamer and macOS, with **Copy Versions**.
+
 ## Layout
 
 | Path                                                | What it holds                                                                                                                                                                       |
@@ -25,33 +191,6 @@ the screens are in [docs/design/macos-host-previz/](../../docs/design/macos-host
 | `Config/`                                           | `Info.plist` additions and the signing settings                                                                                                                                     |
 | `screenshots.sh`                                    | Saves light and dark images of each section to `docs/design/macos-host-previz/`                                                                                                     |
 | `docs-screenshots.sh`                               | Saves the whole window of each section, Connect a Device's QR code and each Settings tab, light and dark, to `docs/images/macos-host/` ([Screenshots](../../docs/images/README.md)) |
-
-## Screenshots
-
-Every section, light or dark to match your GitHub theme, taken from the Debug app's sample data by [docs-screenshots.sh](docs-screenshots.sh) ([all images](../../docs/images/README.md), including Settings: About).
-
-<table>
-  <tr>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/overview-dark.png"><img src="../../docs/images/macos-host/overview-light.png" width="420" alt="Overview"></picture><br>Overview</td>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/displays-dark.png"><img src="../../docs/images/macos-host/displays-light.png" width="420" alt="Displays"></picture><br>Displays</td>
-  </tr>
-  <tr>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/streaming-dark.png"><img src="../../docs/images/macos-host/streaming-light.png" width="420" alt="Streaming"></picture><br>Streaming</td>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/connections-dark.png"><img src="../../docs/images/macos-host/connections-light.png" width="420" alt="Connections"></picture><br>Connections</td>
-  </tr>
-  <tr>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/access-dark.png"><img src="../../docs/images/macos-host/access-light.png" width="420" alt="Access"></picture><br>Access</td>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/network-dark.png"><img src="../../docs/images/macos-host/network-light.png" width="420" alt="Network"></picture><br>Network</td>
-  </tr>
-  <tr>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/activity-dark.png"><img src="../../docs/images/macos-host/activity-light.png" width="420" alt="Activity"></picture><br>Activity</td>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/permissions-dark.png"><img src="../../docs/images/macos-host/permissions-light.png" width="420" alt="Permissions"></picture><br>Permissions</td>
-  </tr>
-  <tr>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/connect-device-qr-dark.png"><img src="../../docs/images/macos-host/connect-device-qr-light.png" width="420" alt="Connect a Device: QR code"></picture><br>Connect a Device: QR code</td>
-    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/settings-general-dark.png"><img src="../../docs/images/macos-host/settings-general-light.png" width="420" alt="Settings: General"></picture><br>Settings: General</td>
-  </tr>
-</table>
 
 ## Run it
 
