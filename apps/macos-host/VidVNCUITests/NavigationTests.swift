@@ -38,7 +38,9 @@ final class NavigationTests: XCTestCase {
     if networks { app.launchEnvironment["VIDVNC_STAND_IN_NETWORKS"] = "1" }
     app.launchEnvironment["VIDVNC_RUNTIME_MANIFEST"] = try manifest()
     app.launchEnvironment["VIDVNC_TEST_ASSUME_SCREEN_RECORDING"] = "1"
-    app.launchArguments += ["-hasSeenPermissionsIntro", "YES", "-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += [
+      "-hasSeenPermissionsIntro", "YES", "-startSharing", "NO", "-ApplePersistenceIgnoreState", "YES",
+    ]
     app.launch()
     return app
   }

@@ -71,6 +71,12 @@ its user defaults.
   Data Access is explained the first time the owner gives a viewer control or picks
   **Allow when available**. The Permissions section reads each setting every two seconds.
   Local Network has no API; it is inferred by browsing for `_vidvnc._tcp`.
+- Once the introduction has been shown, sharing starts when the app opens, as on Windows,
+  if Screen Recording is already allowed; otherwise the app opens with sharing off and asks
+  nothing. `-startSharing NO` turns that off (the UI tests pass it), and the unit tests'
+  host app never shares.
+- The app icon is the Windows host's monitor glyph on a macOS tile, drawn by
+  `Icon/draw-app-icon.swift` into `VidVNC/Assets.xcassets`.
 - A network the server has not been allowed on shows a sheet, **Share on This Network?**,
   and the server listens there only after **Allow** (`network-confirm`, Q2).
 - **Open at login** in Settings, General registers the app as a login item with

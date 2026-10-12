@@ -65,7 +65,7 @@ final class ServerHostModel: HostModel {
   }
 
   init() {
-    defaults.register(defaults: ["keepSharingWhenWindowCloses": true])
+    defaults.register(defaults: ["keepSharingWhenWindowCloses": true, "startSharing": true])
     hasSeenPermissionsIntro = defaults.bool(forKey: "hasSeenPermissionsIntro")
     keepSharingWhenWindowCloses = defaults.bool(forKey: "keepSharingWhenWindowCloses")
     if defaults.bool(forKey: "askedLocalNetwork") { localNetworkState = .needsAttention }
@@ -80,10 +80,19 @@ final class ServerHostModel: HostModel {
       }
     }
     Task { await loadOfflineSettings() }
+    // Sharing starts with the app, as on Windows, once the owner has been through the
+    // permissions introduction; startSharing then goes ahead only if Screen Recording is
+    // already allowed, so nothing is asked at launch (spec D5). `-startSharing NO` turns it
+    // off (the UI tests).
+    // Not as the unit tests' host app, which must never share this Mac.
+    let testHost = ProcessInfo.processInfo.environment.keys.contains { $0.hasPrefix("XCTest") }
+    var atLaunch = defaults.bool(forKey: "startSharing") && hasSeenPermissionsIntro && !testHost
     #if DEBUG
-      // `-startSharing YES`: the process-tree test starts sharing without clicking.
-      if defaults.bool(forKey: "startSharing") { startSharing(remoteAccess: false) }
+      // `-startSharing YES`: the process-tree test starts sharing without the introduction.
+      let argument = defaults.volatileDomain(forName: UserDefaults.argumentDomain)["startSharing"]
+      if let argument = argument as? String, ["YES", "1", "true"].contains(argument) { atLaunch = true }
     #endif
+    if atLaunch { startSharing(remoteAccess: false) }
   }
 
   // MARK: Identity and addresses

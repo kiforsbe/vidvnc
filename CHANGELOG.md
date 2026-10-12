@@ -23,7 +23,8 @@ may include breaking changes.
   closed (unless **Keep sharing when the window closes** is off). It asks for nothing at
   launch: the first time you turn sharing on it explains, then macOS asks for Screen & System
   Audio Recording and Local Network; Device Control & Data Access is explained the first time
-  you give a viewer control. It asks before sharing on a network it hasn't used. It can be
+  you give a viewer control. After that first time, sharing starts when the app opens, as
+  on Windows. It asks before sharing on a network it hasn't used. It can be
   built as a DMG, signed with a Developer ID and notarized, and runs from source with
   `npm run start:host` on a Mac.
 - The coming macOS version has its packages: the VidVNC app in a notarized DMG, and the
