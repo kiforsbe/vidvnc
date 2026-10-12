@@ -4,15 +4,15 @@ Scripts that generate the VidVNC promo film from code: the voiceover, the music,
 shot, the mix and the captions. Nothing is filmed or edited by hand, and no generated media is
 kept in the repository; it all goes to `out/promo-video/` (ignored by git).
 
-| File                                 | What it does                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| [promo.mjs](promo.mjs)               | The build: installs the tools, then renders the drafts or the final film                                |
-| [scenes.html](scenes.html)           | Every shot, drawn as a web page at any moment `t` (HTML, CSS and SVG); `promo.mjs` records it           |
-| [backdrop.mjs](backdrop.mjs)         | A WebGL (Three.js) light field behind the 2D shots that only adds depth and glow                        |
-| [voiceover.json](voiceover.json)     | The voiceover: each line, when it starts, and its caption if that differs                               |
-| [voiceover.py](voiceover.py)         | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions |
-| [music.py](music.py)                 | Synthesises the score and sound effects with numpy, so there is nothing to license                      |
-| [voice-samples.py](voice-samples.py) | Reads four sample lines in six candidate voices                                                         |
+| File                                 | What it does                                                                                                                                                                  |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [promo.mjs](promo.mjs)               | The build: installs the tools, then renders the drafts or the final film                                                                                                      |
+| [scenes.html](scenes.html)           | Every shot, drawn as a web page at any moment `t` (HTML, CSS, SVG and canvas); `promo.mjs` records it                                                                         |
+| [backdrop.mjs](backdrop.mjs)         | A WebGL (Three.js) light field behind the 2D shots that only adds depth and glow                                                                                              |
+| [voiceover.json](voiceover.json)     | The voiceover: each line, when it starts, and its caption if that differs                                                                                                     |
+| [voiceover.py](voiceover.py)         | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions                                                                       |
+| [music.py](music.py)                 | Synthesises the score, the song playing on the shared desktop and its spectrum (`eq.json`, which drives the desktop's visualiser), with numpy, so there is nothing to license |
+| [voice-samples.py](voice-samples.py) | Reads four sample lines in six candidate voices                                                                                                                               |
 
 ## Build it
 

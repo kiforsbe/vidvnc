@@ -39,7 +39,7 @@ const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' })
 function outDir(group) {
   const parent = path.join(outRoot, group);
   mkdirSync(parent, { recursive: true });
-  const last = Math.max(0, ...readdirSync(parent).map((f) => parseInt(f, 10) || 0));
+  const last = Math.max(0, ...readdirSync(parent).map((f) => (/^\d+$/.test(f) ? Number(f) : 0)));
   const d = path.join(parent, String(last + 1).padStart(2, '0'));
   mkdirSync(d);
   const commit = git('rev-parse', 'HEAD') || 'unknown';
@@ -135,16 +135,19 @@ const ASSETS = {
 const TYPES = {
   '.html': 'text/html',
   '.js': 'text/javascript',
+  '.json': 'application/json',
   '.mjs': 'text/javascript',
   '.png': 'image/png',
   '.woff2': 'font/woff2',
 };
+let eqFile = null; // the desktop track's spectrum, written by music.py for the visualiser
 function serve() {
   const server = http
     .createServer((req, res) => {
       const u = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
       let file = null;
       if (u === 'scenes.html' || u === 'backdrop.mjs') file = path.join(here, u);
+      else if (u === 'eq.json') file = eqFile;
       else if (u.startsWith('vendor/')) file = path.join(cache, 'node', 'node_modules', u.slice(7));
       else if (u.startsWith('assets/')) {
         const rest = u.slice(7);
@@ -300,7 +303,8 @@ function sound(work) {
     String(DURATION),
   );
   console.log('== music');
-  py('music.py', path.join(work, 'music.wav'), String(DURATION));
+  eqFile = path.join(work, 'eq.json');
+  py('music.py', path.join(work, 'music.wav'), String(DURATION), eqFile);
   console.log('== mix'); // the music ducks under the voice, then the mix is levelled for the web (-14 LUFS)
   run(ffmpeg(), [
     '-loglevel',
@@ -329,13 +333,13 @@ async function film(kind) {
   const out = outDir(kind === 'final' ? 'final' : 'drafts');
   const work = path.join(cache, `work-${kind}`);
   mkdirSync(work, { recursive: true });
+  sound(work); // first: the storyboard and picture read the music's spectrum
   if (kind === 'draft') {
     console.log('== storyboard');
     const board = path.join(out, 'storyboard');
     await stills(board, FRAME_TIMES);
     await contactSheet(board);
   }
-  sound(work);
   console.log(`== picture (${fps} fps)`);
   await video(path.join(work, 'picture.mp4'), fps);
   console.log('== mux');

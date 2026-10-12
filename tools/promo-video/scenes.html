@@ -102,81 +102,16 @@
         height: 1000px;
         overflow: hidden;
         transform-origin: 0 0;
-        background:
-          radial-gradient(circle at 25% 30%, #3b5bdb 0%, transparent 45%),
-          radial-gradient(circle at 80% 75%, #7048e8 0%, transparent 50%),
-          linear-gradient(135deg, #1b2a52, #0f1730);
-      }
-      .desk .bar {
-        position: absolute;
-        left: 0;
-        right: 0;
-        top: 0;
-        height: 30px;
-        background: rgba(10, 15, 28, 0.55);
+        background: #0a1026;
       }
       .desk .win {
         position: absolute;
-        width: 700px;
-        height: 591px;
+        width: 560px;
+        height: 473px;
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
         background-size: cover;
-      }
-      .desk .player {
-        position: absolute;
-        left: 880px;
-        top: 470px;
-        width: 620px;
-        height: 420px;
-        border-radius: 14px;
-        overflow: hidden;
-        background: #000;
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-      }
-      .desk .player .scr {
-        position: absolute;
-        inset: 0 0 44px 0;
-        overflow: hidden;
-      }
-      .desk .player .ctl {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 44px;
-        background: #11151f;
-      }
-      .desk .player .prog {
-        position: absolute;
-        left: 20px;
-        right: 20px;
-        top: 20px;
-        height: 4px;
-        background: #333;
-        border-radius: 2px;
-      }
-      .desk .player .prog i {
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        background: #fff;
-        border-radius: 2px;
-      }
-      .orb {
-        position: absolute;
-        border-radius: 50%;
-        mix-blend-mode: screen;
-        filter: blur(6px);
-      }
-      .eq {
-        position: absolute;
-        bottom: 26px;
-        width: 26px;
-        border-radius: 6px 6px 0 0;
-        background: rgba(255, 255, 255, 0.85);
       }
       /* Devices */
       .phone {
@@ -298,39 +233,246 @@
       const A = 'assets/';
 
       /* ---------- the shared desktop, drawn at any moment ---------- */
+      // The desktop is a canvas: a wallpaper, a menu bar with a clock, and a music player
+      // whose visualiser plays eq.json, the spectrum of the track heard in the film (music.py).
+      // Each desk draws at its own clock, so a late desk shows late pictures.
+      let EQ = null; // { fps, bands, data: Uint8Array of frames x (bands + 1) }
+      const eqReady = fetch('eq.json')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j) EQ = { ...j, data: Uint8Array.from(atob(j.data), (c) => c.charCodeAt(0)) };
+        })
+        .catch(() => {});
+      function eqAt(time) {
+        const n = 49;
+        const out = new Float32Array(n);
+        if (!EQ) return out;
+        const frames = EQ.data.length / n;
+        const x = clamp(time * EQ.fps, 0, frames - 1.001);
+        const i = Math.floor(x),
+          k = x - i;
+        for (let b = 0; b < n; b++)
+          out[b] = (EQ.data[i * n + b] * (1 - k) + EQ.data[(i + 1) * n + b] * k) / 255;
+        return out;
+      }
+      // The wallpaper is drawn once: deep blue with soft light and silk-like ribbons.
+      const WALL = (() => {
+        const c = document.createElement('canvas');
+        c.width = 1600;
+        c.height = 1000;
+        const g = c.getContext('2d');
+        const bg = g.createLinearGradient(0, 0, 1600, 1000);
+        bg.addColorStop(0, '#121a3d');
+        bg.addColorStop(0.55, '#1a1446');
+        bg.addColorStop(1, '#0a1026');
+        g.fillStyle = bg;
+        g.fillRect(0, 0, 1600, 1000);
+        for (const [x, y, r, col] of [
+          [380, 260, 620, '59,91,219'],
+          [1250, 780, 680, '112,72,232'],
+          [1100, 160, 420, '21,170,191'],
+        ]) {
+          const rg = g.createRadialGradient(x, y, 0, x, y, r);
+          rg.addColorStop(0, `rgba(${col},0.55)`);
+          rg.addColorStop(1, `rgba(${col},0)`);
+          g.fillStyle = rg;
+          g.fillRect(0, 0, 1600, 1000);
+        }
+        g.globalCompositeOperation = 'screen';
+        for (let i = 0; i < 46; i++) {
+          const k = i / 45;
+          const lg = g.createLinearGradient(0, 0, 1600, 0);
+          lg.addColorStop(0, `rgba(77,171,247,0)`);
+          lg.addColorStop(0.35, `rgba(77,171,247,${0.05 + 0.1 * Math.sin(k * Math.PI)})`);
+          lg.addColorStop(0.7, `rgba(151,117,250,${0.05 + 0.12 * Math.sin(k * Math.PI)})`);
+          lg.addColorStop(1, `rgba(151,117,250,0)`);
+          g.strokeStyle = lg;
+          g.lineWidth = 1.5 + 2.5 * Math.sin(k * Math.PI);
+          g.beginPath();
+          for (let x = -20; x <= 1620; x += 20) {
+            const y =
+              560 +
+              (k - 0.5) * 260 +
+              Math.sin(x / 260 + k * 2.2) * (90 + 60 * k) +
+              Math.sin(x / 120 + k * 5) * 18;
+            x < 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+          }
+          g.stroke();
+        }
+        return c;
+      })();
+      const rrect = (g, x, y, w, h, r) => {
+        g.beginPath();
+        g.roundRect(x, y, w, h, r);
+      };
+      const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+      // The player window, in desk pixels.
+      const PL = { x: 860, y: 230, w: 680, h: 640 };
+      function drawDesk(g, time) {
+        const eq = eqAt(time);
+        const level = eq[48];
+        g.drawImage(WALL, 0, 0);
+        // menu bar and clock
+        g.fillStyle = 'rgba(8,12,26,0.6)';
+        g.fillRect(0, 0, 1600, 36);
+        g.fillStyle = '#e6ebf5';
+        g.font = '600 20px "Instrument Sans"';
+        g.textBaseline = 'middle';
+        g.fillText('Music', 22, 18);
+        g.font = '20px "Instrument Sans"';
+        ['File', 'Edit', 'View', 'Window'].forEach((m, i) => g.fillText(m, 100 + i * 70, 18));
+        const clock = 21 * 3600 + 41 * 60 + 12 + time;
+        g.textAlign = 'right';
+        g.font = '20px "JetBrains Mono"';
+        g.fillText(
+          `${Math.floor(clock / 3600) % 24}:${String(Math.floor(clock / 60) % 60).padStart(2, '0')}:${String(Math.floor(clock) % 60).padStart(2, '0')}`,
+          1578,
+          18,
+        );
+        g.textAlign = 'left';
+        // player window
+        const { x, y, w, h } = PL;
+        g.save();
+        g.shadowColor = 'rgba(0,0,0,0.55)';
+        g.shadowBlur = 60;
+        g.shadowOffsetY = 24;
+        rrect(g, x, y, w, h, 22);
+        g.fillStyle = 'rgba(16,20,34,0.92)';
+        g.fill();
+        g.restore();
+        g.save();
+        rrect(g, x, y, w, h, 22);
+        g.clip();
+        // title bar
+        g.fillStyle = 'rgba(255,255,255,0.04)';
+        g.fillRect(x, y, w, 52);
+        ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => {
+          g.fillStyle = c;
+          g.beginPath();
+          g.arc(x + 30 + i * 26, y + 26, 8, 0, 7);
+          g.fill();
+        });
+        g.fillStyle = '#a9b5ca';
+        g.font = '500 20px "Instrument Sans"';
+        g.textAlign = 'center';
+        g.fillText('Now Playing', x + w / 2, y + 27);
+        g.textAlign = 'left';
+        // cover art: glowing rings that breathe with the music
+        const ax = x + 36,
+          ay = y + 84,
+          as = 230;
+        const cg = g.createLinearGradient(ax, ay, ax + as, ay + as);
+        cg.addColorStop(0, '#3b5bdb');
+        cg.addColorStop(0.6, '#7048e8');
+        cg.addColorStop(1, '#e64980');
+        rrect(g, ax, ay, as, as, 16);
+        g.fillStyle = cg;
+        g.fill();
+        g.save();
+        rrect(g, ax, ay, as, as, 16);
+        g.clip();
+        g.globalCompositeOperation = 'screen';
+        for (let r = 0; r < 7; r++) {
+          g.strokeStyle = `rgba(255,255,255,${0.1 + 0.25 * level * (1 - r / 7)})`;
+          g.lineWidth = 3;
+          g.beginPath();
+          g.arc(ax + as * 0.5, ay + as * 0.62, 30 + r * 26 + level * 14, 0, 7);
+          g.stroke();
+        }
+        g.restore();
+        g.fillStyle = '#fff';
+        g.font = '700 30px "Instrument Sans"';
+        g.fillText('NIGHT', ax + 22, ay + 44);
+        g.fillText('DRIVE', ax + 22, ay + 78);
+        // track details
+        const tx = ax + as + 34;
+        g.fillStyle = '#fff';
+        g.font = '600 44px "Instrument Sans"';
+        g.fillText('Night Drive', tx, ay + 52);
+        g.fillStyle = '#a9b5ca';
+        g.font = '28px "Instrument Sans"';
+        g.fillText('Demo track', tx, ay + 98);
+        g.font = '22px "JetBrains Mono"';
+        g.fillStyle = '#8db8ff';
+        g.fillText('STEREO', tx, ay + 150);
+        // level meters (left and right)
+        for (let c = 0; c < 2; c++) {
+          const mw = 300 * clamp(level * (c ? 0.97 : 1));
+          rrect(g, tx, ay + 178 + c * 26, 300, 12, 6);
+          g.fillStyle = 'rgba(255,255,255,0.08)';
+          g.fill();
+          const mg = g.createLinearGradient(tx, 0, tx + 300, 0);
+          mg.addColorStop(0, '#15aabf');
+          mg.addColorStop(0.7, '#4dabf7');
+          mg.addColorStop(1, '#9775fa');
+          rrect(g, tx, ay + 178 + c * 26, Math.max(12, mw), 12, 6);
+          g.fillStyle = mg;
+          g.fill();
+        }
+        // spectrum: 48 bars with a soft reflection
+        const sx = x + 36,
+          sw = w - 72,
+          base = y + 500,
+          bw = sw / 48;
+        const sg = g.createLinearGradient(0, base - 140, 0, base);
+        sg.addColorStop(0, '#9775fa');
+        sg.addColorStop(0.5, '#4dabf7');
+        sg.addColorStop(1, '#15aabf');
+        g.save();
+        g.shadowColor = 'rgba(77,171,247,0.7)';
+        g.shadowBlur = 18;
+        g.fillStyle = sg;
+        for (let b = 0; b < 48; b++) {
+          const bh = 6 + 134 * eq[b];
+          rrect(g, sx + b * bw + 2, base - bh, bw - 4, bh, 3);
+          g.fill();
+        }
+        g.restore();
+        g.globalAlpha = 0.18;
+        g.fillStyle = sg;
+        for (let b = 0; b < 48; b++) {
+          const bh = (6 + 134 * eq[b]) * 0.35;
+          g.fillRect(sx + b * bw + 2, base + 4, bw - 4, bh);
+        }
+        g.globalAlpha = 1;
+        // transport
+        const el0 = 72 + time;
+        const total = 228;
+        const py = y + 570;
+        rrect(g, sx, py, sw, 8, 4);
+        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.fill();
+        rrect(g, sx, py, sw * ((el0 % total) / total), 8, 4);
+        g.fillStyle = '#e6ebf5';
+        g.fill();
+        g.font = '20px "JetBrains Mono"';
+        g.fillStyle = '#a9b5ca';
+        g.fillText(mmss(el0 % total), sx, py + 36);
+        g.textAlign = 'right';
+        g.fillText(mmss(total), sx + sw, py + 36);
+        g.textAlign = 'left';
+        // pause button
+        g.fillStyle = '#fff';
+        g.fillRect(x + w / 2 - 14, py + 20, 9, 30);
+        g.fillRect(x + w / 2 + 5, py + 20, 9, 30);
+        g.restore();
+      }
       function makeDesk(parent) {
         const root = el('desk', parent);
-        el('bar', root);
-        const player = el('player', root);
-        const scr = el('scr', player);
-        const orbs = [0, 1, 2, 3].map((i) =>
-          el('orb', scr, { width: 260 + i * 40 + 'px', height: 260 + i * 40 + 'px' }),
-        );
-        const eqs = [...Array(14)].map((_, i) => el('eq', scr, { left: 30 + i * 40 + 'px' }));
-        const ctl = el('ctl', player);
-        const prog = el('prog', ctl);
-        const progI = document.createElement('i');
-        prog.appendChild(progI);
+        const cv = document.createElement('canvas');
+        cv.width = 1600;
+        cv.height = 1000;
+        cv.style.position = 'absolute';
+        root.appendChild(cv);
         const win = el('win', root, { backgroundImage: `url(${A}mac/overview-dark.png)` });
-        return { root, scr, orbs, eqs, progI, win };
+        return { root, g: cv.getContext('2d'), win };
       }
       const winPos = (time) => ({
-        x: 120 + 380 * (0.5 - 0.5 * Math.cos(time * 1.15)),
-        y: 70 + 150 * (0.5 - 0.5 * Math.cos(time * 0.83)),
+        x: 60 + 200 * (0.5 - 0.5 * Math.cos(time * 1.15)),
+        y: 90 + 110 * (0.5 - 0.5 * Math.cos(time * 0.83)),
       });
       function setDesk(d, time) {
-        const hue = (time * 35) % 360;
-        d.scr.style.background = `linear-gradient(${time * 20}deg, hsl(${hue},70%,22%), hsl(${(hue + 80) % 360},70%,12%))`;
-        d.orbs.forEach((o, i) => {
-          const a = time * (1.6 + i * 0.45) + i * 1.7;
-          o.style.left = 310 - 150 + Math.cos(a) * (120 + i * 30) - i * 20 + 'px';
-          o.style.top = 188 - 150 + Math.sin(a * 1.3) * (80 + i * 10) + 'px';
-          o.style.background = `hsl(${(hue + i * 70) % 360},90%,60%)`;
-        });
-        d.eqs.forEach((e, i) => {
-          e.style.height = 30 + 110 * Math.abs(Math.sin(time * (3.1 + i * 0.37) + i)) + 'px';
-        });
-        d.progI.style.width = ((time * 1.5) % 100) + '%';
+        drawDesk(d.g, time);
         const p = winPos(time);
         d.win.style.left = p.x + 'px';
         d.win.style.top = p.y + 'px';
@@ -423,8 +565,8 @@
           setDesk(p.desk, vncTime(lt));
           p.desk.root.style.filter = 'blur(1.2px) saturate(0.85)';
           const w = winPos(lt);
-          finger.style.left = p.ox + (w.x + 350) * p.s + 'px';
-          finger.style.top = p.oy + (w.y + 24) * p.s + 'px';
+          finger.style.left = p.ox + (w.x + 280) * p.s + 'px';
+          finger.style.top = p.oy + (w.y + 19) * p.s + 'px';
           finger.style.opacity = lt > 3 ? 1 : 0;
           text.style.opacity = ease((lt - 8) / 0.6);
           p.ph.style.transform = `scale(${lerp(1, 0.96, ease((lt - 8) / 1))})`;
@@ -467,12 +609,13 @@
           setDesk(R.p.desk, vidTime(t));
           const w = winPos(t);
           for (const s of [L, R]) {
-            s.f.style.left = s.p.ox + (w.x + 350) * s.p.s + 'px';
-            s.f.style.top = s.p.oy + (w.y + 24) * s.p.s + 'px';
+            s.f.style.left = s.p.ox + (w.x + 280) * s.p.s + 'px';
+            s.f.style.top = s.p.oy + (w.y + 19) * s.p.s + 'px';
           }
           const waves = R.ic.querySelectorAll('path');
-          waves[1].style.opacity = 0.4 + 0.6 * Math.abs(Math.sin(t * 6));
-          waves[2].style.opacity = 0.3 + 0.7 * Math.abs(Math.sin(t * 6 + 1));
+          const level = eqAt(vidTime(t))[48]; // the speaker moves with the track you hear
+          waves[1].style.opacity = 0.3 + 0.7 * level;
+          waves[2].style.opacity = clamp(1.4 * level - 0.3, 0.15, 1);
         },
       );
 
@@ -675,7 +818,7 @@
           root.style.opacity = fade(lt, dur);
           frame.style.opacity = lt > 1 ? (Math.floor(lt * 6) % 2 ? 1 : 0.6) : 0;
           view.style.opacity = ease((lt - 2.2) / 0.4);
-          setDesk(desk, lt + 30);
+          setDesk(desk, lt + 36);
           t.style.opacity = ease((lt - 2.4) / 0.5);
         },
       );
@@ -1138,7 +1281,7 @@
         },
         ({ d1, tab, ph, t }, lt, dur, root) => {
           root.style.opacity = fade(lt, dur, 0.4, 0.4);
-          const time = lt + 40;
+          const time = lt + 86.2;
           setDesk(d1, time);
           setDesk(tab.desk, time - 0.06);
           setDesk(ph.desk, time - 0.07);
@@ -1195,7 +1338,13 @@
           if (on) s.update(s.st, t - s.start, s.end - s.start, s.root);
         }
       };
-      window.ready = Promise.all([backdropLoaded, document.fonts.ready]).then(() =>
+      window.ready = Promise.all([
+        backdropLoaded,
+        eqReady,
+        document.fonts.load('20px "Instrument Sans"'),
+        document.fonts.load('20px "JetBrains Mono"'),
+        document.fonts.ready,
+      ]).then(() =>
         Promise.all(
           [
             ...new Set(
