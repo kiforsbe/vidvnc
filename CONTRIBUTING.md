@@ -15,9 +15,11 @@ review. Issues are the best way to help.
 1. Search the existing issues first. If one matches, add your details there instead of
    opening another.
 2. Open a **Bug report** and fill in the form, including the package or build, version,
-   Windows build, graphics card and driver, and the viewing device and browser.
-3. Paste relevant logs from `%LOCALAPPDATA%\VidVNC\logs`. Remove passwords, IP addresses
-   and anything else private first.
+   Windows or macOS version, graphics card and driver (or Mac model), and the viewing
+   device and browser.
+3. Paste relevant logs from `%LOCALAPPDATA%\VidVNC\logs` on Windows, or
+   `~/Library/Application Support/VidVNC/logs` on a Mac. Remove passwords, IP addresses and
+   anything else private first.
 
 ## Suggest a feature
 
@@ -30,8 +32,9 @@ Don't open a public issue. Follow [SECURITY.md](SECURITY.md).
 
 ## Build and test your own copy
 
-Follow [Build and run (Windows)](README.md#build-and-run-windows). These commands run
-from the repository root:
+Follow [Build and run (Windows)](README.md#build-and-run-windows); on a Mac (macOS 27,
+Apple Silicon), install the tools in [SDK and build locations](README.md#sdk-and-build-locations)
+and use the same commands. These commands run from the repository root:
 
 | Command                 | What it does                                                                                                                                                               |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +48,9 @@ from the repository root:
 | `npm run package:macos` | Builds, signs and notarizes the Mac app DMG and command-line ZIP ([Mac packages](README.md#mac-packages))                                                                  |
 
 The Windows host's navigation test (pages, dialogs, the sharing indicator) is a separate
-executable; see [its README](apps/windows-host/tests/Navigation/README.md).
+executable; see [its README](apps/windows-host/tests/Navigation/README.md). The Mac app's
+unit and UI tests run from Xcode or `xcodebuild`; see
+[apps/macos-host](apps/macos-host/README.md#tests).
 
 Every test run first brings its dependencies up to date
 ([tools/dependencies.mjs](tools/dependencies.mjs)):

@@ -16,6 +16,7 @@ body:
         - Keyboard and mouse control
         - Browser client
         - VidVNC app (Windows host)
+        - VidVNC app (Mac host)
         - Command-line server
         - Packaging and installation
         - Other

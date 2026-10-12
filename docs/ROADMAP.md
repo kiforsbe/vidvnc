@@ -70,7 +70,8 @@ change this order.
 ## Product principles
 
 - Simple setup, smart defaults, native Windows and Apple apps, and a polished web UI.
-- Windows 11 25H2 minimum; a native macOS 27 host and viewer are planned.
+- Windows 11 25H2 minimum; macOS 27 on Apple Silicon for the Mac host. A native macOS viewer
+  is planned.
 - Multiple connected devices and multiple server displays. Clients choose which
   streams to view and how to arrange them on their own windows and monitors.
 - Low latency and bounded queues. The working iPhone profiles and transport behavior
@@ -260,9 +261,10 @@ unit, UI and process-tree checks pass on the owner's Mac against a stand-in serv
 the process tree, the real one. Packaging (phase 6) is in: `npm run package:macos` builds
 the app as a DMG and the command-line server as a ZIP, signed with the owner's Developer ID
 and notarized, and both pass their package checks on the owner's Mac (signatures,
-Gatekeeper, libraries, running from an unusual path, cleanup after a kill). Clean-Mac
-acceptance and documentation (phase 7) remain; persistent content capture is not approved
-yet, so no provisioning profile is embedded.
+Gatekeeper, libraries, running from an unusual path, cleanup after a kill). Phase 7's
+documentation is in (installing, permissions, data and logs, building on a Mac); clean-Mac
+acceptance remains, following the [acceptance checklist](investigations/MACOS-ACCEPTANCE.md).
+Persistent content capture is not approved yet, so no provisioning profile is embedded.
 It targets macOS 27 on Apple Silicon only, with the same packages as Windows: the VidVNC app
 (native Swift host, the server and the media worker, with the command-line server inside)
 and a standalone command-line server ZIP, both with Node.js bundled, signed with the owner's
@@ -385,7 +387,9 @@ unauthenticated network administration endpoint is added for UI convenience.
    upgrade and uninstall checks, and the first published release.
 5. New Windows host UI starts with a design preview in [docs/design](design) before it
    is built.
-6. Continue macOS support with the portable server work (phase 1). The prototype gates
-   (phase 0) are done except the App Store check and the Windows encoder comparison; see the
+6. Finish macOS support with clean-Mac acceptance (phase 7), following the
+   [acceptance checklist](investigations/MACOS-ACCEPTANCE.md), then the first release with
+   the Mac packages when the owner asks. The prototype gates are done except the App Store
+   check and the Windows encoder comparison; see the
    [macOS plan](superpowers/plans/2026-10-09-macos-support.md) and the
    [gate results](investigations/MACOS-PROTOTYPE-GATES.md).

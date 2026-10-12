@@ -156,7 +156,22 @@ Developer ID and notarized by Apple.
 
 Both keep settings and logs in `~/Library/Application Support/VidVNC`, shared by the app,
 its `vidvnc` command and the command-line server, so upgrading or deleting them keeps
-your settings.
+your settings. Logs are in its `logs` folder.
+
+macOS asks before VidVNC can see or control the Mac, and nothing is asked when the app
+opens:
+
+- **Screen & System Audio Recording** and **Local Network**, the first time you turn sharing
+  on (the app explains first). Without them viewers get no picture, or other devices can't
+  reach the Mac.
+- **System Audio Recording**, the first time a viewer picks a stream with sound.
+- **Device Control & Data Access**, the first time you give a viewer control. Until it is
+  allowed, viewers can watch but not control.
+
+The app's **Permissions** section shows each one and opens its pane in System Settings. The
+app also asks you to confirm each network before it shares there for the first time. When
+you run the command-line server, macOS asks on behalf of the terminal app you run it from,
+so that is the app to allow.
 
 ## Build and run (Windows)
 

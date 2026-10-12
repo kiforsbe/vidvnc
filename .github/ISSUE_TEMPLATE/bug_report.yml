@@ -12,7 +12,9 @@ body:
       label: Package or build
       options:
         - VidVNC app (Windows package)
-        - VidVNC Server (command-line ZIP)
+        - VidVNC Server (Windows command-line ZIP)
+        - VidVNC app (Mac DMG)
+        - VidVNC Server (Mac command-line ZIP)
         - Built from source
     validations:
       required: true
@@ -47,18 +49,18 @@ body:
     validations:
       required: true
   - type: input
-    id: windows
+    id: os
     attributes:
-      label: Windows version
-      description: Run `winver` to see it.
-      placeholder: Windows 11 25H2, build 26200.1234
+      label: Windows or macOS version
+      description: On Windows, run `winver`; on a Mac, choose Apple menu > About This Mac.
+      placeholder: Windows 11 25H2, build 26200.1234, or macOS 27.0
     validations:
       required: true
   - type: input
     id: gpu
     attributes:
-      label: Graphics card and NVIDIA driver version
-      placeholder: GeForce RTX 4070, driver 581.29
+      label: Graphics card and driver version, or Mac model
+      placeholder: GeForce RTX 4070, driver 581.29, or MacBook Pro M4
     validations:
       required: true
   - type: input
@@ -76,8 +78,9 @@ body:
     attributes:
       label: Logs
       description: >-
-        Logs are in `%LOCALAPPDATA%\VidVNC\logs`. Remove passwords, IP addresses and anything
-        else private before pasting.
+        Logs are in `%LOCALAPPDATA%\VidVNC\logs` on Windows and
+        `~/Library/Application Support/VidVNC/logs` on a Mac. Remove passwords, IP addresses
+        and anything else private before pasting.
       render: text
   - type: checkboxes
     id: checks
