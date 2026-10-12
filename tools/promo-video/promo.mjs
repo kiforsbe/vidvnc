@@ -316,7 +316,7 @@ function sound(work) {
     path.join(work, 'vo.wav'),
     '-filter_complex',
     '[1:a]aresample=44100,pan=stereo|c0=c0|c1=c0,volume=1.6[vo];[vo]asplit=2[vo1][vo2];' +
-      '[0:a]volume=0.55[mu];[mu][vo1]sidechaincompress=threshold=0.03:ratio=6:attack=20:release=400[duck];' +
+      '[0:a]volume=0.45[mu];[mu][vo1]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=450[duck];' +
       '[duck][vo2]amix=inputs=2:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=9',
     '-ar',
     '48000',

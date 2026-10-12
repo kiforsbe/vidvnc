@@ -307,31 +307,37 @@
       };
       const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
       // The player window, in desk pixels.
-      const PL = { x: 860, y: 230, w: 680, h: 640 };
-      function drawDesk(g, time) {
+      // The player window, in desk pixels from the right edge; desks can be wider than 1600
+      // so they fill a wide phone screen.
+      const PL = { right: 60, y: 230, w: 680, h: 640 };
+      function drawDesk(g, time, W) {
         const eq = eqAt(time);
         const level = eq[48];
-        g.drawImage(WALL, 0, 0);
+        const k = W / 1600;
+        g.drawImage(WALL, 0, (1000 - 1000 * k) / 2, W, 1000 * k);
         // menu bar and clock
         g.fillStyle = 'rgba(8,12,26,0.6)';
-        g.fillRect(0, 0, 1600, 36);
+        g.fillRect(0, 0, W, 36);
         g.fillStyle = '#e6ebf5';
         g.font = '600 20px "Instrument Sans"';
         g.textBaseline = 'middle';
-        g.fillText('Music', 22, 18);
+        const pad = W > 1600 ? 120 : 22; // clear a phone screen's rounded corners
+        g.fillText('Music', pad, 18);
         g.font = '20px "Instrument Sans"';
-        ['File', 'Edit', 'View', 'Window'].forEach((m, i) => g.fillText(m, 100 + i * 70, 18));
+        ['File', 'Edit', 'View', 'Window'].forEach((m, i) => g.fillText(m, pad + 78 + i * 70, 18));
+        // tenths of a second, so a late desk shows a different time
         const clock = 21 * 3600 + 41 * 60 + 12 + time;
         g.textAlign = 'right';
         g.font = '20px "JetBrains Mono"';
         g.fillText(
-          `${Math.floor(clock / 3600) % 24}:${String(Math.floor(clock / 60) % 60).padStart(2, '0')}:${String(Math.floor(clock) % 60).padStart(2, '0')}`,
-          1578,
+          `${Math.floor(clock / 3600) % 24}:${String(Math.floor(clock / 60) % 60).padStart(2, '0')}:${String(Math.floor(clock) % 60).padStart(2, '0')}.${Math.floor(clock * 10) % 10}`,
+          W - pad,
           18,
         );
         g.textAlign = 'left';
         // player window
-        const { x, y, w, h } = PL;
+        const { y, w, h } = PL;
+        const x = W - PL.right - w;
         g.save();
         g.shadowColor = 'rgba(0,0,0,0.55)';
         g.shadowBlur = 60;
@@ -457,22 +463,22 @@
         g.fillRect(x + w / 2 + 5, py + 20, 9, 30);
         g.restore();
       }
-      function makeDesk(parent) {
-        const root = el('desk', parent);
+      function makeDesk(parent, W = 1600) {
+        const root = el('desk', parent, { width: W + 'px' });
         const cv = document.createElement('canvas');
-        cv.width = 1600;
+        cv.width = W;
         cv.height = 1000;
         cv.style.position = 'absolute';
         root.appendChild(cv);
         const win = el('win', root, { backgroundImage: `url(${A}mac/overview-dark.png)` });
-        return { root, g: cv.getContext('2d'), win };
+        return { root, g: cv.getContext('2d'), win, W };
       }
       const winPos = (time) => ({
         x: 60 + 200 * (0.5 - 0.5 * Math.cos(time * 1.15)),
         y: 90 + 110 * (0.5 - 0.5 * Math.cos(time * 0.83)),
       });
       function setDesk(d, time) {
-        drawDesk(d.g, time);
+        drawDesk(d.g, time, d.W);
         const p = winPos(time);
         d.win.style.left = p.x + 'px';
         d.win.style.top = p.y + 'px';
@@ -484,15 +490,16 @@
         const screen = el('screen', ph);
         const sw = w - 40,
           sh = h - 40;
-        const s = Math.min(sw / 1600, sh / 1000);
+        const W = Math.max(1600, Math.round((sw / sh) * 1000)); // fill a wide screen
+        const s = Math.min(sw / W, sh / 1000);
         const holder = el('abs', screen, {
-          left: (sw - 1600 * s) / 2 + 'px',
+          left: (sw - W * s) / 2 + 'px',
           top: (sh - 1000 * s) / 2 + 'px',
-          width: 1600 * s + 'px',
+          width: W * s + 'px',
           height: 1000 * s + 'px',
           overflow: 'hidden',
         });
-        const desk = makeDesk(holder);
+        const desk = makeDesk(holder, W);
         desk.root.style.transform = `scale(${s})`;
         return {
           ph,
@@ -500,7 +507,7 @@
           holder,
           desk,
           s,
-          ox: (sw - 1600 * s) / 2 + 20,
+          ox: (sw - W * s) / 2 + 20,
           oy: (sh - 1000 * s) / 2 + 20,
         };
       }
@@ -707,14 +714,14 @@
             height: '850px',
             left: '457px',
             top: '50px',
-            backgroundImage: `url(${A}mac/overview-light.png)`,
+            backgroundImage: `url(${A}mac/overview-dark.png)`,
           });
           const b = el('shot', root, {
             width: '1006px',
             height: '850px',
             left: '457px',
             top: '50px',
-            backgroundImage: `url(${A}mac/connect-device-qr-light.png)`,
+            backgroundImage: `url(${A}mac/connect-device-qr-dark.png)`,
           });
           const c = el('cursor', root, {}, cursorSvg);
           const cap = el(
@@ -749,7 +756,7 @@
             height: '760px',
             left: '170px',
             top: '160px',
-            backgroundImage: `url(${A}mac/connect-device-qr-light.png)`,
+            backgroundImage: `url(${A}mac/connect-device-qr-dark.png)`,
           });
           const ph = el('phone', root, {
             width: '420px',
@@ -764,7 +771,7 @@
             top: '260px',
             width: '280px',
             height: '280px',
-            backgroundImage: `url(${A}mac/connect-device-qr-light.png)`,
+            backgroundImage: `url(${A}mac/connect-device-qr-dark.png)`,
             backgroundSize: `${(280 / 300) * 1800}px auto`,
             backgroundPosition: `-${(498 * 280) / 300}px -${(654 * 280) / 300}px`,
             borderRadius: '8px',
@@ -778,12 +785,13 @@
             borderRadius: '22px',
           });
           const view = el('abs', scr, { inset: 0, background: '#000' });
-          const s = 820 / 1000;
+          // a portrait phone shows part of the desktop: the player and the clock
+          const s = 0.5;
           const holder = el('abs', view, {
-            left: -1600 * s * 0.12 + 'px',
-            top: 0,
+            left: -820 * s + 'px',
+            top: (820 - 1000 * s) / 2 - 60 + 'px',
             width: 1600 * s + 'px',
-            height: '820px',
+            height: 1000 * s + 'px',
             overflow: 'hidden',
           });
           const desk = makeDesk(holder);

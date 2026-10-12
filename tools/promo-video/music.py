@@ -231,7 +231,7 @@ score = Bus()
 
 def gain_at(t):
     """How loud the desktop track is in the film: silent until the race, then featured."""
-    pts = [(0, 0), (RACE + 0.5, 0), (RACE + 1.6, 1.0), (NUMBER, 1.0), (APP, 0.8), (TRUST - 2.0, 0.65), (TRUST, 0),
+    pts = [(0, 0), (RACE + 0.5, 0), (RACE + 1.6, 0.6), (RACE + 3.0, 1.0), (NUMBER, 1.0), (APP, 0.8), (TRUST - 2.0, 0.65), (TRUST, 0),
            (NETWORK, 0), (NETWORK + 1.2, 0.55), (END - 0.4, 0.55), (END + 0.6, 0)]
     xs, ys = zip(*pts)
     return np.interp(t, xs, ys)
