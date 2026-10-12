@@ -18,6 +18,9 @@ then `-light` or `-dark`.
 |                          |                                                                                                                           | settings-about ([light](macos-host/settings-about-light.png), [dark](macos-host/settings-about-dark.png))          |
 | Connect a device QR code | connect-device-qr ([light](windows-host/connect-device-qr-light.png), [dark](windows-host/connect-device-qr-dark.png))    | connect-device-qr ([light](macos-host/connect-device-qr-light.png), [dark](macos-host/connect-device-qr-dark.png)) |
 
+`overview-light.png` and `overview-dark.png` here are the README's top image: both Overview
+pages over a gradient, drawn from the light and dark screenshots above.
+
 ## Regenerate them
 
 - **Windows:** `npm run screenshot:host` runs [tools/screenshot-host.ps1](../../tools/screenshot-host.ps1)
@@ -31,6 +34,8 @@ then `-light` or `-dark`.
   `screencapture` takes each window, so the app you run it from (Terminal) needs Screen &
   System Audio Recording; without it the images come out blank. Keep the window on screen
   until VidVNC quits.
+- **The README's top image:** after either set changes, `swift tools/readme-hero.swift` on a
+  Mac redraws it from the two `overview` screenshots.
 
 The design-review images of the Mac app, light and dark and cropped to the content, are a
 separate set in [docs/design/macos-host-previz/](../design/macos-host-previz/README.md).

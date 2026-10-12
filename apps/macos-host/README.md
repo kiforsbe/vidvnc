@@ -26,6 +26,33 @@ the screens are in [docs/design/macos-host-previz/](../../docs/design/macos-host
 | `screenshots.sh`                                    | Saves light and dark images of each section to `docs/design/macos-host-previz/`                                                                                                     |
 | `docs-screenshots.sh`                               | Saves the whole window of each section, Connect a Device's QR code and each Settings tab, light and dark, to `docs/images/macos-host/` ([Screenshots](../../docs/images/README.md)) |
 
+## Screenshots
+
+Every section, light or dark to match your GitHub theme, taken from the Debug app's sample data by [docs-screenshots.sh](docs-screenshots.sh) ([all images](../../docs/images/README.md), including Settings: About).
+
+<table>
+  <tr>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/overview-dark.png"><img src="../../docs/images/macos-host/overview-light.png" width="420" alt="Overview"></picture><br>Overview</td>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/displays-dark.png"><img src="../../docs/images/macos-host/displays-light.png" width="420" alt="Displays"></picture><br>Displays</td>
+  </tr>
+  <tr>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/streaming-dark.png"><img src="../../docs/images/macos-host/streaming-light.png" width="420" alt="Streaming"></picture><br>Streaming</td>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/connections-dark.png"><img src="../../docs/images/macos-host/connections-light.png" width="420" alt="Connections"></picture><br>Connections</td>
+  </tr>
+  <tr>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/access-dark.png"><img src="../../docs/images/macos-host/access-light.png" width="420" alt="Access"></picture><br>Access</td>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/network-dark.png"><img src="../../docs/images/macos-host/network-light.png" width="420" alt="Network"></picture><br>Network</td>
+  </tr>
+  <tr>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/activity-dark.png"><img src="../../docs/images/macos-host/activity-light.png" width="420" alt="Activity"></picture><br>Activity</td>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/permissions-dark.png"><img src="../../docs/images/macos-host/permissions-light.png" width="420" alt="Permissions"></picture><br>Permissions</td>
+  </tr>
+  <tr>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/connect-device-qr-dark.png"><img src="../../docs/images/macos-host/connect-device-qr-light.png" width="420" alt="Connect a Device: QR code"></picture><br>Connect a Device: QR code</td>
+    <td align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../../docs/images/macos-host/settings-general-dark.png"><img src="../../docs/images/macos-host/settings-general-light.png" width="420" alt="Settings: General"></picture><br>Settings: General</td>
+  </tr>
+</table>
+
 ## Run it
 
 From the repository root, on a Mac with the tools `npm run deps` asks for:
