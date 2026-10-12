@@ -21,17 +21,27 @@ From the repository root:
 
 ```sh
 node tools/promo-video/promo.mjs setup    # once: playwright-core, ffmpeg-static, three, Kokoro and its model
-node tools/promo-video/promo.mjs voices   # out/promo-video/drafts/NN-voice-samples/
-node tools/promo-video/promo.mjs frames   # out/promo-video/drafts/NN-style-frames/
-node tools/promo-video/promo.mjs rough    # out/promo-video/drafts/NN-rough-cut/ (30 fps)
-node tools/promo-video/promo.mjs final    # out/promo-video/final/NN-final-cut/ (60 fps)
+node tools/promo-video/promo.mjs voices   # out/promo-video/voice-samples/
+node tools/promo-video/promo.mjs draft    # out/promo-video/drafts/NN/ (30 fps)
+node tools/promo-video/promo.mjs final    # out/promo-video/final/NN/ (60 fps)
 ```
 
-Each run writes to the next numbered folder, such as `drafts/05-rough-cut/` or
-`final/01-final-cut/`, and never overwrites an earlier one. In it, `commit.url` opens the commit
-that built it on GitHub and `build-info.txt` names it, so any revision can be rebuilt by
-checking out that commit. Commit and push script changes before rendering a draft for review:
-uncommitted changes are noted in `build-info.txt` with a warning. Each film comes with an `.en.srt` caption file. `setup` puts its tools in `.deps/promo-video/`
+Each draft gets the next number and never overwrites an earlier one. A draft folder holds:
+
+```text
+drafts/04/
+  vidvnc-promo.mp4      the cut
+  vidvnc-promo.en.srt   its captions
+  storyboard/           one still per shot, and contact-sheet.png with all of them
+  audio/                voiceover.wav, music.wav and mix.wav
+  build-info.txt        the commit, the command and when it was built
+  commit.url            opens that commit on GitHub
+```
+
+A final cut in `final/NN/` holds the film at 60 fps, its captions and the same two links. Any
+revision can be rebuilt by checking out its commit, so commit and push script changes before
+rendering one for review; uncommitted changes are noted in `build-info.txt` with a warning.
+`setup` puts its tools in `.deps/promo-video/`
 (`PROMO_CACHE` moves it); `PROMO_OUT` moves the output. `CHROMIUM=/path/to/chrome` picks a
 browser, and `FFMPEG=/path/to/ffmpeg` a system ffmpeg instead of ffmpeg-static's. Render on
 a machine with a real GPU: under software rendering (a cloud machine, for example) the WebGL

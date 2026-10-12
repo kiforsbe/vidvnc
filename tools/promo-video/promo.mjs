@@ -3,11 +3,10 @@
 //
 //   node tools/promo-video/promo.mjs setup     install the tools into .deps/promo-video
 //   node tools/promo-video/promo.mjs voices    female voice samples
-//   node tools/promo-video/promo.mjs frames    one still per shot and a contact sheet
-//   node tools/promo-video/promo.mjs rough     the whole film at 30 fps
-//   node tools/promo-video/promo.mjs final     the finished film at 60 fps
+//   node tools/promo-video/promo.mjs draft     the next numbered draft: cut (30 fps), storyboard, audio
+//   node tools/promo-video/promo.mjs final     the next numbered final cut (60 fps)
 //
-// Outputs go to out/promo-video/ (ignored by git), one numbered folder per run. Runs on Windows, macOS and Linux with
+// Outputs go to out/promo-video/ (ignored by git). Runs on Windows, macOS and Linux with
 // Node 20+, Python 3.10+ and Chrome or Edge (or CHROMIUM=/path/to/chrome); ffmpeg comes
 // from ffmpeg-static unless FFMPEG names one. See README.md.
 import { spawn, spawnSync } from 'node:child_process';
@@ -33,15 +32,15 @@ const cache = process.env.PROMO_CACHE || path.join(repo, '.deps', 'promo-video')
 const outRoot = process.env.PROMO_OUT || path.join(repo, 'out', 'promo-video');
 const win = process.platform === 'win32';
 
-// Every draft and cut gets the next numbered folder (drafts/05-rough-cut, final/01-final-cut)
-// and is never overwritten. In it, build-info.txt and commit.url link back to the commit that
-// built it, so any revision can be rebuilt exactly.
+// Every draft and final cut gets the next numbered folder (drafts/05, final/01) and is never
+// overwritten. In it, build-info.txt and commit.url link back to the commit that built it, so
+// any revision can be rebuilt exactly.
 const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).stdout?.trim();
-function outDir(group, name) {
+function outDir(group) {
   const parent = path.join(outRoot, group);
   mkdirSync(parent, { recursive: true });
   const last = Math.max(0, ...readdirSync(parent).map((f) => parseInt(f, 10) || 0));
-  const d = path.join(parent, `${String(last + 1).padStart(2, '0')}-${name}`);
+  const d = path.join(parent, String(last + 1).padStart(2, '0'));
   mkdirSync(d);
   const commit = git('rev-parse', 'HEAD') || 'unknown';
   const remote = (git('remote', 'get-url', 'origin') || 'https://github.com/kiforsbe/vidvnc')
@@ -323,17 +322,23 @@ function sound(work) {
   ]);
 }
 
+// A draft holds the cut at 30 fps, its captions, the storyboard (one still per shot and a
+// contact sheet) and the audio stems; a final cut holds the film at 60 fps and its captions.
 async function film(kind) {
   const fps = kind === 'final' ? 60 : 30;
-  const out = kind === 'final' ? outDir('final', 'final-cut') : outDir('drafts', 'rough-cut');
+  const out = outDir(kind === 'final' ? 'final' : 'drafts');
   const work = path.join(cache, `work-${kind}`);
-  mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
+  if (kind === 'draft') {
+    console.log('== storyboard');
+    const board = path.join(out, 'storyboard');
+    await stills(board, FRAME_TIMES);
+    await contactSheet(board);
+  }
   sound(work);
   console.log(`== picture (${fps} fps)`);
   await video(path.join(work, 'picture.mp4'), fps);
   console.log('== mux');
-  const name = `vidvnc-promo-${kind}`;
   run(ffmpeg(), [
     '-loglevel',
     'error',
@@ -351,14 +356,24 @@ async function film(kind) {
     '-shortest',
     '-movflags',
     '+faststart',
-    path.join(out, `${name}.mp4`),
+    path.join(out, 'vidvnc-promo.mp4'),
   ]);
-  copyFileSync(path.join(work, 'vo.srt'), path.join(out, `${name}.en.srt`));
-  console.log(`Wrote ${path.join(out, `${name}.mp4`)}`);
+  copyFileSync(path.join(work, 'vo.srt'), path.join(out, 'vidvnc-promo.en.srt'));
+  if (kind === 'draft') {
+    const audio = path.join(out, 'audio');
+    mkdirSync(audio);
+    for (const [from, to] of [
+      ['vo.wav', 'voiceover.wav'],
+      ['music.wav', 'music.wav'],
+      ['mix.wav', 'mix.wav'],
+    ])
+      copyFileSync(path.join(work, from), path.join(audio, to));
+  }
+  console.log(`Wrote ${out}`);
 }
 
 async function voices() {
-  const out = outDir('drafts', 'voice-samples');
+  const out = path.join(outRoot, 'voice-samples');
   const work = path.join(cache, 'work-voices');
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
@@ -387,17 +402,11 @@ const cmd = process.argv[2];
 const steps = {
   setup,
   voices,
-  frames: async () => {
-    const d = outDir('drafts', 'style-frames');
-    await stills(d, FRAME_TIMES);
-    await contactSheet(d);
-    console.log(`Wrote ${d}`);
-  },
-  rough: () => film('rough'),
+  draft: () => film('draft'),
   final: () => film('final'),
 };
 if (!steps[cmd]) {
-  console.error('usage: promo.mjs setup | voices | frames | rough | final');
+  console.error('usage: promo.mjs setup | voices | draft | final');
   process.exit(2);
 }
 await steps[cmd]();
