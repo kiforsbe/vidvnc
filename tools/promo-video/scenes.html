@@ -1035,7 +1035,7 @@
               ? null
               : lt < 12.2
                 ? ['relay']
-                : lt < 18.3
+                : lt < 19.4
                   ? ['net']
                   : ['worker', 'app', 'server'];
           for (const k of order) {
@@ -1047,7 +1047,7 @@
             st.cards[k].style.filter = focus && !on ? 'brightness(0.55)' : 'none';
           }
           const pipeOn =
-            lt >= 18.3
+            lt >= 19.4
               ? ['p3', 'p5', 'p6']
               : lt >= 12.2
                 ? ['p2', 'p3']
@@ -1059,7 +1059,7 @@
             p.path.setAttribute('stroke', on ? '#8db8ff' : '#3f5f9f');
             p.path.setAttribute('stroke-width', on ? 8 : 6);
           });
-          st.stamp.style.opacity = lt > 13.5 && lt < 18.3 ? ease((lt - 13.5) / 0.5) : 0;
+          st.stamp.style.opacity = lt > 13.5 && lt < 19.4 ? ease((lt - 13.5) / 0.5) : 0;
           st.arrow.style.opacity = st.arrowL.style.opacity = ease((lt - 4) / 0.8);
           // packets: media flows device -> relay -> sandbox -> capture; strangers are turned away at the relay
           const route = [st.pipes[0], st.pipes[1], st.pipes[2]];

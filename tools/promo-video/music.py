@@ -17,7 +17,7 @@ rng = np.random.default_rng(7)
 
 # Scene starts in scenes.html
 RACE, NUMBER, APP, TRUST, PIPES, NETWORK, END = 12.2, 24.0, 32.0, 50.0, 54.0, 80.0, 89.2
-SPOTLIGHTS = [60.0, 66.2, 72.3]  # the pipes infographic moves its spotlight here
+SPOTLIGHTS = [60.0, 66.2, 73.4]  # the pipes infographic moves its spotlight here
 
 BPM = 96
 BEAT = 60 / BPM

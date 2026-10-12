@@ -57,8 +57,8 @@
       "text": "The video connection runs in a sandbox. Break in, and it still can't see your screen, send input, or read your files."
     },
     {
-      "at": 72.5,
-      "text": "It reaches the trusted side only through narrow pipes, and the part that captures your screen never touches the network."
+      "at": 73.5,
+      "text": "It reaches the trusted side only through narrow pipes. Screen capture never touches the network."
     },
     {
       "at": 80.3,
