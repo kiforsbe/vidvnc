@@ -67,6 +67,8 @@ editing an old one.
   notice, in the product's words (the VidVNC app, the command line, the viewer). Name
   commands, settings and pages exactly as they appear. Leave out refactors, test-only and
   documentation-only changes unless they change what someone does.
+- Keep entries brief: one or two lines saying what changed. Put the explanation in the
+  README, the app's README or the architecture document, and link to it from the entry.
 - One entry per change; extend an existing `Unreleased` entry instead of adding a second
   one for the same feature.
 
@@ -127,10 +129,9 @@ Only cut a release when the owner asks for one. The owner decides the version nu
    The first command updates every declared version: the root and workspace
    `package.json` files and their `@vidvnc/*` dependencies, `package-lock.json`,
    `apps/windows-host/VidVnc.Host.csproj`, `apps/windows-host/app.manifest` (as
-   `0.9.2.0`), the macOS app's `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
-   `apps/macos-host/VidVNC.xcodeproj/project.pbxproj`, the capture helper's
-   `packaging/macos/capture-helper/Info.plist`, and `CMakeLists.txt`
-   ([tools/version.mjs](tools/version.mjs)). The second,
+   `0.9.2.0`), `CMakeLists.txt`, every `MARKETING_VERSION` in
+   `apps/macos-host/VidVNC.xcodeproj/project.pbxproj` and the capture helper's
+   `packaging/macos/capture-helper/Info.plist` ([tools/version.mjs](tools/version.mjs)). The second,
    with no argument, lists them and must end with `Version: 0.9.2`. Also search for the old
    version string to catch anything the tool doesn't own:
 

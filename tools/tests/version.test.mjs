@@ -34,6 +34,8 @@ test('every file in the checkout declares the same version', async () => {
     new Set(VERSION_FILES.filter((file) => file !== 'CHANGELOG.md')),
   );
   assert.ok(found.some((entry) => entry.label === 'dependencies.@vidvnc/web-client'));
+  // Every build configuration of the Mac app and its test targets.
+  assert.equal(found.filter((entry) => entry.label === 'MARKETING_VERSION').length, 6);
 });
 
 test('setting a version changes only version values and adds a changelog section', async (t) => {

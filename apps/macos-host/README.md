@@ -67,10 +67,16 @@ its user defaults.
 - Closing the window leaves VidVNC in the menu bar with no Dock icon, and sharing carries
   on unless **Keep sharing when the window closes** is off in Settings, General.
 - Permissions (spec D5): nothing is asked at launch. Turning sharing on the first time shows
-  an introduction, then macOS asks for Screen Recording and Local Network. Device Control &
-  Data Access is explained the first time the owner gives a viewer control or picks
-  **Allow when available**. The Permissions section reads each setting every two seconds.
+  an introduction, then macOS asks for Screen & System Audio Recording and Local Network,
+  and the first stream with sound asks for System Audio Recording. Device Control & Data
+  Access is explained the first time the owner gives a viewer control or picks
+  **Allow when available**; until it is allowed, the worker posts no input and the server
+  reports why on that stream. The Permissions section reads each setting every two seconds.
   Local Network has no API; it is inferred by browsing for `_vidvnc._tcp`.
+- Streaming edits the profiles, codecs and encoder while sharing. A profile's size follows
+  the display, as with the command line's `--height`, `--width`, `--scale` and
+  `--size … --aspect`; **Restore Defaults** puts the five standard profiles back as shipped
+  and keeps the owner's own.
 - Once the introduction has been shown, sharing starts when the app opens, as on Windows,
   if Screen Recording is already allowed; otherwise the app opens with sharing off and asks
   nothing. `-startSharing NO` turns that off (the UI tests pass it), and the unit tests'

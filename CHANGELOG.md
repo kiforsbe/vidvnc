@@ -9,77 +9,62 @@ may include breaking changes.
 
 ### Added
 
-- Stream profiles follow the shape of the screen they share. A profile can fix the height
-  (what the built-in profiles now do) or the width and take the other side from the screen,
-  stream the screen's own size scaled by a percentage, or keep a fixed size and choose
-  whether the screen keeps its shape, gets black bars or is stretched. Set it in the
-  profile editor of either app, or with `--height`, `--width`, `--scale` and
-  `--size … --aspect` on `profile add` and `profile edit`. Profiles you made before keep
-  their exact size with bars. VidVNC 0.10.0 and earlier cannot read stream settings saved
-  by this version.
-- The coming macOS version has its VidVNC app: a window with Overview, Displays, Streaming
-  (profiles, codecs and the encoder; **Restore Defaults** puts the five standard profiles
-  back as shipped and keeps your own), Connections, Access, Network, Activity and Permissions, and a menu bar item that keeps sharing running when the window is
-  closed (unless **Keep sharing when the window closes** is off). It asks for nothing at
-  launch: the first time you turn sharing on it explains, then macOS asks for Screen & System
-  Audio Recording and Local Network; Device Control & Data Access is explained the first time
-  you give a viewer control. After that first time, sharing starts when the app opens, as
-  on Windows. It asks before sharing on a network it hasn't used. It can be
-  built as a DMG, signed with a Developer ID and notarized, and runs from source with
-  `npm run start:host` on a Mac.
-- The coming macOS version has its packages: the VidVNC app in a notarized DMG, and the
-  command-line server as a notarized ZIP that runs from any folder with `./vidvnc`. Both
-  include Node.js and the media components, so a Mac needs nothing installed first, and
-  both use `~/Library/Application Support/VidVNC`. The first run of the command-line ZIP
-  checks with Apple online. In the app, **Install Command-Line Tool…** (VidVNC menu, or
-  Settings, General) links `/usr/local/bin/vidvnc` to the server inside the app after you
-  confirm, so Terminal can run it with the app's settings. Build them with
-  `npm run package:macos`.
-
-- The Windows host's Streaming profiles page has a **Restore defaults** button that puts the five standard profiles back as shipped (adding any you deleted) and keeps your own.
-
-- `npm run deps` sets up a checkout for building from source in one step: the npm packages,
-  the GStreamer SDK (it reuses an installed GStreamer of the pinned version, or installs it
-  for the current user), portable CMake, the packaging installers and the development
-  certificate, checking every download against its SHA-256 pin. On macOS it checks the
-  installed GStreamer framework, Xcode and CMake instead, and says what to install.
-- `encoder-backend videotoolbox` in the command line: Apple VideoToolbox, the encoder the
-  coming macOS version of VidVNC uses. On Windows it names an encoder the PC does not have,
-  so VidVNC picks one automatically, as for any other missing encoder. VidVNC 0.10.0 and
-  earlier cannot start with a stream policy that names it; run `encoder-backend auto` before
-  going back to an older version.
-- A server started by the coming macOS VidVNC app (`--confirm-networks`) asks the owner
-  about each network the first time it sees it, and lets local devices use the standing
-  password there only after a yes. The answers are kept in `known-networks.json` in the
-  settings folder. The command line does not ask, and Windows is unchanged.
-- The coming macOS version runs each stream's WebRTC process and the media relay in a macOS
-  sandbox, as Windows does with its restricted token: they cannot use VidVNC's Screen
-  Recording or Accessibility permissions, read your files or start other programs, and
-  WebRTC can send only to VidVNC's own relay. If the WebRTC process ever opens a socket on
-  your network, the stream stops.
-- `sessions` in the command line says when a stream cannot take keyboard and mouse input,
-  and why. Only the coming macOS version reports this: until the owner allows VidVNC under
-  Privacy & Security → Device Control & Data Access, macOS ignores the input a viewer sends.
+- The Mac packages: the VidVNC app as a notarized DMG and the command-line server as a
+  notarized ZIP, both with Node.js included ([On a Mac](README.md#on-a-mac),
+  [Mac packages](README.md#mac-packages)).
+- **Install Command-Line Tool…** in the Mac app links `vidvnc` into `/usr/local/bin`
+  ([how it works](apps/macos-host/README.md#how-it-works)).
+- The Mac app has its icon.
 
 ### Changed
 
-- Closing the VidVNC app's window on Windows no longer stops sharing and exits. VidVNC
-  keeps running behind a new icon in the notification area, a white or black outline like
-  Windows' own icons that follows the taskbar's light or dark theme, whose tooltip says
-  whether sharing is on; select it to open the window again, or right-click it to start or stop
-  sharing or choose **Quit VidVNC**. The first close in each run shows a notice saying so.
-  To have closing the window stop sharing, turn off **Keep sharing when the window closes**
-  in Settings (saved in `host-settings.json`). The app's executable also has an icon now.
+- The Mac app starts sharing when it opens, as on Windows, once its permissions are set up.
 
 ### Fixed
 
-- The pointer lands where you point when the shared screen's shape differs from the
-  profile's, for example a 1512 × 982 Mac screen in a 1920 × 1080 stream. The host adds black
-  bars to fit the screen into the stream, and the viewer used to count the bars as part of
-  the desktop.
-- Desktop audio no longer crackles. Since 0.10.0 the sound reached viewers with uneven
-  timing, which iPhone Safari and other browsers patched over audibly; each audio packet now
-  keeps the timing it was encoded with.
+- A Mac server that cannot start no longer tells you to check the Microsoft Visual C++
+  Redistributable.
+
+## [0.11.0] - 2026-10-11
+
+### Added
+
+- Stream profiles follow the shared screen's shape: fix the height or width, scale the
+  screen's own size, or keep a fixed size with or without bars
+  ([profile sizing](README.md#cli-server-configuration)).
+- **Restore defaults** on the Streaming profiles page puts the five standard profiles back
+  and keeps your own.
+- The VidVNC app for Mac, a preview that runs from source
+  ([apps/macos-host](apps/macos-host/README.md)).
+- `encoder-backend videotoolbox` in the command line, the Mac's encoder.
+- On the Mac, the server asks the owner before sharing on a network it hasn't used
+  ([how it works](apps/macos-host/README.md#how-it-works)).
+- `sessions` in the command line says when a stream cannot take keyboard and mouse input
+  ([Input and control](docs/ARCHITECTURE.md#input-and-control)).
+- `npm run deps` sets up a checkout for building from source in one step
+  ([Build and run](README.md#build-and-run-windows)).
+
+### Changed
+
+- Closing the VidVNC app's window on Windows keeps sharing behind a notification-area icon;
+  turn off **Keep sharing when the window closes** in Settings to stop sharing instead
+  ([VidVNC app](README.md#vidvnc-app)).
+
+### Fixed
+
+- The pointer lands where you point when the screen's shape differs from the profile's.
+- Desktop audio no longer crackles (since 0.10.0).
+
+### Security
+
+- On the Mac, each stream's WebRTC process and the media relay run in a macOS sandbox
+  ([details](docs/ARCHITECTURE.md#media-nets-sandbox-on-macos)).
+
+### Known limitations
+
+- VidVNC 0.10.0 and earlier cannot read stream settings saved by this version, or start with
+  `encoder-backend videotoolbox`; run `encoder-backend auto` before going back.
+- The Mac version runs from source only, on macOS 27 with Apple Silicon, without AV1.
 
 ## [0.10.0] - 2026-09-26
 

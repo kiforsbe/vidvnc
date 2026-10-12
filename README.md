@@ -1,8 +1,8 @@
 # VidVNC
 
 Low-latency desktop streaming with a native capture/encode worker, a Node.js server,
-a server-hosted browser client, and a WinUI 3 server host. It is a development preview,
-**not** production-ready.
+a server-hosted browser client, and native server hosts: WinUI 3 on Windows and, in
+development, SwiftUI on macOS. It is a development preview, **not** production-ready.
 
 <p align="center">
   <img src="docs/images/windows-host-overview.png" alt="The VidVNC app's Overview page: sharing is on, with two displays and no connected devices">
@@ -17,9 +17,7 @@ name one. There is still **no software encoder and no software capture fallback*
 a GPU with a working hardware encoder is required. Up to four devices can be connected
 at once by default (the host can allow 1 to 8), each with up to two video streams and one
 independent audio stream. Only one device holds input permission at a time. Multi-session
-hardware acceptance is still in progress; see [the roadmap](docs/ROADMAP.md). Desktop
-audio can currently sound crackly; video and input are not affected (see the
-[changelog](CHANGELOG.md)).
+hardware acceptance is still in progress; see [the roadmap](docs/ROADMAP.md).
 
 VidVNC also hosts on macOS 27 on Apple Silicon, from the [VidVNC app for Mac](#on-a-mac) or
 the command line; it is in development and not released yet. Native viewer clients are
@@ -256,7 +254,9 @@ there are no black bars; `--scale PERCENT` streams the display's own size scaled
 400%; `--size WxH` is a fixed size, and `--aspect keep|fit|stretch` says whether the display
 keeps its shape inside it (`keep`, the default), keeps it with black bars (`fit`) or is
 stretched to fill it. On a Mac the display's size is in points, so 200% gives a Retina
-display's full resolution. Both hosts' profile editors offer the same choices.
+display's full resolution. Both hosts' profile editors offer the same choices, and both
+apps' Streaming profiles pages have **Restore defaults**, which puts the five standard
+profiles back as shipped (adding any you deleted) and keeps your own.
 
 A profile can use constant or variable bitrate. Set it with `profile add` or
 `profile edit` using `--bitrate-mode cbr|vbr` and `--quality efficient|balanced|high`
