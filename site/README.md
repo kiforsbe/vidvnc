@@ -32,8 +32,8 @@ and a dark `<source>` marked `data-dark`; `theme.js` points that source at the v
 
 After regenerating the screenshots, copy the new ones over and run `site-hero.py` again.
 
-The hero has a second look: a soft blue and violet glow and a fading dot grid behind the
-windows, drawn in CSS. Add the class `designed` to the `hero-shot` element to use it.
+Behind the hero, the page draws a soft blue and violet glow and a fading dot grid in CSS, in
+the theme's colours.
 
 ## Preview it
 

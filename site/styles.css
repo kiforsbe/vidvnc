@@ -114,7 +114,7 @@ body {
 }
 
 main {
-  /* The designed hero's glow reaches past the page edges. */
+  /* The hero's glow reaches past the page edges. */
   overflow-x: clip;
 }
 
@@ -356,21 +356,20 @@ p {
   width: 100%;
 }
 
-/* The alternative hero: a soft glow in the app's blue and violet and a fading dot grid behind
-   the windows. Add the class "designed" to .hero-shot to use it. */
-.hero-shot.designed::before,
-.hero-shot.designed::after {
+/* Behind the windows: a soft glow in the app's blue and violet, and a fading dot grid. */
+.hero-shot::before,
+.hero-shot::after {
   content: '';
   position: absolute;
   pointer-events: none;
 }
-.hero-shot.designed::before {
+.hero-shot::before {
   inset: -14% -10% -6%;
   background:
     radial-gradient(34% 42% at 34% 46%, var(--glow-a), transparent),
     radial-gradient(32% 40% at 68% 62%, var(--glow-b), transparent);
 }
-.hero-shot.designed::after {
+.hero-shot::after {
   inset: -6% 0 0;
   background-image: radial-gradient(var(--dots) 1px, transparent 1.5px);
   background-size: 22px 22px;
