@@ -39,7 +39,9 @@
   --link-hover: #1747a8;
   --code: #1c2740;
   --nav-bg: rgba(247, 249, 252, 0.85);
-  --glow: rgba(47, 111, 235, 0.25);
+  --glow-a: rgba(47, 111, 235, 0.42);
+  --glow-b: rgba(124, 92, 255, 0.34);
+  --dots: rgba(14, 21, 38, 0.18);
   --seg-on: #ffffff;
   color-scheme: light;
 }
@@ -60,7 +62,9 @@
     --link-hover: #b9d3ff;
     --code: #d5deee;
     --nav-bg: rgba(10, 15, 28, 0.85);
-    --glow: rgba(47, 111, 235, 0.45);
+    --glow-a: rgba(47, 111, 235, 0.5);
+    --glow-b: rgba(124, 92, 255, 0.42);
+    --dots: rgba(255, 255, 255, 0.1);
     --seg-on: #22304d;
     color-scheme: dark;
   }
@@ -81,7 +85,9 @@
   --link-hover: #b9d3ff;
   --code: #d5deee;
   --nav-bg: rgba(10, 15, 28, 0.85);
-  --glow: rgba(47, 111, 235, 0.45);
+  --glow-a: rgba(47, 111, 235, 0.5);
+  --glow-b: rgba(124, 92, 255, 0.42);
+  --dots: rgba(255, 255, 255, 0.1);
   --seg-on: #22304d;
   color-scheme: dark;
 }
@@ -105,6 +111,11 @@ body {
   font-size: 17px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+main {
+  /* The designed hero's glow reaches past the page edges. */
+  overflow-x: clip;
 }
 
 a {
@@ -330,7 +341,41 @@ p {
   font-size: 14px;
 }
 .hero-shot {
-  padding-block: 8px 72px;
+  position: relative;
+  padding-block: 0 56px;
+}
+.hero-shot picture {
+  position: relative;
+  z-index: 1;
+  display: block;
+  /* The image has a transparent margin for its shadows; let it hang into the page margins so
+     the windows themselves line up with the content. */
+  margin: -7% -9.4% -6%;
+}
+.hero-shot img {
+  width: 100%;
+}
+
+/* The alternative hero: a soft glow in the app's blue and violet and a fading dot grid behind
+   the windows. Add the class "designed" to .hero-shot to use it. */
+.hero-shot.designed::before,
+.hero-shot.designed::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+.hero-shot.designed::before {
+  inset: -14% -10% -6%;
+  background:
+    radial-gradient(34% 42% at 34% 46%, var(--glow-a), transparent),
+    radial-gradient(32% 40% at 68% 62%, var(--glow-b), transparent);
+}
+.hero-shot.designed::after {
+  inset: -6% 0 0;
+  background-image: radial-gradient(var(--dots) 1px, transparent 1.5px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(60% 55% at 50% 50%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(60% 55% at 50% 50%, #000 30%, transparent 75%);
 }
 
 .frame {
@@ -342,9 +387,6 @@ p {
 .frame img {
   width: 100%;
   border-radius: 12px;
-}
-.hero-shot .frame {
-  box-shadow: 0 40px 120px -40px var(--glow);
 }
 
 /* Bands and sections */

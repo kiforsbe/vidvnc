@@ -1756,7 +1756,7 @@ tools/            Root orchestration and formatting; tools/tests/ owns its tests
   debug/          Cross-process debug target definitions and implementation contract
 packaging/        Six-product catalog; shared and OS-specific packaging ownership
 docs/             Architecture, mockups, research history
-site/             The project website (GitHub Pages); built by tools/build-site.mjs
+site/             The project website (GitHub Pages), published as it is
 out/              Ignored CMake outputs and preserved legacy artifacts
 .deps/            Ignored local SDKs/tools/download cache, set up by `npm run deps`
 ```
@@ -1871,11 +1871,11 @@ Windows, macOS and Linux. It runs only when started manually from the Actions ta
 on pushes or pull requests. It does not claim native capture support on those other
 OSes or replace device acceptance tests.
 
-The **Website** workflow ([pages.yml](../.github/workflows/pages.yml)) runs
-[tools/build-site.mjs](../tools/build-site.mjs), which copies `site/` and the screenshots it
-uses into `out/site/`, and publishes that to GitHub Pages. It runs on pushes to `main` that
-change the site, a screenshot or the build script, and from the Actions tab. The portable
-suite checks the build ([build-site.test.mjs](../tools/tests/build-site.test.mjs)).
+The **Website** workflow ([pages.yml](../.github/workflows/pages.yml)) publishes `site/` as it
+is to GitHub Pages. It runs on pushes to `main` that change the site, and from the Actions tab.
+The portable suite checks the page ([site.test.mjs](../tools/tests/site.test.mjs)). The site
+keeps its own copies of the screenshots it shows; [site/README.md](../site/README.md) says
+where each comes from.
 
 Existing opt-in browser checks require an installed Playwright module path:
 

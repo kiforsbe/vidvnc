@@ -20,7 +20,7 @@
     <meta property="og:url" content="https://kiforsbe.github.io/vidvnc/" />
     <meta
       property="og:image"
-      content="https://kiforsbe.github.io/vidvnc/images/overview-dark.png"
+      content="https://raw.githubusercontent.com/kiforsbe/vidvnc/main/docs/images/overview-dark.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/png" href="images/icon.png" />
@@ -160,21 +160,15 @@
       </section>
 
       <div class="container hero-shot">
-        <div class="frame">
-          <picture>
-            <source
-              data-dark
-              srcset="images/overview-dark.png"
-              media="(prefers-color-scheme: dark)"
-            />
-            <img
-              src="images/overview-light.png"
-              width="1600"
-              height="1000"
-              alt="The VidVNC app's Overview page on Windows and, in front, on a Mac, both sharing"
-            />
-          </picture>
-        </div>
+        <picture>
+          <source data-dark srcset="images/hero-dark.png" media="(prefers-color-scheme: dark)" />
+          <img
+            src="images/hero-light.png"
+            width="1768"
+            height="1136"
+            alt="The VidVNC app's Overview page on Windows and, in front, on a Mac, both sharing"
+          />
+        </picture>
       </div>
 
       <section class="band" aria-label="Measured performance">

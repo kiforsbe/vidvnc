@@ -1,14 +1,11 @@
 name: Website
-# Publishes site/ to GitHub Pages (https://kiforsbe.github.io/vidvnc/) when it, or an image it
-# uses, changes on main. Can also be run from the Actions tab.
+# Publishes site/ as it is to GitHub Pages (https://kiforsbe.github.io/vidvnc/) when it changes
+# on main. Can also be run from the Actions tab.
 on:
   push:
     branches: [main]
     paths:
       - site/**
-      - docs/images/**
-      - apps/macos-host/VidVNC/Assets.xcassets/AppIcon.appiconset/**
-      - tools/build-site.mjs
       - .github/workflows/pages.yml
   workflow_dispatch:
 permissions:
@@ -21,15 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # Uses only Node's own modules, so no npm install.
-      - run: node tools/build-site.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: out/site
+          path: site
   deploy:
     needs: build
     runs-on: ubuntu-latest

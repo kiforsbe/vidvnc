@@ -18,8 +18,8 @@ then `-light` or `-dark`.
 |                          |                                                                                                                           | settings-about ([light](macos-host/settings-about-light.png), [dark](macos-host/settings-about-dark.png))          |
 | Connect a device QR code | connect-device-qr ([light](windows-host/connect-device-qr-light.png), [dark](windows-host/connect-device-qr-dark.png))    | connect-device-qr ([light](macos-host/connect-device-qr-light.png), [dark](macos-host/connect-device-qr-dark.png)) |
 
-The [website](../../site/README.md) also shows some of them; `SITE_IMAGES` in
-[tools/build-site.mjs](../../tools/build-site.mjs) lists which.
+The [website](../../site/README.md) shows copies of some of them, and a hero image drawn from
+the two `overview` screenshots; after regenerating, update those as its README says.
 
 `overview-light.png` and `overview-dark.png` here are the README's top image: both Overview
 pages over a gradient, drawn from the light and dark screenshots above.

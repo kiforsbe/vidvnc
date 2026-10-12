@@ -46,7 +46,6 @@ and use the same commands. These commands run from the repository root:
 | `npm run test:hardware` | Runs the hardware tests (Windows 25H2+, a GPU with a hardware encoder, interactive desktop; or the worker checks on macOS 27 with Screen & System Audio Recording allowed) |
 | `npm run test:host`     | Runs the Windows host's runtime-contract tests                                                                                                                             |
 | `npm run package:macos` | Builds, signs and notarizes the Mac app DMG and command-line ZIP ([Mac packages](README.md#mac-packages))                                                                  |
-| `npm run site`          | Builds the website into `out/site/` ([site/](site/README.md))                                                                                                              |
 
 The Windows host's navigation test (pages, dialogs, the sharing indicator) is a separate
 executable; see [its README](apps/windows-host/tests/Navigation/README.md). The Mac app's

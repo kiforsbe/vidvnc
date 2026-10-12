@@ -531,7 +531,6 @@ app, see [Mac packages](#mac-packages).
 | `npm run package`                         | Every Windows package (see [Windows packages](#windows-packages))                                      |
 | `npm run format` / `npm run format:check` | Supported C++ and JS/web sources                                                                       |
 | `npm run set-version -- <x.y.z>`          | Sets the version everywhere; without one, lists and checks them                                        |
-| `npm run site`                            | Builds the [website](site/README.md) into `out/site/`                                                  |
 
 For direct CMake use: configure `windows-x64`, build/test `windows-x64-release`; on macOS
 configure `macos-arm64`, build/test `macos-arm64-release`.

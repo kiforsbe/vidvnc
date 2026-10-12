@@ -1,43 +1,55 @@
 # Website
 
 The project's website, published with GitHub Pages at <https://kiforsbe.github.io/vidvnc/>.
-It is one static page: plain HTML, CSS and a small script, with no framework or build step
-of its own.
+It is one static page: plain HTML, CSS and a small script, published as it is, with no build
+step.
 
 | File                     | What it holds                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------- |
 | [index.html](index.html) | The page                                                                                       |
 | [styles.css](styles.css) | Layout and the light and dark colour tokens                                                    |
 | [theme.js](theme.js)     | The System / Light / Dark switch; a choice is kept in the browser's local storage              |
+| [images/](images/)       | The hero image, copies of the app screenshots, and the app icon                                |
 | [fonts/](fonts/)         | Instrument Sans and JetBrains Mono, Latin subset (from Fontsource 5.3.0), with their OFL texts |
 
 The page loads nothing from other sites: no web fonts service, analytics or scripts.
 
-## Screenshots
+## Images
 
-The screenshots aren't kept here. [tools/build-site.mjs](../tools/build-site.mjs) copies them
-from [docs/images/](../docs/images/README.md), with the app icon, into `images/` when it builds
-the site, so regenerating the screenshots updates the website too. `SITE_IMAGES` in that file
-lists which ones. Each is a `<picture>` with a light image and a dark `<source>` marked
-`data-dark`; `theme.js` points that source at the visitor's choice.
+Every picture comes in a light and a dark version. Each is a `<picture>` with the light image
+and a dark `<source>` marked `data-dark`; `theme.js` points that source at the visitor's choice.
+
+- `hero-light.png`, `hero-dark.png`: the Windows and Mac Overview pages, overlapping, with
+  shadows on a transparent background. [tools/site-hero.py](../tools/site-hero.py) draws them
+  from the screenshots in [docs/images/](../docs/images/README.md)
+  (`python3 tools/site-hero.py`, which needs Pillow). The page lets the image hang into the
+  margins so the windows line up with the text.
+- `windows-overview-*`, `mac-overview-*`, `mac-connect-device-*`: copies of
+  `windows-host/overview-*`, `macos-host/overview-*` and `macos-host/connect-device-qr-*` from
+  `docs/images/`.
+- `icon.png`: the Mac app icon at 256 px, from
+  `apps/macos-host/VidVNC/Assets.xcassets/AppIcon.appiconset/icon_256x256.png`.
+
+After regenerating the screenshots, copy the new ones over and run `site-hero.py` again.
+
+The hero has a second look: a soft blue and violet glow and a fading dot grid behind the
+windows, drawn in CSS. Add the class `designed` to the `hero-shot` element to use it.
 
 ## Preview it
 
 ```sh
-npm run site
-python3 -m http.server -d out/site
+python3 -m http.server -d site
 ```
 
-`npm run site` builds the site into `out/site/` and stops if the page refers to a file that
-isn't there. Open <http://localhost:8000/>. Opening `index.html` straight from disk works
-too, but the browser then blocks the fonts.
+Then open <http://localhost:8000/>. Opening `index.html` straight from disk works too, but
+the browser then blocks the fonts.
 
 ## Publish it
 
-[.github/workflows/pages.yml](../.github/workflows/pages.yml) (the **Website** workflow) builds
-and publishes the site when `site/`, a screenshot or the build script changes on `main`, and
-can be run by hand from the Actions tab. The repository's **Settings > Pages > Source** must
-be set to **GitHub Actions** once.
+[.github/workflows/pages.yml](../.github/workflows/pages.yml) (the **Website** workflow)
+publishes this folder when it changes on `main`, and can be run by hand from the Actions tab.
+The repository's **Settings > Pages > Source** must be set to **GitHub Actions** once.
 
-The portable tests check the build ([tools/tests/build-site.test.mjs](../tools/tests/build-site.test.mjs)):
-every file the page refers to exists, and it loads nothing from another site.
+The portable tests check the page ([tools/tests/site.test.mjs](../tools/tests/site.test.mjs)):
+every file it refers to exists, it loads nothing from another site, and every image is used
+in both light and dark.

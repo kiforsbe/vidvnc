@@ -39,8 +39,7 @@
     "format:native": "node tools/format.mjs native",
     "format:web": "node tools/format.mjs web",
     "test": "node tools/test.mjs",
-    "test:hardware": "node tools/test.mjs hardware",
-    "site": "node tools/build-site.mjs"
+    "test:hardware": "node tools/test.mjs hardware"
   },
   "devDependencies": {
     "@wasm-fmt/clang-format": "23.1.0",
