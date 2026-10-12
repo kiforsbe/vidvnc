@@ -30,7 +30,10 @@ struct ConnectDeviceSheet: View {
     }
     .padding(24)
     .frame(width: 480)
-    .onAppear { kind = kinds.first ?? .clientSetup }
+    .onAppear {
+      kind = kinds.first ?? .clientSetup
+      if Snapshotter.showsConnectionCode { load { [kind] in try await model.makeConnectionCode(kind) } }
+    }
   }
 
   private var chooser: some View {

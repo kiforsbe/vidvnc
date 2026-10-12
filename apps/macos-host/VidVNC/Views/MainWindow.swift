@@ -3,6 +3,7 @@ import SwiftUI
 struct MainWindow: View {
   var model: any HostModel
   @Environment(Presentation.self) private var presentation
+  @Environment(\.openSettings) private var openSettings
 
   var body: some View {
     @Bindable var presentation = presentation
@@ -30,7 +31,7 @@ struct MainWindow: View {
         }
     }
     .frame(minWidth: 760, minHeight: 520)
-    .task { await Snapshotter.run(presentation: presentation) }
+    .task { await Snapshotter.run(presentation: presentation, openSettings: openSettings) }
     // Closing the window leaves VidVNC in the menu bar only: no Dock icon, and sharing keeps
     // running unless the person turned that off in Settings.
     .onAppear { NSApp.setActivationPolicy(.regular) }

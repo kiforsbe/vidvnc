@@ -2,11 +2,13 @@ import SwiftUI
 
 struct SettingsView: View {
   var model: any HostModel
+  @Environment(Presentation.self) private var presentation
 
   var body: some View {
-    TabView {
-      Tab("General", systemImage: "gearshape") { GeneralSettings(model: model) }
-      Tab("About", systemImage: "info.circle") { AboutSettings(model: model) }
+    @Bindable var presentation = presentation
+    TabView(selection: $presentation.settingsTab) {
+      Tab("General", systemImage: "gearshape", value: .general) { GeneralSettings(model: model) }
+      Tab("About", systemImage: "info.circle", value: .about) { AboutSettings(model: model) }
     }
     .frame(width: 480)
   }
@@ -102,9 +104,9 @@ private struct AboutSettings: View {
 }
 
 #Preview("Settings – Light") {
-  SettingsView(model: FakeHostModel()).preferredColorScheme(.light)
+  SettingsView(model: FakeHostModel()).environment(Presentation()).preferredColorScheme(.light)
 }
 
 #Preview("Settings – Dark") {
-  SettingsView(model: FakeHostModel()).preferredColorScheme(.dark)
+  SettingsView(model: FakeHostModel()).environment(Presentation()).preferredColorScheme(.dark)
 }

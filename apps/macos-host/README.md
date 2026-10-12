@@ -24,6 +24,7 @@ the screens are in [docs/design/macos-host-previz/](../../docs/design/macos-host
 | `tests/`                                            | The stand-in server, its contract check (part of `npm test`) and the process-tree check                                                                                   |
 | `Config/`                                           | `Info.plist` additions and the signing settings                                                                                                                           |
 | `screenshots.sh`                                    | Saves light and dark images of each section to `docs/design/macos-host-previz/`                                                                                           |
+| `docs-screenshots.sh`                               | Saves the whole window of each section, Connect a Device's QR code and each Settings tab to `docs/images/macos-host/` ([Screenshots](../../docs/images/README.md))        |
 
 ## Run it
 

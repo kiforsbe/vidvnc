@@ -32,6 +32,10 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
   }
 }
 
+enum SettingsTab: String, CaseIterable, Hashable {
+  case general, about
+}
+
 enum SheetKind: Identifiable, Equatable {
   case connectDevice
   case permissionsIntro
@@ -55,6 +59,7 @@ enum SheetKind: Identifiable, Equatable {
 final class Presentation {
   var section: SidebarSection = .overview
   var sheet: SheetKind?
+  var settingsTab: SettingsTab = .general
   /// Set while a start is waiting on the permissions introduction.
   private var pendingStart: Bool?
   /// Networks the owner closed the sheet for without answering; a banner stays instead.
