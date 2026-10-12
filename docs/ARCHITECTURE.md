@@ -1754,6 +1754,7 @@ native/
 tests/system/     Cross-application lifecycle and real media smoke checks
 tools/            Root orchestration and formatting; tools/tests/ owns its tests
   debug/          Cross-process debug target definitions and implementation contract
+  promo-video/    Scripts that generate the promo film from code (media goes to out/, not git)
 packaging/        Six-product catalog; shared and OS-specific packaging ownership
 docs/             Architecture, mockups, research history
 site/             The project website (GitHub Pages), published as it is

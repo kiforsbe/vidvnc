@@ -1,0 +1,72 @@
+{
+  "voice": "af_heart",
+  "lang": "en-us",
+  "speed": 1.0,
+  "lines": [
+    {
+      "at": 0.8,
+      "text": "You've done this before."
+    },
+    {
+      "at": 3.2,
+      "text": "Reach for your desktop, and it fights back."
+    },
+    {
+      "at": 12.6,
+      "text": "Now the same desk, the same network."
+    },
+    {
+      "at": 24.6,
+      "text": "About sixty-three milliseconds from your screen to theirs.",
+      "caption": "About 63 milliseconds from your screen to theirs."
+    },
+    {
+      "at": 28.8,
+      "text": "Video and sound, together."
+    },
+    {
+      "at": 32.3,
+      "text": "Open the app. Show a code."
+    },
+    {
+      "at": 36.4,
+      "text": "Scan it, and you're in. No app to install on the phone."
+    },
+    {
+      "at": 41.3,
+      "text": "Hand over the keyboard and mouse only when you choose."
+    },
+    {
+      "at": 45.3,
+      "text": "On a Mac or a Windows PC, the graphics hardware does the work."
+    },
+    {
+      "at": 50.4,
+      "text": "Fast is easy to promise. Trusted takes design."
+    },
+    {
+      "at": 55.0,
+      "text": "Every part is placed by how much it trusts what reaches it."
+    },
+    {
+      "at": 60.0,
+      "text": "Traffic from the network meets one guarded port, and only proven senders get through."
+    },
+    {
+      "at": 66.2,
+      "text": "The video connection runs in a sandbox. Break in, and it still can't see your screen, send input, or read your files."
+    },
+    {
+      "at": 72.5,
+      "text": "It reaches the trusted side only through narrow pipes, and the part that captures your screen never touches the network."
+    },
+    {
+      "at": 80.3,
+      "text": "Everything is encrypted. Remote access stays off until you turn it on, and codes work once."
+    },
+    {
+      "at": 89.4,
+      "text": "VidVNC. Your desktop, in real time, on your network."
+    }
+  ]
+}
