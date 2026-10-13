@@ -453,7 +453,9 @@ async function oneCut(kind, fps, c, out) {
 // The website's copies of a final, at most 1 MB per minute of film: AV1 (the smallest that
 // browsers play) and HEVC as a fallback for Apple devices without an AV1 decoder, both 10-bit
 // so the dark gradients don't band, at 1920 x 1080, with Opus sound, in MP4. Each is encoded
-// in two passes to a bitrate worked out from the film's length, so it lands under budget.
+// in two passes to a bitrate worked out from the film's length. Encoders miss the target by a
+// few per cent (x265 overshoots), so a copy over budget gets its second pass again at a
+// bitrate lowered by the overshoot, up to three times.
 // Also a poster (the frame the timeline marks with poster) and the captions as WebVTT, all
 // named after the cut so they can be published side by side.
 const WEB = { mbPerMinute: 1, audioKbps: 40, overheadKbps: 4, height: 1080 };
@@ -466,7 +468,7 @@ async function webCopy(master, srt, c, dir, work) {
   const videoKbps = totalKbps - WEB.audioKbps - WEB.overheadKbps;
   const common = ['-vf', `scale=-2:${WEB.height}:flags=lanczos`, '-pix_fmt', 'yuv420p10le'];
   const codecs = {
-    av1: (pass, log) => [
+    av1: (pass, log, kbps) => [
       '-c:v',
       'libaom-av1',
       '-cpu-used',
@@ -478,19 +480,19 @@ async function webCopy(master, srt, c, dir, work) {
       '-g',
       '300',
       '-b:v',
-      `${videoKbps}k`,
+      `${kbps}k`,
       '-pass',
       String(pass),
       '-passlogfile',
       log,
     ],
-    hevc: (pass, log) => [
+    hevc: (pass, log, kbps) => [
       '-c:v',
       'libx265',
       '-preset',
       'slow',
       '-b:v',
-      `${videoKbps}k`,
+      `${kbps}k`,
       '-x265-params',
       `pass=${pass}:stats=${log.replace(/\\/g, '/')}.log:keyint=300:log-level=error`,
       '-tag:v',
@@ -508,32 +510,45 @@ async function webCopy(master, srt, c, dir, work) {
       '-i',
       master,
       ...common,
-      ...args(1, log),
+      ...args(1, log, videoKbps),
       '-an',
       '-f',
       'mp4',
       win ? 'NUL' : '/dev/null',
     ]);
-    run(ffmpeg(), [
-      '-loglevel',
-      'error',
-      '-y',
-      '-i',
-      master,
-      ...common,
-      ...args(2, log),
-      '-c:a',
-      'libopus',
-      '-b:a',
-      `${WEB.audioKbps}k`,
-      '-movflags',
-      '+faststart',
-      out,
-    ]);
-    const mb = statSync(out).size / 1e6;
-    const perMin = mb / (c.duration / 60);
-    console.log(`  ${path.basename(out)}: ${mb.toFixed(2)} MB, ${perMin.toFixed(2)} MB a minute`);
-    if (perMin > WEB.mbPerMinute) console.warn(`warning: over ${WEB.mbPerMinute} MB a minute`);
+    let kbps = videoKbps;
+    for (let attempt = 1; ; attempt++) {
+      run(ffmpeg(), [
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        master,
+        ...common,
+        ...args(2, log, kbps),
+        '-c:a',
+        'libopus',
+        '-b:a',
+        `${WEB.audioKbps}k`,
+        '-movflags',
+        '+faststart',
+        out,
+      ]);
+      const mb = statSync(out).size / 1e6;
+      const perMin = mb / (c.duration / 60);
+      console.log(
+        `  ${path.basename(out)}: ${mb.toFixed(2)} MB, ${perMin.toFixed(2)} MB a minute (${kbps} kbit/s video)`,
+      );
+      if (perMin <= WEB.mbPerMinute) break;
+      if (attempt === 3) {
+        console.warn(`warning: over ${WEB.mbPerMinute} MB a minute`);
+        break;
+      }
+      // take the overshoot off the video's share, with 2% to spare
+      const overKbps = ((perMin - WEB.mbPerMinute) * 8000) / 60;
+      kbps = Math.floor((kbps - overKbps) * 0.98);
+      console.log(`  over budget, second pass again at ${kbps} kbit/s`);
+    }
   }
   const s = c.scenes.find((x) => x.poster !== undefined) || c.scenes[0];
   run(ffmpeg(), [
