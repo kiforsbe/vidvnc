@@ -16,7 +16,7 @@ const renderer = new THREE.WebGLRenderer({
   alpha: false,
 });
 renderer.setSize(W, H);
-renderer.setPixelRatio(1);
+renderer.setPixelRatio(window.devicePixelRatio || 1); // 4/3 for the 2K final
 renderer.domElement.style.position = 'absolute';
 renderer.domElement.style.inset = '0';
 document.body.prepend(renderer.domElement);

@@ -1,4 +1,4 @@
-import { clamp, ease, el, fade, makeLaptop, vidTime } from '../engine/kit.mjs';
+import { clamp, ease, el, fade, makeCanvas, makeLaptop, vidTime } from '../engine/kit.mjs';
 
 // Scene: stay in your flow. A remote workstation through VidVNC: code being typed, the file
 // scrolling smoothly, every keystroke on screen at once. An illustration, like the race.
@@ -156,11 +156,7 @@ export const build = (root) => {
   const lap = makeLaptop(root, 1100);
   lap.box.style.left = '410px';
   lap.box.style.top = '150px';
-  const cv = document.createElement('canvas');
-  cv.width = 1056;
-  cv.height = 660;
-  cv.style.position = 'absolute';
-  lap.screen.appendChild(cv);
+  const { g } = makeCanvas(lap.screen, 1056, 660);
   const label = el(
     'label',
     root,
@@ -174,7 +170,7 @@ export const build = (root) => {
     '<div class="title" style="font-size:56px">Type and scroll at full speed.</div>',
   );
   el('note', root, {}, 'Illustration');
-  return { g: cv.getContext('2d'), label, t };
+  return { g, label, t };
 };
 
 export const update = ({ g, label, t }, lt, dur, root) => {

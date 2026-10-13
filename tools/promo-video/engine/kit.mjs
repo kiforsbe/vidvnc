@@ -519,15 +519,28 @@ export function drawFilm(g, time, W, H, chrome = true) {
 }
 const hms = (s) =>
   `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
-// A screen that plays the film: a canvas of the given size in pixels.
-export function makeFilm(parent, w, h, css = {}) {
+// A canvas of w x h page pixels, backed at the page's pixel ratio so it stays sharp when the
+// film is recorded above 1080p (promo.mjs final records at 2560 x 1440).
+export function makeCanvas(parent, w, h, css = {}) {
+  const r = window.devicePixelRatio || 1;
   const cv = document.createElement('canvas');
-  cv.width = w;
-  cv.height = h;
-  Object.assign(cv.style, { position: 'absolute', left: 0, top: 0, ...css });
+  cv.width = Math.round(w * r);
+  cv.height = Math.round(h * r);
+  Object.assign(cv.style, {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: w + 'px',
+    height: h + 'px',
+    ...css,
+  });
   parent.appendChild(cv);
-  return { cv, g: cv.getContext('2d'), w, h };
+  const g = cv.getContext('2d');
+  g.scale(r, r);
+  return { cv, g, w, h };
 }
+// A screen that plays the film.
+export const makeFilm = makeCanvas;
 export const setFilm = (f, time, chrome = true) => drawFilm(f.g, time, f.w, f.h, chrome);
 // A flat-screen TV on a two-legged stand, w pixels wide, with a 16:9 screen playing the film.
 export function makeTV(parent, w) {

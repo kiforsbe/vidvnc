@@ -3,9 +3,10 @@
 //
 //   node tools/promo-video/promo.mjs setup     install the tools into .deps/promo-video
 //   node tools/promo-video/promo.mjs voices    female voice samples
-//   node tools/promo-video/promo.mjs draft     the next numbered draft: both cuts (30 fps), each
-//                                              with its storyboard and audio
-//   node tools/promo-video/promo.mjs final     the next numbered final: both cuts (60 fps)
+//   node tools/promo-video/promo.mjs draft     the next numbered draft: both cuts (1080p, 30 fps),
+//                                              each with its storyboard and audio
+//   node tools/promo-video/promo.mjs final     the next numbered final: both cuts as 2K masters
+//                                              (2560 x 1440, 30 fps) and web copies for the site
 //
 // draft and final take a cut name (consumer or developer, see timeline.mjs) to build only
 // that cut.
@@ -175,7 +176,10 @@ function serve() {
     .listen(0, '127.0.0.1');
   return new Promise((r) => server.once('listening', () => r(server)));
 }
-async function openPage(c) {
+// The page is always laid out at 1920 x 1080; a final records it at 4/3 the pixel ratio, so
+// 2560 x 1440, and the canvases and the WebGL backdrop draw at that ratio too.
+const SCALE = { draft: 1, final: 4 / 3 };
+async function openPage(c, scale = 1) {
   const { chromium } = nodeRequire()('playwright-core');
   const tries = process.env.CHROMIUM
     ? [{ executablePath: process.env.CHROMIUM }]
@@ -199,7 +203,7 @@ async function openPage(c) {
   const server = await serve();
   const page = await browser.newPage({
     viewport: { width: 1920, height: 1080 },
-    deviceScaleFactor: 1,
+    deviceScaleFactor: scale,
   });
   page.on('pageerror', (e) => console.error('page error:', e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/film.html?cut=${c.name}`);
@@ -288,9 +292,12 @@ async function contactSheet(dir) {
   ]);
   rmSync(list);
 }
-async function video(file, fps, c) {
+// A draft's picture goes through JPEG frames; a final's through lossless PNG frames into a
+// near-lossless master.
+async function video(file, fps, c, kind) {
   const duration = c.duration;
-  const p = await openPage(c);
+  const master = kind === 'final';
+  const p = await openPage(c, SCALE[kind]);
   const ff = spawn(
     ffmpeg(),
     [
@@ -302,15 +309,15 @@ async function video(file, fps, c) {
       '-framerate',
       String(fps),
       '-c:v',
-      'mjpeg',
+      master ? 'png' : 'mjpeg',
       '-i',
       '-',
       '-c:v',
       'libx264',
       '-preset',
-      'medium',
+      master ? 'slow' : 'medium',
       '-crf',
-      '17',
+      master ? '12' : '17',
       '-pix_fmt',
       'yuv420p',
       file,
@@ -319,7 +326,7 @@ async function video(file, fps, c) {
   );
   const n = Math.round(duration * fps);
   for (let i = 0; i < n; i++) {
-    const buf = await p.shot(i / fps, 'jpeg');
+    const buf = await p.shot(i / fps, master ? 'png' : 'jpeg');
     if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once('drain', r));
     if (i % (fps * 10) === 0) console.log(`  picture ${Math.round(i / fps)} s of ${duration} s`);
   }
@@ -372,15 +379,16 @@ function sound(work, c) {
   ]);
 }
 
-// A draft holds, per cut, the film at 30 fps, its captions, the storyboard (one still per
+// A draft holds, per cut, the film at 1080p, its captions, the storyboard (one still per
 // shot, a contact sheet and index.html with the lines) and the audio stems; a final holds,
-// per cut, the film at 60 fps and its captions.
+// per cut, the 2K master, its captions, and web/: a smaller copy for the website with a
+// poster frame and WebVTT captions. Both are 30 fps: the film has nothing that needs more.
 async function film(kind, only) {
   if (only && !CUT_NAMES.includes(only)) {
     console.error(`unknown cut: ${only} (cuts: ${CUT_NAMES.join(', ')})`);
     process.exit(2);
   }
-  const fps = kind === 'final' ? 60 : 30;
+  const fps = 30;
   const top = outDir(kind === 'final' ? 'final' : 'drafts');
   for (const name of only ? [only] : CUT_NAMES) {
     console.log(`==== ${name} cut`);
@@ -402,8 +410,9 @@ async function oneCut(kind, fps, c, out) {
     await contactSheet(board);
     storyboardPage(board, c);
   }
-  console.log(`== picture (${fps} fps)`);
-  await video(path.join(work, 'picture.mp4'), fps, c);
+  console.log(`== picture (${kind === 'final' ? '2560 x 1440' : '1920 x 1080'}, ${fps} fps)`);
+  await video(path.join(work, 'picture.mp4'), fps, c, kind);
+  const film = path.join(out, kind === 'final' ? 'vidvnc-promo-2k.mp4' : 'vidvnc-promo.mp4');
   console.log('== mux');
   run(ffmpeg(), [
     '-loglevel',
@@ -422,9 +431,10 @@ async function oneCut(kind, fps, c, out) {
     '-shortest',
     '-movflags',
     '+faststart',
-    path.join(out, 'vidvnc-promo.mp4'),
+    film,
   ]);
   copyFileSync(path.join(work, 'vo.srt'), path.join(out, 'vidvnc-promo.en.srt'));
+  if (kind === 'final') await webCopy(film, work, c, path.join(out, 'web'));
   if (kind === 'draft') {
     const audio = path.join(out, 'audio');
     mkdirSync(audio);
@@ -435,6 +445,61 @@ async function oneCut(kind, fps, c, out) {
     ])
       copyFileSync(path.join(work, from), path.join(audio, to));
   }
+}
+
+// The website's copy of a final: the same 2560 x 1440 picture at a streaming bitrate, a poster
+// (the frame the timeline marks with poster), and the captions as WebVTT, all named after the
+// cut so they can be published side by side.
+async function webCopy(master, work, c, dir) {
+  mkdirSync(dir, { recursive: true });
+  const base = path.join(dir, `vidvnc-promo-${c.name}`);
+  console.log('== web copy');
+  run(ffmpeg(), [
+    '-loglevel',
+    'error',
+    '-y',
+    '-i',
+    master,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'slow',
+    '-crf',
+    '23',
+    '-maxrate',
+    '8M',
+    '-bufsize',
+    '16M',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '160k',
+    '-movflags',
+    '+faststart',
+    `${base}.mp4`,
+  ]);
+  const s = c.scenes.find((x) => x.poster !== undefined) || c.scenes[0];
+  run(ffmpeg(), [
+    '-loglevel',
+    'error',
+    '-y',
+    '-ss',
+    String(s.start + (s.poster ?? 1)),
+    '-i',
+    master,
+    '-frames:v',
+    '1',
+    '-q:v',
+    '3',
+    `${base}-poster.jpg`,
+  ]);
+  const srt = readFileSync(path.join(work, 'vo.srt'), 'utf8');
+  writeFileSync(
+    `${base}.en.vtt`,
+    'WEBVTT\n\n' + srt.replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, '$1.$2').replace(/\r/g, ''),
+  );
 }
 
 async function voices() {
