@@ -1,6 +1,6 @@
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
 import { StreamSubscriptions } from './stream-subscriptions.js';
-import { videoCodecPreferences } from './codec-preferences.js';
+import { applyCodecPreferences, videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip, sizeText } from './profile-labels.js';
 import { needsImmersive, videoPoint } from './stage-geometry.js';
 
@@ -441,7 +441,7 @@ export function createViewer({ onExit }) {
     const connection = (pc = new RTCPeerConnection({ iceServers: [] }));
     const transceiver = connection.addTransceiver('video', { direction: 'recvonly' });
     if (result.audio.enabled) connection.addTransceiver('audio', { direction: 'recvonly' });
-    transceiver.setCodecPreferences(await videoCodecPreferences(undefined));
+    applyCodecPreferences(transceiver, await videoCodecPreferences(undefined));
     channel = connection.createDataChannel('input', { ordered: true });
     channel.onmessage = (event) => {
       try {

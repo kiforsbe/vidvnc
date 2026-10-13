@@ -48,3 +48,38 @@ export async function videoCodecPreferences(profile, env = globalThis) {
   }
   return [...hardware, ...h264, ...byMime(all, 'video/rtx')];
 }
+
+const sameCodec = (a, b) =>
+  a.mimeType.toLowerCase() === b.mimeType.toLowerCase() &&
+  a.clockRate === b.clockRate &&
+  (a.sdpFmtpLine ?? '') === (b.sdpFmtpLine ?? '');
+
+// Older Chromium, such as Samsung TV browsers, checks preferences against the codecs it can
+// send as well as receive, even on a receive-only transceiver, and refuses a decode-only
+// codec ("Missing codec from send codec capabilities"). Retry with the codecs it can also
+// send; if that is refused too or leaves no H.264, keep the browser's own order: the server
+// still picks a codec it can encode from the offer. Returns whether preferences were set.
+export function applyCodecPreferences(transceiver, codecs, env = globalThis) {
+  try {
+    transceiver.setCodecPreferences(codecs);
+    return true;
+  } catch (error) {
+    let sendable = [];
+    try {
+      const send = env.RTCRtpSender?.getCapabilities?.('video')?.codecs ?? [];
+      sendable = codecs.filter((codec) => send.some((other) => sameCodec(codec, other)));
+    } catch {
+      /* No sender capabilities: fall through to the browser's order. */
+    }
+    if (byMime(sendable, 'video/h264').length > 0) {
+      try {
+        transceiver.setCodecPreferences(sendable);
+        return true;
+      } catch {
+        /* Refused again: fall through. */
+      }
+    }
+    env.console?.warn?.(`Using the browser's codec order: ${error.message}`);
+    return false;
+  }
+}

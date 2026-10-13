@@ -26,6 +26,8 @@ may include breaking changes.
 
 - A Mac server that cannot start no longer tells you to check the Microsoft Visual C++
   Redistributable.
+- The viewer connects from browsers that refuse its codec choice, such as a Samsung TV's,
+  instead of failing with "Failed to execute 'setCodecPreferences'".
 
 ## [0.11.0] - 2026-10-11
 
