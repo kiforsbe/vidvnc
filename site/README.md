@@ -9,6 +9,8 @@ step.
 | [index.html](index.html) | The page                                                                                       |
 | [styles.css](styles.css) | Layout and the light and dark colour tokens                                                    |
 | [theme.js](theme.js)     | The System / Light / Dark switch; a choice is kept in the browser's local storage              |
+| [film.js](film.js)       | Opens the promo films in a player dialog                                                       |
+| [media/](media/)         | The promo films' web copies, posters and captions                                              |
 | [images/](images/)       | The hero image, copies of the app screenshots, and the app icon                                |
 | [fonts/](fonts/)         | Instrument Sans and JetBrains Mono, Latin subset (from Fontsource 5.3.0), with their OFL texts |
 
@@ -31,6 +33,27 @@ and a dark `<source>` marked `data-dark`; `theme.js` points that source at the v
   `apps/macos-host/VidVNC/Assets.xcassets/AppIcon.appiconset/icon_256x256.png`.
 
 After regenerating the screenshots, copy the new ones over and run `site-hero.py` again.
+
+## Films
+
+The two promo films play from the page itself. A **Watch the film** button in the hero opens
+the consumer cut, and a link under the features heading opens the developer cut. Each opens a
+`<dialog>` with a `<video>` that has `preload="none"` and no poster until it opens, so the page
+downloads nothing for the films until someone clicks.
+
+`media/` holds, for each cut (`consumer`, `developer`):
+
+- `vidvnc-promo-<cut>.av1.mp4`: 10-bit AV1 at 1080p with Opus sound, which browsers try first.
+- `vidvnc-promo-<cut>.hevc.mp4`: 10-bit HEVC (`hvc1`) with Opus, for browsers without AV1
+  (older Safari).
+- `vidvnc-promo-<cut>-poster.jpg`: the still shown before it plays.
+- `vidvnc-promo-<cut>.en.vtt`: English captions.
+
+Each copy is at most about 1 MB per minute of film. They are the only generated media
+committed to the repository, kept small so the site stays well inside GitHub Pages' limits.
+`node tools/promo-video/promo.mjs web <draft>` makes them from a 2K master (see
+[tools/promo-video/README.md](../tools/promo-video/README.md)); copy the files from
+`out/promo-video/final/<draft>/<cut>/web/` into `media/`.
 
 Behind the hero, the page draws a soft blue and violet glow and a fading dot grid in CSS, in
 the theme's colours.

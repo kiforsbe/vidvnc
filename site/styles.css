@@ -641,6 +641,95 @@ h3 {
   list-style: none;
 }
 
+/* Films: a "Watch" button opens a dialog with the video (film.js); without scripts the
+   buttons stay hidden. */
+
+.film-open {
+  display: none;
+}
+.js .film-open {
+  display: inline-flex;
+}
+button.button {
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+.play {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+.film-length {
+  color: var(--faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 400;
+}
+.film-link {
+  font-size: 16px;
+}
+.link-button {
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  cursor: pointer;
+}
+.link-button:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+.film {
+  width: min(1100px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: #000000;
+  overflow: hidden;
+}
+.film::backdrop {
+  background: rgba(5, 8, 16, 0.78);
+}
+.film video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000000;
+}
+.film form {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+.film-close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.film-close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.film-close:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
 @media (max-width: 720px) {
   .nav-links {
     display: none;

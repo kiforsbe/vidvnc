@@ -34,6 +34,7 @@
     />
     <link rel="stylesheet" href="styles.css" />
     <script src="theme.js"></script>
+    <script src="film.js" defer></script>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -154,6 +155,12 @@
           <a class="button button-primary" href="https://github.com/kiforsbe/vidvnc"
             >View on GitHub</a
           >
+          <button type="button" class="button button-outline film-open" data-film="consumer">
+            <svg class="play" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 2.5v11l9-5.5z" />
+            </svg>
+            Watch the film <span class="film-length">0:54</span>
+          </button>
           <a class="button button-outline" href="#start">Build from source</a>
         </div>
         <p class="note">No compiled release yet. The first one is on its way.</p>
@@ -198,6 +205,14 @@
           <p>
             The GPU does the encoding, the browser does the viewing, and nothing leaves your network
             unless you set up remote access.
+          </p>
+          <p class="film-link">
+            <button type="button" class="link-button film-open" data-film="developer">
+              <svg class="play" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 2.5v11l9-5.5z" />
+              </svg>
+              Watch the two-minute version for developers</button
+            >: how it keeps up with your work, and how it's kept safe.
           </p>
         </div>
         <ul class="cards">
@@ -486,6 +501,63 @@ npm run start:host -- Debug</code></pre>
         </div>
       </section>
     </main>
+
+    <dialog class="film" id="film-consumer" aria-label="VidVNC film, 54 seconds">
+      <form method="dialog">
+        <button class="film-close" aria-label="Close the film">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+      </form>
+      <video
+        controls
+        playsinline
+        preload="none"
+        data-poster="media/vidvnc-promo-consumer-poster.jpg"
+      >
+        <source
+          src="media/vidvnc-promo-consumer.av1.mp4"
+          type='video/mp4; codecs="av01.0.08M.10, opus"'
+        />
+        <source
+          src="media/vidvnc-promo-consumer.hevc.mp4"
+          type='video/mp4; codecs="hvc1.2.4.L120.B0, opus"'
+        />
+        <track
+          kind="captions"
+          src="media/vidvnc-promo-consumer.en.vtt"
+          srclang="en"
+          label="English"
+        />
+      </video>
+    </dialog>
+    <dialog class="film" id="film-developer" aria-label="VidVNC film for developers, 2 minutes">
+      <form method="dialog">
+        <button class="film-close" aria-label="Close the film">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+      </form>
+      <video
+        controls
+        playsinline
+        preload="none"
+        data-poster="media/vidvnc-promo-developer-poster.jpg"
+      >
+        <source
+          src="media/vidvnc-promo-developer.av1.mp4"
+          type='video/mp4; codecs="av01.0.08M.10, opus"'
+        />
+        <source
+          src="media/vidvnc-promo-developer.hevc.mp4"
+          type='video/mp4; codecs="hvc1.2.4.L120.B0, opus"'
+        />
+        <track
+          kind="captions"
+          src="media/vidvnc-promo-developer.en.vtt"
+          srclang="en"
+          label="English"
+        />
+      </video>
+    </dialog>
 
     <footer class="footer">
       <div class="container">
