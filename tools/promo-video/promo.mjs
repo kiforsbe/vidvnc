@@ -450,22 +450,29 @@ async function oneCut(kind, fps, c, out) {
   }
 }
 
-// The website's copies of a final, at most 1 MB per minute of film: AV1 (the smallest that
-// browsers play) and HEVC as a fallback for Apple devices without an AV1 decoder, both 10-bit
-// so the dark gradients don't band, at 1920 x 1080, with Opus sound, in MP4. Each is encoded
-// in two passes to a bitrate worked out from the film's length. Encoders miss the target by a
-// few per cent (x265 overshoots), so a copy over budget gets its second pass again at a
-// bitrate lowered by the overshoot, up to three times.
+// The website's copies of a final, in two sizes: at most 1 MB per minute of film (for phones
+// and slow connections) and at most 2 MB per minute (sharper, for larger screens). Each size
+// comes as AV1 (the smallest that browsers play) and HEVC as a fallback for Apple devices
+// without an AV1 decoder, both 10-bit so the dark gradients don't band, at 1920 x 1080, with
+// Opus sound, in MP4, named vidvnc-promo-<cut>-<size>mb.<codec>.mp4. Each is encoded in two
+// passes to a bitrate worked out from the film's length. Encoders miss the target by a few
+// per cent (x265 overshoots), so a copy over budget gets its second pass again at a bitrate
+// lowered by the overshoot, up to three times. A copy that already exists, is newer than the
+// master and is within budget is kept, so a second run only encodes what is missing.
 // Also a poster (the frame the timeline marks with poster) and the captions as WebVTT, all
 // named after the cut so they can be published side by side.
-const WEB = { mbPerMinute: 1, audioKbps: 40, overheadKbps: 4, height: 1080 };
+const WEB = {
+  sizes: [
+    { mbPerMinute: 1, audioKbps: 40 },
+    { mbPerMinute: 2, audioKbps: 64 },
+  ],
+  overheadKbps: 4,
+  height: 1080,
+};
 async function webCopy(master, srt, c, dir, work) {
   mkdirSync(dir, { recursive: true });
   mkdirSync(work, { recursive: true });
   const base = path.join(dir, `vidvnc-promo-${c.name}`);
-  // 1 MB a minute is 8 * 1000 * 1000 / 60 bits a second; keep 3% back for the container
-  const totalKbps = Math.floor(((WEB.mbPerMinute * 8000) / 60) * 0.97);
-  const videoKbps = totalKbps - WEB.audioKbps - WEB.overheadKbps;
   const common = ['-vf', `scale=-2:${WEB.height}:flags=lanczos`, '-pix_fmt', 'yuv420p10le'];
   const codecs = {
     av1: (pass, log, kbps) => [
@@ -499,25 +506,25 @@ async function webCopy(master, srt, c, dir, work) {
       'hvc1', // so Safari plays it
     ],
   };
-  for (const [name, args] of Object.entries(codecs)) {
-    console.log(`== web copy: ${name}, ${videoKbps} kbit/s video + ${WEB.audioKbps} kbit/s Opus`);
-    const log = path.join(work, `${c.name}-${name}`);
-    const out = `${base}.${name}.mp4`;
-    run(ffmpeg(), [
-      '-loglevel',
-      'error',
-      '-y',
-      '-i',
-      master,
-      ...common,
-      ...args(1, log, videoKbps),
-      '-an',
-      '-f',
-      'mp4',
-      win ? 'NUL' : '/dev/null',
-    ]);
-    let kbps = videoKbps;
-    for (let attempt = 1; ; attempt++) {
+  const perMinute = (file) => statSync(file).size / 1e6 / (c.duration / 60);
+  for (const { mbPerMinute, audioKbps } of WEB.sizes) {
+    // 1 MB a minute is 8 * 1000 * 1000 / 60 bits a second; keep 3% back for the container
+    const totalKbps = Math.floor(((mbPerMinute * 8000) / 60) * 0.97);
+    const videoKbps = totalKbps - audioKbps - WEB.overheadKbps;
+    for (const [name, args] of Object.entries(codecs)) {
+      const out = `${base}-${mbPerMinute}mb.${name}.mp4`;
+      if (
+        existsSync(out) &&
+        statSync(out).mtimeMs > statSync(master).mtimeMs &&
+        perMinute(out) <= mbPerMinute
+      ) {
+        console.log(`== web copy: ${path.basename(out)} is up to date, kept`);
+        continue;
+      }
+      console.log(
+        `== web copy: ${path.basename(out)}, ${videoKbps} kbit/s video + ${audioKbps} kbit/s Opus`,
+      );
+      const log = path.join(work, `${c.name}-${mbPerMinute}mb-${name}`);
       run(ffmpeg(), [
         '-loglevel',
         'error',
@@ -525,29 +532,44 @@ async function webCopy(master, srt, c, dir, work) {
         '-i',
         master,
         ...common,
-        ...args(2, log, kbps),
-        '-c:a',
-        'libopus',
-        '-b:a',
-        `${WEB.audioKbps}k`,
-        '-movflags',
-        '+faststart',
-        out,
+        ...args(1, log, videoKbps),
+        '-an',
+        '-f',
+        'mp4',
+        win ? 'NUL' : '/dev/null',
       ]);
-      const mb = statSync(out).size / 1e6;
-      const perMin = mb / (c.duration / 60);
-      console.log(
-        `  ${path.basename(out)}: ${mb.toFixed(2)} MB, ${perMin.toFixed(2)} MB a minute (${kbps} kbit/s video)`,
-      );
-      if (perMin <= WEB.mbPerMinute) break;
-      if (attempt === 3) {
-        console.warn(`warning: over ${WEB.mbPerMinute} MB a minute`);
-        break;
+      let kbps = videoKbps;
+      for (let attempt = 1; ; attempt++) {
+        run(ffmpeg(), [
+          '-loglevel',
+          'error',
+          '-y',
+          '-i',
+          master,
+          ...common,
+          ...args(2, log, kbps),
+          '-c:a',
+          'libopus',
+          '-b:a',
+          `${audioKbps}k`,
+          '-movflags',
+          '+faststart',
+          out,
+        ]);
+        const pm = perMinute(out);
+        console.log(
+          `  ${(statSync(out).size / 1e6).toFixed(2)} MB, ${pm.toFixed(2)} MB a minute (${kbps} kbit/s video)`,
+        );
+        if (pm <= mbPerMinute) break;
+        if (attempt === 3) {
+          console.warn(`warning: over ${mbPerMinute} MB a minute`);
+          break;
+        }
+        // take the overshoot off the video's share, with 2% to spare
+        const overKbps = ((pm - mbPerMinute) * 8000) / 60;
+        kbps = Math.floor((kbps - overKbps) * 0.98);
+        console.log(`  over budget, second pass again at ${kbps} kbit/s`);
       }
-      // take the overshoot off the video's share, with 2% to spare
-      const overKbps = ((perMin - WEB.mbPerMinute) * 8000) / 60;
-      kbps = Math.floor((kbps - overKbps) * 0.98);
-      console.log(`  over budget, second pass again at ${kbps} kbit/s`);
     }
   }
   const s = c.scenes.find((x) => x.poster !== undefined) || c.scenes[0];
@@ -576,7 +598,7 @@ async function webCopy(master, srt, c, dir, work) {
   );
 }
 // promo.mjs web [NN]: makes the web copies again from final NN's masters (the latest final if
-// no number), without rendering anything.
+// no number), without rendering anything. Copies that are up to date are kept (see webCopy).
 async function web(num) {
   const parent = path.join(outRoot, 'final');
   const n =
@@ -591,7 +613,6 @@ async function web(num) {
     const master = path.join(dir, 'vidvnc-promo-2k.mp4');
     if (!existsSync(master)) continue;
     console.log(`==== ${name} cut, final ${n}`);
-    rmSync(path.join(dir, 'web'), { recursive: true, force: true });
     await webCopy(
       master,
       path.join(dir, 'vidvnc-promo.en.srt'),
