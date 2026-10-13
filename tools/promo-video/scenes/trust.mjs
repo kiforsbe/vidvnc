@@ -19,7 +19,7 @@ export const build = (root) => {
     'abs',
     root,
     { left: 0, right: 0, top: '620px' },
-    '<div class="title">Fast is easy to promise. Trusted takes design.</div>',
+    '<div class="title">Speed is half the job.</div>',
   );
   return { mon, t1 };
 };

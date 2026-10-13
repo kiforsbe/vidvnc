@@ -7,134 +7,134 @@
       {
         "scene": "hook",
         "at": 0.6,
-        "text": "Your films, your music, your whole desktop live on your computer. But you're on the sofa."
+        "text": "Everything you want to watch is on your computer. And your computer isn't on the sofa."
       },
       {
         "scene": "watch",
         "at": 0.4,
-        "text": "With VidVNC, watch it on the TV or your phone. Smooth video, with the sound."
+        "text": "VidVNC brings it to your TV or your phone. Smooth, sharp, and with sound."
       },
       {
         "scene": "app-code",
         "at": 0.5,
-        "text": "Getting started is simple. Open VidVNC and show a code."
+        "text": "Open VidVNC on your Mac or PC, and it shows you a code."
       },
       {
         "scene": "scan",
         "at": 0.4,
-        "text": "Scan it with your phone, or type the short key in a browser. No app to install."
+        "text": "Scan it with your phone, or type it into your TV's browser. There's nothing to install."
       },
       {
         "scene": "screens",
         "at": 0.4,
-        "text": "It works on phones, tablets and compatible smart TVs."
+        "text": "Use your phone, your tablet, or a compatible smart TV."
       },
       {
         "scene": "touch",
         "at": 0.4,
-        "text": "And when you need your computer, take the keyboard and mouse from the sofa. On a phone, your finger is the mouse."
+        "text": "Want to do more than watch? Take over the mouse and keyboard without leaving the sofa. On a phone, just use your finger."
       },
       {
         "scene": "safe",
         "at": 0.3,
-        "text": "It stays on your network. Everything is encrypted, and every new device needs your OK."
+        "text": "It all stays on your home network, it's encrypted, and nothing connects until you say so."
       },
       {
         "scene": "end",
         "at": 0.3,
-        "text": "VidVNC. Your desktop, in real time, on every screen at home."
+        "text": "VidVNC. Your computer, on every screen in the house."
       }
     ],
     "developer": [
       {
         "scene": "lag",
         "at": 0.6,
-        "text": "Traditional VNC sends your screen as a trickle of still pictures."
+        "text": "Traditional VNC sends your screen as a series of still pictures."
       },
       {
         "scene": "lag",
         "at": 5.0,
-        "text": "Every click lands late. Every scroll stutters. And you lose your flow."
+        "text": "So you click, and wait. You drag a window, and watch it catch up."
       },
       {
         "scene": "race",
         "at": 0.4,
-        "text": "VidVNC streams your desktop as video instead. Smooth, sharp, and in step with your hands."
+        "text": "VidVNC streams your desktop as video instead, with sound."
       },
       {
         "scene": "race",
-        "at": 7.0,
-        "text": "Same desk. Same network. Nothing to wait for."
+        "at": 6.0,
+        "text": "Same computer, same network. It just keeps up."
       },
       {
         "scene": "number",
         "at": 0.4,
-        "text": "About sixty-three milliseconds, screen to screen, in full HD. And up to 4K, for sharp text.",
-        "caption": "About 63 milliseconds, screen to screen, in full HD. And up to 4K, for sharp text."
+        "text": "About sixty-three milliseconds, screen to screen, at 1080p. And it scales up to 4K, so text stays crisp.",
+        "caption": "About 63 milliseconds, screen to screen, at 1080p. And it scales up to 4K, so text stays crisp."
       },
       {
         "scene": "flow",
         "at": 0.4,
-        "text": "Type and scroll at full speed. It keeps up with you, so you stay in your flow."
+        "text": "Type, scroll, switch windows. It keeps up, so you stay focused on the work."
       },
       {
         "scene": "app-code",
         "at": 0.6,
-        "text": "Open the app. Show a code."
+        "text": "To connect, open VidVNC and show a code."
       },
       {
         "scene": "scan",
         "at": 0.4,
-        "text": "Scan the code, or type the short key. No app to install."
+        "text": "Scan it, or type the short key. The viewer runs in the browser, so there's nothing to install."
       },
       {
         "scene": "accounts",
         "at": 0.4,
-        "text": "Or, if the host allows it, register a device once. Then it signs in with a username and password. Passkeys come in a later release."
+        "text": "Devices you use every day can register once and sign in with a username and password, if you allow it. Passkeys are coming in a later release."
       },
       {
         "scene": "control",
         "at": 0.3,
-        "text": "Hand over the keyboard and mouse only when you choose."
+        "text": "The keyboard and mouse are only handed over when you say so."
       },
       {
         "scene": "platforms",
         "at": 0.3,
-        "text": "On a Mac or a Windows PC, the graphics hardware does the encoding, so the processor stays free for your work."
+        "text": "It runs on Mac and Windows, and encodes on the graphics hardware, so your processor stays free for real work."
       },
       {
         "scene": "trust",
         "at": 0.4,
-        "text": "Fast is easy to promise. Trusted takes design."
+        "text": "Speed is half the job. The other half is keeping it safe."
       },
       {
         "scene": "security",
         "at": 1.0,
-        "text": "Every part is placed by how much it trusts what reaches it."
+        "text": "VidVNC is split into parts, and each part only gets the access it needs."
       },
       {
         "scene": "security",
-        "at": 6.0,
-        "text": "Traffic from the network meets one guarded port, and only proven senders get through."
+        "at": 6.3,
+        "text": "Network traffic arrives at a single guarded port, and only verified senders get through."
       },
       {
         "scene": "security",
         "at": 12.2,
-        "text": "The video connection runs in a sandbox. Break in, and it still can't see your screen, send input, or read your files."
+        "text": "The video connection runs in a sandbox. Break into it, and you still can't see the screen, send input, or read files."
       },
       {
         "scene": "security",
         "at": 19.5,
-        "text": "It reaches the trusted side only through narrow pipes. Screen capture never touches the network."
+        "text": "It talks to the trusted side only through narrow pipes, and screen capture never touches the network."
       },
       {
         "scene": "network",
         "at": 0.3,
-        "text": "Everything is encrypted. Remote access stays off until you turn it on, and codes work once."
+        "text": "Connections are encrypted, remote access is off until you turn it on, and every code works once."
       },
       {
         "scene": "end",
-        "at": 0.2,
+        "at": 0.3,
         "text": "VidVNC. Your desktop, in real time, on your network."
       }
     ]

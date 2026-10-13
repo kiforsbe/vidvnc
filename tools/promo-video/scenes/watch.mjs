@@ -12,7 +12,7 @@ export const build = (root) => {
     'abs',
     root,
     { left: '680px', right: '400px', top: '892px', textAlign: 'left' },
-    '<div class="title" style="font-size:56px;text-align:left">Smooth video, with the sound.</div>',
+    '<div class="title" style="font-size:56px;text-align:left">Smooth, sharp, and with sound.</div>',
   );
   return { tv, sp, t };
 };

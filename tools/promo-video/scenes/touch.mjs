@@ -29,7 +29,7 @@ export const build = (root) => {
     'abs',
     root,
     { left: 0, right: 0, top: '860px' },
-    '<div class="title" style="font-size:56px">Take control from the sofa.</div><div class="sub" style="margin-top:12px">On a phone, your finger is the mouse.</div>',
+    '<div class="title" style="font-size:56px">Take over without leaving the sofa.</div><div class="sub" style="margin-top:12px">On a phone, just use your finger.</div>',
   );
   return { p, cur, finger, chip, t };
 };

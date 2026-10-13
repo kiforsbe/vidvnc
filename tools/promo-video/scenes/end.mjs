@@ -6,7 +6,7 @@ import { A, el, fade } from '../engine/kit.mjs';
 
 const WORDS = {
   consumer: {
-    tag: 'Your desktop, in real time, on every screen at home.',
+    tag: 'Your computer, on every screen in the house.',
     line: 'Mac and Windows · First release coming soon',
   },
   developer: {

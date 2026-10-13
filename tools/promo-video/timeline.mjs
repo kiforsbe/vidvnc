@@ -3,7 +3,7 @@
 //   consumer   about 50 s, for people at home: watch what's on your computer from the sofa,
 //              on a TV or phone, and take control of it from there. How to start, and one
 //              line on safety.
-//   developer  about 110 s, for developers and power users: productivity. A remote desktop
+//   developer  about 115 s, for developers and power users: productivity. A remote desktop
 //              that keeps up (the comparison with traditional VNC, 63 ms, typing and
 //              scrolling), sign-in, and the full security design.
 //
@@ -27,17 +27,17 @@ const CUTS = {
   developer: [
     { id: 'lag', length: 12.2, stills: [10.5], opts: { label: 'Traditional VNC' } },
     { id: 'race', length: 11.8, stills: [7.8], opts: { song: true } },
-    { id: 'number', length: 7.5, stills: [3.5] },
+    { id: 'number', length: 9, stills: [4] },
     { id: 'flow', length: 7.5, stills: [5] },
     { id: 'app-code', length: 4, stills: [2.5] },
-    { id: 'scan', length: 5, stills: [4] },
+    { id: 'scan', length: 6.8, stills: [4] },
     { id: 'accounts', length: 9.5, stills: [4.5] },
-    { id: 'control', length: 4, stills: [2.5] },
+    { id: 'control', length: 4.5, stills: [2.5] },
     { id: 'platforms', length: 7.5, stills: [2.5] },
-    { id: 'trust', length: 4, stills: [2] },
+    { id: 'trust', length: 4.5, stills: [2] },
     // marks: when the spotlight moves to the edge, the sandbox and the trusted side
     { id: 'security', length: 26, stills: [9, 15, 22], marks: [6, 12.2, 19.4] },
-    { id: 'network', length: 6.4, stills: [3] },
+    { id: 'network', length: 6.8, stills: [3] },
     { id: 'end', length: 7, stills: [3], opts: { audience: 'developer' } },
   ],
 };

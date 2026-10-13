@@ -6,7 +6,7 @@ shot, the mix and the captions. There are two cuts from the same scenes:
 - **consumer**, about 55 s, for people at home: watching what's on your computer from the
   sofa, on a TV or phone, and taking control of it from there; how to connect, and one line
   on safety.
-- **developer**, about 110 s, for developers and power users: productivity with a remote
+- **developer**, about 115 s, for developers and power users: productivity with a remote
   desktop that keeps up (the comparison with traditional VNC, the 63 ms figure, typing and
   scrolling), sign-in for registered devices, and the full security design.
 
