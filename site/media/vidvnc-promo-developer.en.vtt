@@ -1,0 +1,74 @@
+WEBVTT
+
+1
+00:00:00.600 --> 00:00:04.932
+Traditional VNC sends your screen as a series of still pictures.
+
+2
+00:00:05.000 --> 00:00:08.820
+So you click, and wait. You drag a window, and watch it catch up.
+
+3
+00:00:12.600 --> 00:00:16.825
+VidVNC streams your desktop as video instead, with sound.
+
+4
+00:00:18.200 --> 00:00:21.295
+Same computer, same network. It just keeps up.
+
+5
+00:00:24.400 --> 00:00:32.465
+About 63 milliseconds, screen to screen, at 1080p. And it scales up to 4K, so text stays crisp.
+
+6
+00:00:33.400 --> 00:00:38.095
+Type, scroll, switch windows. It keeps up, so you stay focused on the work.
+
+7
+00:00:41.100 --> 00:00:44.131
+To connect, open VidVNC and show a code.
+
+8
+00:00:44.900 --> 00:00:50.619
+Scan it, or type the short key. The viewer runs in the browser, so there's nothing to install.
+
+9
+00:00:51.700 --> 00:01:00.597
+Devices you use every day can register once and sign in with a username and password, if you allow it. Passkeys are coming in a later release.
+
+10
+00:01:01.100 --> 00:01:04.771
+The keyboard and mouse are only handed over when you say so.
+
+11
+00:01:05.600 --> 00:01:12.513
+It runs on Mac and Windows, and encodes on the graphics hardware, so your processor stays free for real work.
+
+12
+00:01:13.200 --> 00:01:16.785
+Speed is half the job. The other half is keeping it safe.
+
+13
+00:01:18.300 --> 00:01:23.592
+VidVNC is split into parts, and each part only gets the access it needs.
+
+14
+00:01:23.600 --> 00:01:28.956
+Network traffic arrives at a single guarded port, and only verified senders get through.
+
+15
+00:01:29.500 --> 00:01:36.947
+The video connection runs in a sandbox. Break into it, and you still can't see the screen, send input, or read files.
+
+16
+00:01:36.800 --> 00:01:43.073
+It talks to the trusted side only through narrow pipes, and screen capture never touches the network.
+
+17
+00:01:43.600 --> 00:01:49.767
+Connections are encrypted, remote access is off until you turn it on, and every code works once.
+
+18
+00:01:50.400 --> 00:01:54.327
+VidVNC. Your desktop, in real time, on your network.
+
