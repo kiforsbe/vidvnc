@@ -1,5 +1,5 @@
 import { summarizeReceiver, summarizeAudioReceiver } from './receiver-stats.js';
-import { videoCodecPreferences } from './codec-preferences.js';
+import { applyCodecPreferences, videoCodecPreferences } from './codec-preferences.js';
 
 // Used for the hardware-decode capability check before any answer has told us the real
 // profile dimensions (see videoCodecPreferences in codec-preferences.js).
@@ -70,7 +70,7 @@ export class StreamSubscriptions {
         row.pc.close();
         throw error;
       }
-      video.setCodecPreferences(codecs);
+      applyCodecPreferences(video, codecs);
       row.channel = row.pc.createDataChannel('input', { ordered: true });
       row.channel.onmessage = (e) => {
         if (this.selected !== row) return;

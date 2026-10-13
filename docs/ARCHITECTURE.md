@@ -340,6 +340,15 @@ is stored. Clients may choose among what the policy allows and, when the host en
 supply custom settings that are checked against approved bounds; they can never widen the
 policy itself.
 
+The viewer orders its video codecs before it offers
+([codec-preferences.js](../apps/web-client/src/codec-preferences.js)): AV1 and H.265 first
+when the browser decodes them power-efficiently, then H.264 and RTX. The server takes the
+first codec in the host's order that the offer names and an encoder can produce
+([video-codecs.mjs](../apps/server/src/video-codecs.mjs) `selectVideoCodec`). Older Chromium,
+such as a Samsung TV's browser, refuses a decode-only codec in `setCodecPreferences`; the
+viewer then retries with the codecs the browser can also send, and failing that offers in
+the browser's own order, which the server handles the same way.
+
 A profile's output size follows the display it streams
 ([stream-policy.mjs](../apps/server/src/stream-policy.mjs) `outputSize`): `sizing: height` or
 `width` fixes one side and takes the other from the display's shape, `scale` is the display's

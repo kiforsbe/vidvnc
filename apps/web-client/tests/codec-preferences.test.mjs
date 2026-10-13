@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { videoCodecPreferences } from '../src/codec-preferences.js';
+import { applyCodecPreferences, videoCodecPreferences } from '../src/codec-preferences.js';
 
 const profile = { width: 1920, height: 1080, fps: 30, bitrateKbps: 4000 };
 
@@ -96,4 +96,52 @@ test('skips the decode check entirely when profile is undefined, decodingInfo is
     result.map((c) => c.mimeType),
     ['video/H264', 'video/H264', 'video/rtx'],
   );
+});
+
+// A transceiver that accepts only lists whose every entry is in `allowed`, as older Chromium
+// does when it checks preferences against its send capabilities too.
+function transceiverAccepting(allowed) {
+  const calls = [];
+  return {
+    calls,
+    setCodecPreferences(codecs) {
+      calls.push(codecs);
+      if (!codecs.every((codec) => allowed.includes(codec)))
+        throw new Error('Invalid codec preferences: Missing codec from send codec capabilities.');
+    },
+  };
+}
+
+const quiet = (send) => ({
+  RTCRtpSender: { getCapabilities: () => ({ codecs: send }) },
+  console: { warn() {} },
+});
+
+test('preferences the browser accepts are set once', () => {
+  const transceiver = transceiverAccepting(baseCodecs);
+  assert.equal(applyCodecPreferences(transceiver, baseCodecs.slice(2, 5), quiet([])), true);
+  assert.equal(transceiver.calls.length, 1);
+});
+
+test('a refused list is retried with the codecs the browser can also send', () => {
+  const [, , h264a, h264b, rtx] = baseCodecs;
+  // The sender lists equal entries, not the same objects.
+  const send = [{ ...h264b }, { ...rtx }];
+  const transceiver = transceiverAccepting([h264b, rtx]);
+  assert.equal(applyCodecPreferences(transceiver, [h264a, h264b, rtx], quiet(send)), true);
+  assert.deepEqual(transceiver.calls.at(-1), [h264b, rtx]);
+});
+
+test("without a sendable H.264, or when refused again, the browser's order is kept", () => {
+  const [, , h264a, h264b, rtx] = baseCodecs;
+  const noH264 = transceiverAccepting([]);
+  assert.equal(applyCodecPreferences(noH264, [h264a, rtx], quiet([{ ...rtx }])), false);
+  assert.equal(noH264.calls.length, 1);
+
+  const refused = transceiverAccepting([]);
+  assert.equal(applyCodecPreferences(refused, [h264a, h264b], quiet([{ ...h264b }])), false);
+  assert.equal(refused.calls.length, 2);
+
+  const noSender = transceiverAccepting([]);
+  assert.equal(applyCodecPreferences(noSender, [h264a], { console: { warn() {} } }), false);
 });
