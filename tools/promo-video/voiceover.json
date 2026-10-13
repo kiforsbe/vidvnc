@@ -4,72 +4,89 @@
   "speed": 1.0,
   "lines": [
     {
+      "scene": "lag",
       "at": 0.6,
       "text": "Traditional VNC sends your screen as a trickle of still pictures."
     },
     {
-      "at": 4.6,
+      "scene": "lag",
+      "at": 5.0,
       "text": "Every click lands late. Every drag stutters. And the sound? It never arrives."
     },
     {
-      "at": 12.6,
+      "scene": "race",
+      "at": 0.4,
       "text": "VidVNC streams your desktop as video instead. Fluid, with clear stereo sound."
     },
     {
-      "at": 18.6,
+      "scene": "race",
+      "at": 6.4,
       "text": "Same desk. Same network. Nothing to wait for."
     },
     {
-      "at": 24.4,
+      "scene": "number",
+      "at": 0.4,
       "text": "About sixty-three milliseconds, screen to screen. In full HD, and up to 4K.",
       "caption": "About 63 milliseconds, screen to screen. In full HD, and up to 4K."
     },
     {
-      "at": 30.1,
+      "scene": "app-code",
+      "at": 0.6,
       "text": "Open the app. Show a code."
     },
     {
-      "at": 33.9,
+      "scene": "scan",
+      "at": 0.4,
       "text": "Scan the code, or type the short key. No app to install."
     },
     {
-      "at": 38.9,
+      "scene": "accounts",
+      "at": 0.4,
       "text": "Or, if the host allows it, register a device once. Then it signs in with a username and password. Passkeys come in a later release."
     },
     {
-      "at": 48.3,
+      "scene": "control",
+      "at": 0.3,
       "text": "Hand over the keyboard and mouse only when you choose."
     },
     {
-      "at": 52.3,
+      "scene": "platforms",
+      "at": 0.3,
       "text": "On a Mac or a Windows PC, the graphics hardware does the work."
     },
     {
-      "at": 57.4,
+      "scene": "trust",
+      "at": 0.4,
       "text": "Fast is easy to promise. Trusted takes design."
     },
     {
-      "at": 62.0,
+      "scene": "security",
+      "at": 1.0,
       "text": "Every part is placed by how much it trusts what reaches it."
     },
     {
-      "at": 67.0,
+      "scene": "security",
+      "at": 6.0,
       "text": "Traffic from the network meets one guarded port, and only proven senders get through."
     },
     {
-      "at": 73.2,
+      "scene": "security",
+      "at": 12.2,
       "text": "The video connection runs in a sandbox. Break in, and it still can't see your screen, send input, or read your files."
     },
     {
-      "at": 80.5,
+      "scene": "security",
+      "at": 19.5,
       "text": "It reaches the trusted side only through narrow pipes. Screen capture never touches the network."
     },
     {
-      "at": 87.3,
+      "scene": "network",
+      "at": 0.3,
       "text": "Everything is encrypted. Remote access stays off until you turn it on, and codes work once."
     },
     {
-      "at": 96.4,
+      "scene": "end",
+      "at": 0.2,
       "text": "VidVNC. Your desktop, in real time, on your network."
     }
   ]

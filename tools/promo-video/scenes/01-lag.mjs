@@ -14,13 +14,20 @@ export const build = (root) => {
     '<div class="title">Every frame, a beat behind.</div>',
   );
   el('note', root, {}, 'Illustration');
-  return { p, finger, text };
+  const label = el(
+    'label',
+    root,
+    { left: 0, width: '1920px', top: '120px', color: '#a9b5ca' },
+    'Traditional VNC',
+  );
+  return { p, finger, text, label };
 };
 
-export const update = ({ p, finger, text }, lt, dur, root) => {
+export const update = ({ p, finger, text, label }, lt, dur, root) => {
   root.style.opacity = fade(lt, dur, 0.6, 0.3);
   const on = ease((lt - 0.6) / 0.6);
   p.screen.style.opacity = on;
+  label.style.opacity = on;
   setDesk(p.desk, vncTime(lt));
   p.desk.root.style.filter = 'blur(1.2px) saturate(0.85)';
   const w = winPos(lt);

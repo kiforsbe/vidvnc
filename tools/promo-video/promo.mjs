@@ -25,7 +25,7 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SCENES, DURATION } from './timeline.mjs';
+import { SCENES, DURATION, placeLines } from './timeline.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
@@ -214,7 +214,7 @@ async function openPage() {
   };
 }
 // One still per moment the timeline names, named after its scene: frame-02-race.png, or
-// frame-09-security-1.png when a scene has several.
+// frame-10-security-1.png when a scene has several. Still times count from the scene's start.
 async function stills(dir) {
   mkdirSync(dir, { recursive: true });
   const p = await openPage();
@@ -222,14 +222,14 @@ async function stills(dir) {
     for (const [i, t] of s.stills.entries()) {
       const n = s.stills.length > 1 ? `-${i + 1}` : '';
       const name = `frame-${s.file.replace(/\.mjs$/, '')}${n}.png`;
-      writeFileSync(path.join(dir, name), await p.shot(t, 'png'));
+      writeFileSync(path.join(dir, name), await p.shot(s.start + t, 'png'));
     }
   await p.close();
 }
 // storyboard/index.html: each scene's stills with the voiceover lines spoken over it, so the
 // storyboard reads like a script. Open it in any browser.
 function storyboardPage(dir) {
-  const vo = JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8')).lines;
+  const vo = placeLines(JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8')).lines);
   const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const secs = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
   const rows = SCENES.map((s) => {
@@ -328,10 +328,14 @@ async function video(file, fps, duration = DURATION) {
 // ---- sound ----------------------------------------------------------------------------------
 function sound(work) {
   console.log('== voiceover');
+  // voiceover.json times count from each line's scene; voiceover.py gets them in film time
+  const spec = JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8'));
+  const placed = path.join(work, 'voiceover.json');
+  writeFileSync(placed, JSON.stringify({ ...spec, lines: placeLines(spec.lines) }));
   py(
     'voiceover.py',
     cache,
-    path.join(here, 'voiceover.json'),
+    placed,
     path.join(work, 'vo.wav'),
     path.join(work, 'vo.srt'),
     String(DURATION),
