@@ -1,6 +1,6 @@
 import { ease, el, fade, lerp, makeDesk, makeLaptop, makePhone, setDesk } from '../engine/kit.mjs';
 
-// Scene 12: every device, one desktop.
+// Scene: every device, one desktop.
 
 export const build = (root) => {
   const lap = makeLaptop(root, 760);
@@ -23,21 +23,14 @@ export const build = (root) => {
   const ph = makePhone(root, 560, 290);
   ph.ph.style.left = '1240px';
   ph.ph.style.top = '560px';
-  const t = el(
-    'abs',
-    root,
-    { left: 0, right: 0, top: '900px' },
-    '<div class="title" style="font-size:72px">VidVNC</div>',
-  );
-  return { d1, tab, ph, t };
+  return { d1, tab, ph };
 };
 
-export const update = ({ d1, tab, ph, t }, lt, dur, root, { start }) => {
+export const update = ({ d1, tab, ph }, lt, dur, root, { start }) => {
   root.style.opacity = fade(lt, dur, 0.4, 0.4);
   const time = start + lt;
   setDesk(d1, time);
   setDesk(tab.desk, time - 0.06);
   setDesk(ph.desk, time - 0.07);
   root.style.transform = `scale(${lerp(1.08, 1, ease(lt / 3))})`;
-  t.style.opacity = ease((lt - 1) / 0.6);
 };

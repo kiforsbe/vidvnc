@@ -1,6 +1,6 @@
 import { ease, el, fade, lerp, makeLaptop, stopwatchText } from '../engine/kit.mjs';
 
-// Scene 03: the number.
+// Scene: the number.
 
 export const build = (root) => {
   const lap = makeLaptop(root, 900);

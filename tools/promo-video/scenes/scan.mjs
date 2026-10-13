@@ -1,6 +1,6 @@
 import { A, ease, el, fade, makeDesk, setDesk } from '../engine/kit.mjs';
 
-// Scene 05: scan the code or type the key.
+// Scene: scan the code or type the key.
 
 export const build = (root) => {
   const q = el('shot', root, {

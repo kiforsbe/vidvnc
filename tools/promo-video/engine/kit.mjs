@@ -376,3 +376,158 @@ export function shotScene(img, box, text) {
     },
   };
 }
+
+/* ---------- a film playing on the shared desktop ---------- */
+// The consumer cut shows the desktop playing a film full screen: a coast at dusk with
+// mountains drifting past at different speeds and a boat crossing, so smooth motion shows.
+// Like the desk, it is a pure function of its own clock, so a late screen shows late
+// pictures. Drawn at any size; chrome adds the player's progress bar.
+const ridge = (x, k, seed) =>
+  Math.sin(x * 0.004 * k + seed) * 38 +
+  Math.sin(x * 0.011 * k + seed * 2.3) * 16 +
+  Math.sin(x * 0.027 * k + seed * 4.1) * 6;
+export function drawFilm(g, time, W, H, chrome = true) {
+  const u = W / 1600;
+  const hz = H * 0.6;
+  const sky = g.createLinearGradient(0, 0, 0, hz);
+  sky.addColorStop(0, '#1b2350');
+  sky.addColorStop(0.55, '#7a3f78');
+  sky.addColorStop(0.85, '#e0735a');
+  sky.addColorStop(1, '#f6b26b');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, hz + 2);
+  // the sun, low over the sea
+  const sx = W * 0.64,
+    sy = hz - 150 * u;
+  const glow = g.createRadialGradient(sx, sy, 0, sx, sy, 420 * u);
+  glow.addColorStop(0, 'rgba(255,214,150,0.85)');
+  glow.addColorStop(0.15, 'rgba(255,190,120,0.45)');
+  glow.addColorStop(1, 'rgba(255,170,110,0)');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, W, hz);
+  g.fillStyle = '#ffe2b0';
+  g.beginPath();
+  g.arc(sx, sy, 70 * u, 0, 7);
+  g.fill();
+  // three mountain ranges, nearer ones moving faster
+  for (const [k, speed, lift, col, seed] of [
+    [0.6, 12, 150, '#5b3a72', 1.1],
+    [1, 34, 90, '#3a2a5e', 2.7],
+    [1.6, 90, 30, '#1e1a3e', 4.2],
+  ]) {
+    const off = time * speed;
+    g.fillStyle = col;
+    g.beginPath();
+    g.moveTo(0, hz + 2);
+    for (let x = 0; x <= W + 8 * u; x += 8 * u)
+      g.lineTo(x, hz - lift * u - ridge(x / u + off, k, seed) * u);
+    g.lineTo(W, hz + 2);
+    g.fill();
+  }
+  // the sea, with the sun's path shimmering on it
+  const sea = g.createLinearGradient(0, hz, 0, H);
+  sea.addColorStop(0, '#2a2552');
+  sea.addColorStop(1, '#0c1030');
+  g.fillStyle = sea;
+  g.fillRect(0, hz, W, H - hz);
+  for (let i = 0; i < 26; i++) {
+    const d = i / 25;
+    const y = hz + (H - hz) * d * d + 6 * u;
+    const w = (60 + 340 * d) * u * (0.6 + 0.4 * Math.sin(time * 2.1 + i * 1.7));
+    const x = sx + Math.sin(time * 0.9 + i * 2.3) * 30 * d * u;
+    g.fillStyle = `rgba(255,205,150,${0.5 * (1 - d) + 0.08})`;
+    g.fillRect(x - w / 2, y, w, (2 + 4 * d) * u);
+  }
+  // a sailing boat crossing the sun's path
+  const bx = ((time * 46 + 300) % 2000) * u - 200 * u,
+    by = hz + 46 * u;
+  g.fillStyle = '#120f26';
+  g.beginPath();
+  g.moveTo(bx - 46 * u, by);
+  g.lineTo(bx + 46 * u, by);
+  g.lineTo(bx + 30 * u, by + 14 * u);
+  g.lineTo(bx - 32 * u, by + 14 * u);
+  g.fill();
+  g.beginPath();
+  g.moveTo(bx - 2 * u, by - 4 * u);
+  g.lineTo(bx - 2 * u, by - 96 * u);
+  g.lineTo(bx + 40 * u, by - 6 * u);
+  g.fill();
+  g.beginPath();
+  g.moveTo(bx - 8 * u, by - 82 * u);
+  g.lineTo(bx - 8 * u, by - 8 * u);
+  g.lineTo(bx - 40 * u, by - 8 * u);
+  g.fill();
+  if (!chrome) return;
+  // the player's controls along the bottom
+  const fade = g.createLinearGradient(0, H - 130 * u, 0, H);
+  fade.addColorStop(0, 'rgba(0,0,0,0)');
+  fade.addColorStop(1, 'rgba(0,0,0,0.6)');
+  g.fillStyle = fade;
+  g.fillRect(0, H - 130 * u, W, 130 * u);
+  const total = 6500,
+    pos = 2361 + time;
+  const bx0 = 60 * u,
+    bw = W - 120 * u,
+    by0 = H - 52 * u;
+  g.fillStyle = 'rgba(255,255,255,0.25)';
+  g.fillRect(bx0, by0, bw, 6 * u);
+  g.fillStyle = '#fff';
+  g.fillRect(bx0, by0, (bw * pos) / total, 6 * u);
+  g.font = `${22 * u}px "JetBrains Mono"`;
+  g.textBaseline = 'alphabetic';
+  g.fillText(hms(pos), bx0, by0 - 16 * u);
+  g.textAlign = 'right';
+  g.fillText(hms(total), bx0 + bw, by0 - 16 * u);
+  g.textAlign = 'left';
+}
+const hms = (s) =>
+  `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
+// A screen that plays the film: a canvas of the given size in pixels.
+export function makeFilm(parent, w, h, css = {}) {
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  Object.assign(cv.style, { position: 'absolute', left: 0, top: 0, ...css });
+  parent.appendChild(cv);
+  return { cv, g: cv.getContext('2d'), w, h };
+}
+export const setFilm = (f, time, chrome = true) => drawFilm(f.g, time, f.w, f.h, chrome);
+// A flat-screen TV on a two-legged stand, w pixels wide, with a 16:9 screen playing the film.
+export function makeTV(parent, w) {
+  const h = Math.round((w * 9) / 16);
+  const box = el('abs', parent, { width: w + 'px', height: h + 34 + 'px' });
+  const panel = el('abs', box, {
+    left: 0,
+    top: 0,
+    width: w + 'px',
+    height: h + 'px',
+    background: '#05070c',
+    borderRadius: '10px',
+    boxShadow: '0 0 0 3px #2a3550, 0 40px 120px rgba(0,0,0,0.6)',
+  });
+  const screen = el('abs', panel, { inset: '10px', overflow: 'hidden', borderRadius: '3px' });
+  const film = makeFilm(screen, w - 20, h - 20);
+  for (const x of [0.18, 0.82])
+    el('abs', box, {
+      left: w * x - 30 + 'px',
+      top: h + 'px',
+      width: '60px',
+      height: '30px',
+      borderBottom: '5px solid #3a4560',
+      borderLeft: x < 0.5 ? '5px solid #3a4560' : 0,
+      borderRight: x > 0.5 ? '5px solid #3a4560' : 0,
+      boxSizing: 'border-box',
+      transform: `skewX(${x < 0.5 ? 20 : -20}deg)`,
+    });
+  return { box, panel, screen, film, w, h };
+}
+// A phone or tablet (landscape) playing the film full screen.
+export function makeFilmPhone(parent, w, h, radius) {
+  const ph = el('phone', parent, { width: w + 'px', height: h + 'px' });
+  if (radius) ph.style.borderRadius = radius + 'px';
+  const screen = el('screen', ph);
+  if (radius) screen.style.borderRadius = radius - 18 + 'px';
+  const film = makeFilm(screen, w - 40, h - 40);
+  return { ph, screen, film };
+}

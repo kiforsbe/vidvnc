@@ -3,8 +3,12 @@
 //
 //   node tools/promo-video/promo.mjs setup     install the tools into .deps/promo-video
 //   node tools/promo-video/promo.mjs voices    female voice samples
-//   node tools/promo-video/promo.mjs draft     the next numbered draft: cut (30 fps), storyboard, audio
-//   node tools/promo-video/promo.mjs final     the next numbered final cut (60 fps)
+//   node tools/promo-video/promo.mjs draft     the next numbered draft: both cuts (30 fps), each
+//                                              with its storyboard and audio
+//   node tools/promo-video/promo.mjs final     the next numbered final: both cuts (60 fps)
+//
+// draft and final take a cut name (consumer or developer, see timeline.mjs) to build only
+// that cut.
 //
 // Outputs go to out/promo-video/ (ignored by git). Runs on Windows, macOS and Linux with
 // Node 20+, Python 3.10+ and Chrome or Edge (or CHROMIUM=/path/to/chrome); ffmpeg comes
@@ -25,7 +29,7 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SCENES, DURATION, placeLines } from './timeline.mjs';
+import { CUT_NAMES, cut } from './timeline.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
@@ -33,9 +37,9 @@ const cache = process.env.PROMO_CACHE || path.join(repo, '.deps', 'promo-video')
 const outRoot = process.env.PROMO_OUT || path.join(repo, 'out', 'promo-video');
 const win = process.platform === 'win32';
 
-// Every draft and final cut gets the next numbered folder (drafts/05, final/01) and is never
-// overwritten. In it, build-info.txt and commit.url link back to the commit that built it, so
-// any revision can be rebuilt exactly.
+// Every draft and final gets the next numbered folder (drafts/10, final/01) and is never
+// overwritten. It holds one folder per cut (consumer/, developer/), and build-info.txt and
+// commit.url link back to the commit that built it, so any revision can be rebuilt exactly.
 const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).stdout?.trim();
 function outDir(group) {
   const parent = path.join(outRoot, group);
@@ -171,7 +175,7 @@ function serve() {
     .listen(0, '127.0.0.1');
   return new Promise((r) => server.once('listening', () => r(server)));
 }
-async function openPage() {
+async function openPage(c) {
   const { chromium } = nodeRequire()('playwright-core');
   const tries = process.env.CHROMIUM
     ? [{ executablePath: process.env.CHROMIUM }]
@@ -198,7 +202,7 @@ async function openPage() {
     deviceScaleFactor: 1,
   });
   page.on('pageerror', (e) => console.error('page error:', e.message));
-  await page.goto(`http://127.0.0.1:${server.address().port}/film.html`);
+  await page.goto(`http://127.0.0.1:${server.address().port}/film.html?cut=${c.name}`);
   await page.waitForFunction(() => window.ready, null, { timeout: 120000 });
   await page.evaluate(() => window.ready);
   const shot = async (t, type) => {
@@ -213,47 +217,47 @@ async function openPage() {
     },
   };
 }
-// One still per moment the timeline names, named after its scene: frame-02-race.png, or
-// frame-10-security-1.png when a scene has several. Still times count from the scene's start.
-async function stills(dir) {
+// One still per moment the timeline names, named by the scene's place in the cut and its id:
+// frame-02-lag.png, or frame-10-security-1.png when a scene has several. Still times count
+// from the scene's start.
+const stillName = (s, i) =>
+  `frame-${String(s.n).padStart(2, '0')}-${s.id}${s.stills.length > 1 ? `-${i + 1}` : ''}.png`;
+async function stills(dir, c) {
   mkdirSync(dir, { recursive: true });
-  const p = await openPage();
-  for (const s of SCENES)
-    for (const [i, t] of s.stills.entries()) {
-      const n = s.stills.length > 1 ? `-${i + 1}` : '';
-      const name = `frame-${s.file.replace(/\.mjs$/, '')}${n}.png`;
-      writeFileSync(path.join(dir, name), await p.shot(s.start + t, 'png'));
-    }
+  const p = await openPage(c);
+  for (const s of c.scenes)
+    for (const [i, t] of s.stills.entries())
+      writeFileSync(path.join(dir, stillName(s, i)), await p.shot(s.start + t, 'png'));
   await p.close();
 }
 // storyboard/index.html: each scene's stills with the voiceover lines spoken over it, so the
 // storyboard reads like a script. Open it in any browser.
-function storyboardPage(dir) {
-  const vo = placeLines(JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8')).lines);
+const voiceover = () => JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8'));
+function storyboardPage(dir, c) {
+  const vo = c.placeLines(voiceover().cuts[c.name]);
   const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const secs = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
-  const rows = SCENES.map((s) => {
-    const name = s.file.replace(/\.mjs$/, '');
-    const imgs = s.stills
-      .map((_, i) => `<img src="frame-${name}${s.stills.length > 1 ? `-${i + 1}` : ''}.png">`)
-      .join('');
-    const lines = vo
-      .filter((l) => l.at >= s.start && l.at < s.end)
-      .map((l) => `<p><span>${secs(l.at)}</span>${esc(l.caption || l.text)}</p>`)
-      .join('');
-    return (
-      `<section><h2>${name.slice(0, 2)} · ${esc(s.id)} <small>${secs(s.start)} to ${secs(s.end)}</small></h2>` +
-      `<div class="imgs">${imgs}</div>${lines || '<p class="none">No voiceover</p>'}</section>`
-    );
-  }).join('');
+  const rows = c.scenes
+    .map((s) => {
+      const imgs = s.stills.map((_, i) => `<img src="${stillName(s, i)}">`).join('');
+      const lines = vo
+        .filter((l) => l.at >= s.start && l.at < s.end)
+        .map((l) => `<p><span>${secs(l.at)}</span>${esc(l.caption || l.text)}</p>`)
+        .join('');
+      return (
+        `<section><h2>${String(s.n).padStart(2, '0')} · ${esc(s.id)} <small>${secs(s.start)} to ${secs(s.end)}</small></h2>` +
+        `<div class="imgs">${imgs}</div>${lines || '<p class="none">No voiceover</p>'}</section>`
+      );
+    })
+    .join('');
   writeFileSync(
     path.join(dir, 'index.html'),
-    `<!doctype html><meta charset="utf-8"><title>VidVNC promo storyboard</title><style>` +
+    `<!doctype html><meta charset="utf-8"><title>VidVNC promo storyboard (${c.name})</title><style>` +
       `body{margin:0 auto;max-width:1100px;padding:24px;background:#0a0f1c;color:#e6ebf5;font:16px system-ui,sans-serif}` +
       `section{margin:0 0 40px}h2{font-size:20px;margin:0 0 10px}small{color:#8693ab;font-weight:400;margin-left:8px}` +
       `.imgs{display:flex;gap:8px}.imgs img{flex:1;min-width:0;border-radius:8px}` +
       `p{margin:10px 0;font-size:18px;line-height:1.4}p span{color:#8693ab;font:14px monospace;margin-right:12px}` +
-      `.none{color:#8693ab;font-style:italic}</style><h1>VidVNC promo storyboard</h1>${rows}`,
+      `.none{color:#8693ab;font-style:italic}</style><h1>VidVNC promo storyboard: ${c.name} cut, ${secs(c.duration)}</h1>${rows}`,
   );
 }
 async function contactSheet(dir) {
@@ -284,8 +288,9 @@ async function contactSheet(dir) {
   ]);
   rmSync(list);
 }
-async function video(file, fps, duration = DURATION) {
-  const p = await openPage();
+async function video(file, fps, c) {
+  const duration = c.duration;
+  const p = await openPage(c);
   const ff = spawn(
     ffmpeg(),
     [
@@ -326,12 +331,13 @@ async function video(file, fps, duration = DURATION) {
 }
 
 // ---- sound ----------------------------------------------------------------------------------
-function sound(work) {
+function sound(work, c) {
+  const DURATION = c.duration;
   console.log('== voiceover');
   // voiceover.json times count from each line's scene; voiceover.py gets them in film time
-  const spec = JSON.parse(readFileSync(path.join(here, 'voiceover.json'), 'utf8'));
+  const { cuts, ...spec } = voiceover();
   const placed = path.join(work, 'voiceover.json');
-  writeFileSync(placed, JSON.stringify({ ...spec, lines: placeLines(spec.lines) }));
+  writeFileSync(placed, JSON.stringify({ ...spec, lines: c.placeLines(cuts[c.name]) }));
   py(
     'voiceover.py',
     cache,
@@ -343,7 +349,7 @@ function sound(work) {
   console.log('== music');
   eqFile = path.join(work, 'eq.json');
   const cues = path.join(work, 'timeline.json'); // music.py places its cues on the scenes
-  writeFileSync(cues, JSON.stringify({ duration: DURATION, scenes: SCENES }));
+  writeFileSync(cues, JSON.stringify({ duration: DURATION, scenes: c.scenes }));
   py('music.py', path.join(work, 'music.wav'), cues, eqFile);
   console.log('== mix'); // the music ducks under the voice, then the mix is levelled for the web (-14 LUFS)
   run(ffmpeg(), [
@@ -366,23 +372,38 @@ function sound(work) {
   ]);
 }
 
-// A draft holds the cut at 30 fps, its captions, the storyboard (one still per shot and a
-// contact sheet) and the audio stems; a final cut holds the film at 60 fps and its captions.
-async function film(kind) {
+// A draft holds, per cut, the film at 30 fps, its captions, the storyboard (one still per
+// shot, a contact sheet and index.html with the lines) and the audio stems; a final holds,
+// per cut, the film at 60 fps and its captions.
+async function film(kind, only) {
+  if (only && !CUT_NAMES.includes(only)) {
+    console.error(`unknown cut: ${only} (cuts: ${CUT_NAMES.join(', ')})`);
+    process.exit(2);
+  }
   const fps = kind === 'final' ? 60 : 30;
-  const out = outDir(kind === 'final' ? 'final' : 'drafts');
-  const work = path.join(cache, `work-${kind}`);
+  const top = outDir(kind === 'final' ? 'final' : 'drafts');
+  for (const name of only ? [only] : CUT_NAMES) {
+    console.log(`==== ${name} cut`);
+    const c = cut(name);
+    const out = path.join(top, name);
+    mkdirSync(out);
+    await oneCut(kind, fps, c, out);
+  }
+  console.log(`Wrote ${top}`);
+}
+async function oneCut(kind, fps, c, out) {
+  const work = path.join(cache, `work-${kind}-${c.name}`);
   mkdirSync(work, { recursive: true });
-  sound(work); // first: the storyboard and picture read the music's spectrum
+  sound(work, c); // first: the storyboard and picture read the music's spectrum
   if (kind === 'draft') {
     console.log('== storyboard');
     const board = path.join(out, 'storyboard');
-    await stills(board);
+    await stills(board, c);
     await contactSheet(board);
-    storyboardPage(board);
+    storyboardPage(board, c);
   }
   console.log(`== picture (${fps} fps)`);
-  await video(path.join(work, 'picture.mp4'), fps);
+  await video(path.join(work, 'picture.mp4'), fps, c);
   console.log('== mux');
   run(ffmpeg(), [
     '-loglevel',
@@ -414,7 +435,6 @@ async function film(kind) {
     ])
       copyFileSync(path.join(work, from), path.join(audio, to));
   }
-  console.log(`Wrote ${out}`);
 }
 
 async function voices() {
@@ -447,11 +467,13 @@ const cmd = process.argv[2];
 const steps = {
   setup,
   voices,
-  draft: () => film('draft'),
-  final: () => film('final'),
+  draft: () => film('draft', process.argv[3]),
+  final: () => film('final', process.argv[3]),
 };
 if (!steps[cmd]) {
-  console.error('usage: promo.mjs setup | voices | draft | final');
+  console.error(
+    `usage: promo.mjs setup | voices | draft [cut] | final [cut]  (cuts: ${CUT_NAMES.join(', ')})`,
+  );
   process.exit(2);
 }
 await steps[cmd]();

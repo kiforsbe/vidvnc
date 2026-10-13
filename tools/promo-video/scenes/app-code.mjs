@@ -1,6 +1,6 @@
 import { A, cursorSvg, ease, el, fade, lerp } from '../engine/kit.mjs';
 
-// Scene 04: open the app, show a code.
+// Scene: open the app, show a code.
 
 export const build = (root) => {
   const a = el('shot', root, {

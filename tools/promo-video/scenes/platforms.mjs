@@ -1,6 +1,6 @@
 import { A, el, fade, lerp } from '../engine/kit.mjs';
 
-// Scene 08: both platforms.
+// Scene: both platforms.
 
 export const build = (root) => {
   const imgs = [

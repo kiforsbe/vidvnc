@@ -14,9 +14,9 @@ import {
   winPos,
 } from '../engine/kit.mjs';
 
-// Scene 02: the race: traditional VNC against VidVNC, with sound.
+// Scene: the race: traditional VNC (or opts.label) against VidVNC, with sound.
 
-export const build = (root) => {
+export const build = (root, { opts }) => {
   const make = (x, label, color, icon) => {
     const p = makePhone(root, 860, 430);
     p.ph.style.left = x + 'px';
@@ -26,7 +26,7 @@ export const build = (root) => {
     const ic = el('abs', root, { left: x + 403 + 'px', top: '770px' }, icon);
     return { p, f, l, ic };
   };
-  const L = make(80, 'Traditional VNC', '#a9b5ca', speakerOff);
+  const L = make(80, opts.label || 'Traditional VNC', '#a9b5ca', speakerOff);
   const R = make(980, 'VidVNC', '#8db8ff', speakerOn);
   el('note', root, {}, 'Illustration · the 63 ms figure is measured');
   return { L, R };

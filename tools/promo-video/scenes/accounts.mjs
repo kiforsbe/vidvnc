@@ -1,6 +1,6 @@
 import { A, ease, el, fade, lerp } from '../engine/kit.mjs';
 
-// Scene 06: registered devices sign in with a username and password.
+// Scene: registered devices sign in with a username and password.
 // The host approves a device once (Connections, Approved Clients); after that it signs in
 // with a username and password, without a key. Passkeys are future work (README).
 

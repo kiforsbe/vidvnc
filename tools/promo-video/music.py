@@ -6,7 +6,8 @@ Writes 44.1 kHz stereo. Two kinds of music: the film's own quiet score (pads, so
 a gentle pulse), and the "desktop track", a full, wide song that plays on the shared desktop
 in the race scene only, to show sound arriving with the picture. Its spectrum goes to
 eq.json, which drives the desktop player's visualiser (engine/kit.mjs), so what you see is
-what you hear. Cue times come from timeline.json, which promo.mjs writes from timeline.mjs.
+what you hear. Cue times come from timeline.json, which promo.mjs writes from one cut of
+timeline.mjs; the security act's cues apply only to a cut that has it (the developer cut).
 """
 import base64
 import json
@@ -26,9 +27,13 @@ rng = np.random.default_rng(7)
 
 # Cue times from the timeline
 SC = {s['id']: s for s in TIMELINE['scenes']}
-RACE, NUMBER = SC['race']['start'], SC['race']['end']
-TRUST, NETWORK, END = SC['trust']['start'], SC['network']['start'], SC['end']['start']
-SPOTLIGHTS = [SC['security']['start'] + m for m in SC['security']['marks']]  # the spotlight moves
+RACE, NUMBER, END = SC['race']['start'], SC['race']['end'], SC['end']['start']
+# The developer cut has the security act (trust, security, network); the consumer cut doesn't,
+# so its middle section runs on to the end card.
+SECURITY = all(k in SC for k in ('trust', 'security', 'network'))
+TRUST = SC['trust']['start'] if SECURITY else END
+NETWORK = SC['network']['start'] if SECURITY else END
+SPOTLIGHTS = [SC['security']['start'] + m for m in SC['security']['marks']] if SECURITY else []  # the spotlight moves
 
 BPM = 96
 BEAT = 60 / BPM
@@ -242,8 +247,13 @@ score.x += track * race_gain
 # the middle and the close, a drone under the security act, and a resolve on the end card.
 PADS = [['D3', 'F#3', 'A3', 'C#4'], ['B2', 'D3', 'F#3', 'A3'], ['G2', 'B2', 'D3', 'F#3'], ['A2', 'C#3', 'E3', 'A3']]
 under = Bus()
-for a, b, g, keys in [(0, RACE + 1.5, 0.07, False), (NUMBER - 0.5, TRUST + 1.0, 0.07, True),
-                      (TRUST - 1.0, NETWORK + 1.0, 0.06, False), (NETWORK - 0.5, END + 0.5, 0.07, True)]:
+SECTIONS = [(0, RACE + 1.5, 0.07, False)]
+if SECURITY:
+    SECTIONS += [(NUMBER - 0.5, TRUST + 1.0, 0.07, True), (TRUST - 1.0, NETWORK + 1.0, 0.06, False),
+                 (NETWORK - 0.5, END + 0.5, 0.07, True)]
+else:
+    SECTIONS += [(NUMBER - 0.5, END + 0.5, 0.07, True)]
+for a, b, g, keys in SECTIONS:
     t = a
     while t < b:
         c = int(t // (2 * BAR)) % 4
@@ -253,7 +263,8 @@ for a, b, g, keys in [(0, RACE + 1.5, 0.07, False), (NUMBER - 0.5, TRUST + 1.0, 
             if keys:
                 under.add(epiano(hz(n), 2 * BAR - 0.2, 0.55), t + 0.04 + i * 0.03, 0.07)
         t += 2 * BAR
-for a, b, g in [(NUMBER + 0.2, TRUST - 0.4, 0.55), (NETWORK + 0.6, END - 0.2, 0.45)]:
+PULSE = [(NUMBER + 0.2, TRUST - 0.4, 0.55), (NETWORK + 0.6, END - 0.2, 0.45)] if SECURITY else [(NUMBER + 0.2, END - 0.2, 0.5)]
+for a, b, g in PULSE:
     t = np.ceil(a / BEAT) * BEAT
     while t < b:
         under.add(kick(), t, 0.32 * g)
@@ -262,12 +273,13 @@ for a, b, g in [(NUMBER + 0.2, TRUST - 0.4, 0.55), (NETWORK + 0.6, END - 0.2, 0.
         t += BEAT
 score.x += reverb(under.x, 2.8, 0.35)
 # Low drone and a heartbeat kick under the security act.
-d = tvec(NETWORK - TRUST)
-score.add(np.sin(2 * np.pi * hz('D1') * d) * np.minimum(1, d / 1.5) * np.minimum(1, (NETWORK - TRUST - d) / 2), TRUST, 0.16)
-t = SPOTLIGHTS[0]
-while t < NETWORK - 0.1:
-    score.add(kick(), t, 0.22)
-    t += BEAT
+if SECURITY:
+    d = tvec(NETWORK - TRUST)
+    score.add(np.sin(2 * np.pi * hz('D1') * d) * np.minimum(1, d / 1.5) * np.minimum(1, (NETWORK - TRUST - d) / 2), TRUST, 0.16)
+    t = SPOTLIGHTS[0]
+    while t < NETWORK - 0.1:
+        score.add(kick(), t, 0.22)
+        t += BEAT
 # The end card resolves on D major and rings out.
 for n in ['D3', 'F#3', 'A3', 'D4', 'A4']:
     score.add(epiano(hz(n), DUR - END), END + 0.05, 0.11)

@@ -1,6 +1,6 @@
 import { ease, el, fade, lerp, monitorSvg } from '../engine/kit.mjs';
 
-// Scene 09: the turn to trust.
+// Scene: the turn to trust.
 
 export const build = (root) => {
   const mon = el(

@@ -1,9 +1,12 @@
-// The engine: loads every scene in the timeline, stacks them on one stage over the WebGL
-// backdrop, and draws the film at any moment t. promo.mjs calls window.render(t) per frame.
-import { SCENES, DURATION } from '../timeline.mjs';
+// The engine: loads every scene in one cut of the timeline (film.html?cut=consumer or
+// developer), stacks them on one stage over the WebGL backdrop, and draws the film at any
+// moment t. promo.mjs calls window.render(t) per frame.
+import { cut } from '../timeline.mjs';
 import { el, eqReady } from './kit.mjs';
 import * as backdrop from './backdrop.mjs';
 
+const params = new URLSearchParams(location.search);
+const { scenes: SCENES, duration: DURATION } = cut(params.get('cut') || 'developer');
 const STAGE = document.getElementById('stage');
 const scenes = await Promise.all(
   SCENES.map(async (s) => ({ ...s, ...(await import(`../scenes/${s.file}`)) })),
@@ -44,4 +47,4 @@ window.ready = Promise.all([
   document.fonts.load('20px "JetBrains Mono"'),
   document.fonts.ready,
 ]).then(() => Promise.all(images()));
-window.render(Number(new URLSearchParams(location.search).get('t') || 0));
+window.render(Number(params.get('t') || 0));

@@ -1,6 +1,6 @@
 import { shotScene } from '../engine/kit.mjs';
 
-// Scene 11: encrypted, remote access off, codes work once.
+// Scene: encrypted, remote access off, codes work once.
 
 export const { build, update } = shotScene(
   'mac/network-dark.png',

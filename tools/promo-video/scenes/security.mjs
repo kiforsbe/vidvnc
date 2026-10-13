@@ -1,6 +1,6 @@
 import { A, ease, el, fade, lerp } from '../engine/kit.mjs';
 
-// Scene 10: how it is built, from untrusted to trusted.
+// Scene: how it is built, from untrusted to trusted.
 
 const ZONES = [
   { x: 40, w: 380, name: 'Untrusted', col: '255,107,107' },

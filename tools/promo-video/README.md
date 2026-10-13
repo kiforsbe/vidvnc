@@ -1,27 +1,34 @@
 # Promo video
 
-Scripts that generate the VidVNC promo film from code: the voiceover, the music, every
-shot, the mix and the captions. Nothing is filmed or edited by hand, and no generated media is
-kept in the repository; it all goes to `out/promo-video/` (ignored by git).
+Scripts that generate the VidVNC promo films from code: the voiceover, the music, every
+shot, the mix and the captions. There are two cuts from the same scenes:
+
+- **consumer**, about 70 s, for people choosing a way to watch their desktop on a phone,
+  tablet or smart TV: a living room, the side-by-side race, the 63 ms figure, how to connect,
+  touch control and one line on safety.
+- **developer**, about 100 s, for developers and power users: the comparison with
+  traditional VNC, sign-in for registered devices, and the full security design.
+  Nothing is filmed or edited by hand, and no generated media is
+  kept in the repository; it all goes to `out/promo-video/` (ignored by git).
 
 | File                                       | What it does                                                                                                                                                             |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [promo.mjs](promo.mjs)                     | The build: installs the tools, then renders the drafts or the final film                                                                                                 |
-| [timeline.mjs](timeline.mjs)               | The order of the scenes, when each starts and ends, and the moments taken as storyboard stills                                                                           |
+| [timeline.mjs](timeline.mjs)               | Each cut's scenes in order, their lengths and per-cut options, and the moments taken as stills                                                                           |
 | [scenes/](scenes)                          | One file per scene, each drawing its shot at any moment (HTML, CSS, SVG and canvas)                                                                                      |
-| [engine/film.mjs](engine/film.mjs)         | The engine: plays every scene in the timeline back to back as one film, over the backdrop                                                                                |
-| [engine/kit.mjs](engine/kit.mjs)           | What the scenes share: timing helpers, the shared desktop and its music player, the devices and the screenshot shots                                                     |
+| [engine/film.mjs](engine/film.mjs)         | The engine: plays one cut's scenes back to back as one film, over the backdrop                                                                                           |
+| [engine/kit.mjs](engine/kit.mjs)           | What the scenes share: timing helpers, the shared desktop and its music player, the film, the devices and the shots                                                      |
 | [engine/backdrop.mjs](engine/backdrop.mjs) | A WebGL (Three.js) light field behind the 2D shots that only adds depth and glow                                                                                         |
 | [engine/film.html](engine/film.html)       | The page the film is recorded from, with the shared styles                                                                                                               |
-| [voiceover.json](voiceover.json)           | The voiceover: each line, when it starts, and its caption if that differs                                                                                                |
+| [voiceover.json](voiceover.json)           | Each cut's voiceover: each line, its scene, when it starts in it, and its caption if that differs                                                                        |
 | [voiceover.py](voiceover.py)               | Speaks the voiceover with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) and writes the captions                                                                  |
 | [music.py](music.py)                       | Synthesises the score, the song on the shared desktop (heard in the race only) and its spectrum for the desktop's visualiser, with numpy, so there is nothing to license |
 | [voice-samples.py](voice-samples.py)       | Reads four sample lines in six candidate voices                                                                                                                          |
 
-The scenes are only source: every draft and final cut is one continuous film with one
-soundtrack. To change the order or length of a scene, edit `timeline.mjs`; the stills, the
-music's cues and the film follow it. Voiceover lines keep their own start times in
-`voiceover.json`, so move those too.
+The scenes are only source: each cut is one continuous film with one soundtrack. To change
+a cut's scenes, their order or their length, edit `timeline.mjs`; the stills, the music's
+cues, the voiceover and the film follow it, because voiceover lines and stills are timed
+from the start of their scene.
 
 ## Build it
 
@@ -31,24 +38,29 @@ From the repository root:
 ```sh
 node tools/promo-video/promo.mjs setup    # once: playwright-core, ffmpeg-static, three, Kokoro and its model
 node tools/promo-video/promo.mjs voices   # out/promo-video/voice-samples/
-node tools/promo-video/promo.mjs draft    # out/promo-video/drafts/NN/ (30 fps)
-node tools/promo-video/promo.mjs final    # out/promo-video/final/NN/ (60 fps)
+node tools/promo-video/promo.mjs draft    # out/promo-video/drafts/NN/, both cuts (30 fps)
+node tools/promo-video/promo.mjs final    # out/promo-video/final/NN/, both cuts (60 fps)
 ```
 
-Each draft gets the next number and never overwrites an earlier one. A draft folder holds:
+`draft consumer` or `final developer` builds only that cut. Each draft gets the next number
+and never overwrites an earlier one. A draft folder holds one folder per cut:
 
 ```text
-drafts/04/
-  vidvnc-promo.mp4      the cut
-  vidvnc-promo.en.srt   its captions
-  storyboard/           one still per scene (`frame-02-race.png`), contact-sheet.png with all of
-                        them, and index.html: each scene's stills with the lines spoken over it
-  audio/                voiceover.wav, music.wav and mix.wav
-  build-info.txt        the commit, the command and when it was built
-  commit.url            opens that commit on GitHub
+drafts/10/
+  consumer/
+    vidvnc-promo.mp4      the cut
+    vidvnc-promo.en.srt   its captions
+    storyboard/           one still per scene, numbered in the cut's order (`frame-03-race.png`),
+                          contact-sheet.png with all of them, and index.html: each scene's
+                          stills with the lines spoken over it
+    audio/                voiceover.wav, music.wav and mix.wav
+  developer/              the same for the developer cut
+  build-info.txt          the commit, the command and when it was built
+  commit.url              opens that commit on GitHub
 ```
 
-A final cut in `final/NN/` holds the film at 60 fps, its captions and the same two links. Any
+A final in `final/NN/` holds each cut's film at 60 fps and its captions, and the same two
+links. Drafts 01 to 09 came before the two cuts and hold one film each. Any
 revision can be rebuilt by checking out its commit, so commit and push script changes before
 rendering one for review; uncommitted changes are noted in `build-info.txt` with a warning.
 `setup` puts its tools in `.deps/promo-video/`
@@ -63,8 +75,11 @@ backdrop's glow comes out wrong.
   the Mac app's, and the type is the website's own fonts in [site/fonts](../../site/fonts)
   (SIL Open Font License). Nothing is copied: the build serves them from where they are.
 - The voice is Kokoro's `af_heart` (Apache 2.0), run locally.
-- The phones and the side-by-side with a traditional VNC client are animated illustrations, and
-  the film says so on screen. The one measured figure, about 63 ms glass to glass at 1080p60
+- The phones, the living room, the film playing on the screens and the side-by-side with a
+  traditional VNC client are animated illustrations, and the film says so on screen.
+- Smart TVs are named as "compatible smart TVs": the viewer is a web page, so a TV whose
+  browser runs it can show it, but no TV has been tested yet. The end card's requirements
+  are the [README's](../../README.md). The one measured figure, about 63 ms glass to glass at 1080p60
   on a Mac, is from [MACOS-PROTOTYPE-GATES.md](../../docs/investigations/MACOS-PROTOTYPE-GATES.md).
 - The security act follows the process split in
   [the architecture](../../docs/ARCHITECTURE.md#system-overview): the media relay, the

@@ -1,6 +1,6 @@
 import { shotScene } from '../engine/kit.mjs';
 
-// Scene 07: keyboard and mouse only when you allow it.
+// Scene: keyboard and mouse only when you allow it.
 
 export const { build, update } = shotScene(
   'mac/access-dark.png',
