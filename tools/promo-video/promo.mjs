@@ -450,22 +450,18 @@ async function oneCut(kind, fps, c, out) {
   }
 }
 
-// The website's copies of a final, in two sizes: at most 1 MB per minute of film (for phones
-// and slow connections) and at most 2 MB per minute (sharper, for larger screens). Each size
-// comes as AV1 (the smallest that browsers play) and HEVC as a fallback for Apple devices
-// without an AV1 decoder, both 10-bit so the dark gradients don't band, at 1920 x 1080, with
-// Opus sound, in MP4, named vidvnc-promo-<cut>-<size>mb.<codec>.mp4. Each is encoded in two
-// passes to a bitrate worked out from the film's length. Encoders miss the target by a few
-// per cent (x265 overshoots), so a copy over budget gets its second pass again at a bitrate
-// lowered by the overshoot, up to three times. A copy that already exists, is newer than the
-// master and is within budget is kept, so a second run only encodes what is missing.
+// The website's copies of a final, at most 2 MB per minute of film: AV1 (the smallest that
+// browsers play) and HEVC as a fallback for Apple devices without an AV1 decoder, both 10-bit
+// so the dark gradients don't band, at 1920 x 1080, with Opus sound, in MP4. (1 MB a minute
+// was tried first, but its HEVC copy smeared text.) Each is encoded in
+// two passes to a bitrate worked out from the film's length. Encoders miss the target by a
+// few per cent (x265 overshoots), so a copy over budget gets its second pass again at a
+// bitrate lowered by the overshoot, up to three times. A copy that already exists, is newer
+// than the master and is within budget is kept, so a second run only encodes what is missing.
 // Also a poster (the frame the timeline marks with poster) and the captions as WebVTT, all
 // named after the cut so they can be published side by side.
 const WEB = {
-  sizes: [
-    { mbPerMinute: 1, audioKbps: 40 },
-    { mbPerMinute: 2, audioKbps: 64 },
-  ],
+  sizes: [{ mbPerMinute: 2, audioKbps: 64 }],
   overheadKbps: 4,
   height: 1080,
 };
@@ -512,7 +508,7 @@ async function webCopy(master, srt, c, dir, work) {
     const totalKbps = Math.floor(((mbPerMinute * 8000) / 60) * 0.97);
     const videoKbps = totalKbps - audioKbps - WEB.overheadKbps;
     for (const [name, args] of Object.entries(codecs)) {
-      const out = `${base}-${mbPerMinute}mb.${name}.mp4`;
+      const out = `${base}.${name}.mp4`;
       if (
         existsSync(out) &&
         statSync(out).mtimeMs > statSync(master).mtimeMs &&
@@ -524,7 +520,7 @@ async function webCopy(master, srt, c, dir, work) {
       console.log(
         `== web copy: ${path.basename(out)}, ${videoKbps} kbit/s video + ${audioKbps} kbit/s Opus`,
       );
-      const log = path.join(work, `${c.name}-${mbPerMinute}mb-${name}`);
+      const log = path.join(work, `${c.name}-${name}`);
       run(ffmpeg(), [
         '-loglevel',
         'error',

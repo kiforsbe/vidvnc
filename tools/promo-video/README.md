@@ -60,10 +60,9 @@ drafts/10/
 ```
 
 A final in `final/NN/` holds, per cut, the 2K master `vidvnc-promo-2k.mp4` (2560 x 1440,
-30 fps, near-lossless), its captions, and `web/` with what the website needs, in two sizes:
-`vidvnc-promo-<cut>-1mb.av1.mp4` and `-1mb.hevc.mp4` (at most 1 MB per minute of film, 40
-kbit/s Opus) and the same with `-2mb` (at most 2 MB per minute, 64 kbit/s Opus), all 1080p
-and 10-bit (AV1 for most browsers, HEVC for Apple devices without an AV1 decoder), plus
+30 fps, near-lossless), its captions, and `web/` with what the website needs:
+`vidvnc-promo-<cut>.av1.mp4` and `.hevc.mp4` (1080p, 10-bit, 64 kbit/s Opus, at most 2 MB
+per minute of film; AV1 for most browsers, HEVC for Apple devices without an AV1 decoder),
 `-poster.jpg` (the frame `poster` marks in `timeline.mjs`) and `.en.vtt` captions.
 `promo.mjs web [NN]` makes them again from final NN's masters without rendering anything, and
 keeps copies that are already up to date and within budget; copy them into

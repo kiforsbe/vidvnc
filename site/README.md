@@ -49,7 +49,7 @@ downloads nothing for the films until someone clicks.
 - `vidvnc-promo-<cut>-poster.jpg`: the still shown before it plays.
 - `vidvnc-promo-<cut>.en.vtt`: English captions.
 
-Each copy is at most about 1 MB per minute of film. They are the only generated media
+Each copy is at most 2 MB per minute of film. They are the only generated media
 committed to the repository, kept small so the site stays well inside GitHub Pages' limits.
 `node tools/promo-video/promo.mjs web <draft>` makes them from a 2K master (see
 [tools/promo-video/README.md](../tools/promo-video/README.md)); copy the files from
