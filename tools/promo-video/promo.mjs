@@ -7,6 +7,7 @@
 //                                              each with its storyboard and audio
 //   node tools/promo-video/promo.mjs final     the next numbered final: both cuts as 2K masters
 //                                              (2560 x 1440, 30 fps) and web copies for the site
+//   node tools/promo-video/promo.mjs web [NN]  the web copies again, from final NN's masters
 //
 // draft and final take a cut name (consumer or developer, see timeline.mjs) to build only
 // that cut.
@@ -22,6 +23,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
   createWriteStream,
   copyFileSync,
@@ -434,7 +436,8 @@ async function oneCut(kind, fps, c, out) {
     film,
   ]);
   copyFileSync(path.join(work, 'vo.srt'), path.join(out, 'vidvnc-promo.en.srt'));
-  if (kind === 'final') await webCopy(film, work, c, path.join(out, 'web'));
+  if (kind === 'final')
+    await webCopy(film, path.join(work, 'vo.srt'), c, path.join(out, 'web'), work);
   if (kind === 'draft') {
     const audio = path.join(out, 'audio');
     mkdirSync(audio);
@@ -447,39 +450,91 @@ async function oneCut(kind, fps, c, out) {
   }
 }
 
-// The website's copy of a final: the same 2560 x 1440 picture at a streaming bitrate, a poster
-// (the frame the timeline marks with poster), and the captions as WebVTT, all named after the
-// cut so they can be published side by side.
-async function webCopy(master, work, c, dir) {
+// The website's copies of a final, at most 1 MB per minute of film: AV1 (the smallest that
+// browsers play) and HEVC as a fallback for Apple devices without an AV1 decoder, both 10-bit
+// so the dark gradients don't band, at 1920 x 1080, with Opus sound, in MP4. Each is encoded
+// in two passes to a bitrate worked out from the film's length, so it lands under budget.
+// Also a poster (the frame the timeline marks with poster) and the captions as WebVTT, all
+// named after the cut so they can be published side by side.
+const WEB = { mbPerMinute: 1, audioKbps: 40, overheadKbps: 4, height: 1080 };
+async function webCopy(master, srt, c, dir, work) {
   mkdirSync(dir, { recursive: true });
+  mkdirSync(work, { recursive: true });
   const base = path.join(dir, `vidvnc-promo-${c.name}`);
-  console.log('== web copy');
-  run(ffmpeg(), [
-    '-loglevel',
-    'error',
-    '-y',
-    '-i',
-    master,
-    '-c:v',
-    'libx264',
-    '-preset',
-    'slow',
-    '-crf',
-    '23',
-    '-maxrate',
-    '8M',
-    '-bufsize',
-    '16M',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '160k',
-    '-movflags',
-    '+faststart',
-    `${base}.mp4`,
-  ]);
+  // 1 MB a minute is 8 * 1000 * 1000 / 60 bits a second; keep 3% back for the container
+  const totalKbps = Math.floor(((WEB.mbPerMinute * 8000) / 60) * 0.97);
+  const videoKbps = totalKbps - WEB.audioKbps - WEB.overheadKbps;
+  const common = ['-vf', `scale=-2:${WEB.height}:flags=lanczos`, '-pix_fmt', 'yuv420p10le'];
+  const codecs = {
+    av1: (pass, log) => [
+      '-c:v',
+      'libaom-av1',
+      '-cpu-used',
+      '3',
+      '-row-mt',
+      '1',
+      '-tiles',
+      '2x2',
+      '-g',
+      '300',
+      '-b:v',
+      `${videoKbps}k`,
+      '-pass',
+      String(pass),
+      '-passlogfile',
+      log,
+    ],
+    hevc: (pass, log) => [
+      '-c:v',
+      'libx265',
+      '-preset',
+      'slow',
+      '-b:v',
+      `${videoKbps}k`,
+      '-x265-params',
+      `pass=${pass}:stats=${log.replace(/\\/g, '/')}.log:keyint=300:log-level=error`,
+      '-tag:v',
+      'hvc1', // so Safari plays it
+    ],
+  };
+  for (const [name, args] of Object.entries(codecs)) {
+    console.log(`== web copy: ${name}, ${videoKbps} kbit/s video + ${WEB.audioKbps} kbit/s Opus`);
+    const log = path.join(work, `${c.name}-${name}`);
+    const out = `${base}.${name}.mp4`;
+    run(ffmpeg(), [
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      master,
+      ...common,
+      ...args(1, log),
+      '-an',
+      '-f',
+      'mp4',
+      win ? 'NUL' : '/dev/null',
+    ]);
+    run(ffmpeg(), [
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      master,
+      ...common,
+      ...args(2, log),
+      '-c:a',
+      'libopus',
+      '-b:a',
+      `${WEB.audioKbps}k`,
+      '-movflags',
+      '+faststart',
+      out,
+    ]);
+    const mb = statSync(out).size / 1e6;
+    const perMin = mb / (c.duration / 60);
+    console.log(`  ${path.basename(out)}: ${mb.toFixed(2)} MB, ${perMin.toFixed(2)} MB a minute`);
+    if (perMin > WEB.mbPerMinute) console.warn(`warning: over ${WEB.mbPerMinute} MB a minute`);
+  }
   const s = c.scenes.find((x) => x.poster !== undefined) || c.scenes[0];
   run(ffmpeg(), [
     '-loglevel',
@@ -491,15 +546,45 @@ async function webCopy(master, work, c, dir) {
     master,
     '-frames:v',
     '1',
+    '-vf',
+    `scale=-2:${WEB.height}:flags=lanczos`,
     '-q:v',
-    '3',
+    '4',
     `${base}-poster.jpg`,
   ]);
-  const srt = readFileSync(path.join(work, 'vo.srt'), 'utf8');
   writeFileSync(
     `${base}.en.vtt`,
-    'WEBVTT\n\n' + srt.replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, '$1.$2').replace(/\r/g, ''),
+    'WEBVTT\n\n' +
+      readFileSync(srt, 'utf8')
+        .replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, '$1.$2')
+        .replace(/\r/g, ''),
   );
+}
+// promo.mjs web [NN]: makes the web copies again from final NN's masters (the latest final if
+// no number), without rendering anything.
+async function web(num) {
+  const parent = path.join(outRoot, 'final');
+  const n =
+    num ||
+    readdirSync(parent)
+      .filter((f) => /^\d+$/.test(f))
+      .sort()
+      .pop();
+  if (!n) throw new Error(`no final in ${parent}`);
+  for (const name of CUT_NAMES) {
+    const dir = path.join(parent, n.padStart(2, '0'), name);
+    const master = path.join(dir, 'vidvnc-promo-2k.mp4');
+    if (!existsSync(master)) continue;
+    console.log(`==== ${name} cut, final ${n}`);
+    rmSync(path.join(dir, 'web'), { recursive: true, force: true });
+    await webCopy(
+      master,
+      path.join(dir, 'vidvnc-promo.en.srt'),
+      cut(name),
+      path.join(dir, 'web'),
+      path.join(cache, 'work-web'),
+    );
+  }
 }
 
 async function voices() {
@@ -534,10 +619,11 @@ const steps = {
   voices,
   draft: () => film('draft', process.argv[3]),
   final: () => film('final', process.argv[3]),
+  web: () => web(process.argv[3]),
 };
 if (!steps[cmd]) {
   console.error(
-    `usage: promo.mjs setup | voices | draft [cut] | final [cut]  (cuts: ${CUT_NAMES.join(', ')})`,
+    `usage: promo.mjs setup | voices | draft [cut] | final [cut] | web [NN]  (cuts: ${CUT_NAMES.join(', ')})`,
   );
   process.exit(2);
 }

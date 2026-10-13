@@ -39,6 +39,7 @@ node tools/promo-video/promo.mjs setup    # once: playwright-core, ffmpeg-static
 node tools/promo-video/promo.mjs voices   # out/promo-video/voice-samples/
 node tools/promo-video/promo.mjs draft    # out/promo-video/drafts/NN/, both cuts (1080p, 30 fps)
 node tools/promo-video/promo.mjs final    # out/promo-video/final/NN/, both cuts (2K masters, 30 fps)
+node tools/promo-video/promo.mjs web      # the web copies again, from the latest final
 ```
 
 `draft consumer` or `final developer` builds only that cut. Each draft gets the next number
@@ -60,8 +61,10 @@ drafts/10/
 
 A final in `final/NN/` holds, per cut, the 2K master `vidvnc-promo-2k.mp4` (2560 x 1440,
 30 fps, near-lossless), its captions, and `web/` with what the website needs:
-`vidvnc-promo-<cut>.mp4` at a streaming bitrate, `-poster.jpg` (the frame `poster` marks in
-`timeline.mjs`) and `.en.vtt` captions. It has the same two links. The page is always laid
+`vidvnc-promo-<cut>.av1.mp4` and `.hevc.mp4` (1080p, 10-bit, Opus sound, at most 1 MB per
+minute of film; AV1 for most browsers, HEVC for Apple devices without an AV1 decoder),
+`-poster.jpg` (the frame `poster` marks in `timeline.mjs`) and `.en.vtt` captions.
+`promo.mjs web [NN]` makes them again from final NN's masters without rendering anything. It has the same two links. The page is always laid
 out at 1920 x 1080; a final records it at 4/3 the pixel ratio, and the canvases and the
 backdrop draw at that ratio, so nothing is upscaled. Drafts 01 to 09 came before the two cuts and hold one film each. Any
 revision can be rebuilt by checking out its commit, so commit and push script changes before
