@@ -7,48 +7,32 @@
       {
         "scene": "hook",
         "at": 0.6,
-        "text": "Your computer has the film, the music, the work. But you'd rather be on the sofa."
+        "text": "Your films, your music, your whole desktop live on your computer. But you're on the sofa."
       },
       {
-        "scene": "lag",
+        "scene": "watch",
         "at": 0.4,
-        "text": "Most remote desktop apps send your screen as a slideshow. Late, blurry, and silent."
-      },
-      {
-        "scene": "race",
-        "at": 0.4,
-        "text": "VidVNC streams your desktop as video instead. Fluid, with clear stereo sound."
-      },
-      {
-        "scene": "race",
-        "at": 6.4,
-        "text": "Same desk. Same network. Nothing to wait for."
-      },
-      {
-        "scene": "number",
-        "at": 0.4,
-        "text": "About sixty-three milliseconds, screen to screen, in full HD. And it streams up to 4K.",
-        "caption": "About 63 milliseconds, screen to screen, in full HD. And it streams up to 4K."
+        "text": "With VidVNC, watch it on the TV or your phone. Smooth video, with the sound."
       },
       {
         "scene": "app-code",
-        "at": 0.6,
-        "text": "Open VidVNC and show a code."
+        "at": 0.5,
+        "text": "Getting started is simple. Open VidVNC and show a code."
       },
       {
         "scene": "scan",
         "at": 0.4,
-        "text": "Scan it, or type the short key, in a browser. No app to install."
+        "text": "Scan it with your phone, or type the short key in a browser. No app to install."
       },
       {
         "scene": "screens",
-        "at": 0.5,
-        "text": "On your phone, your tablet, or a compatible smart TV. From a Mac or a Windows PC."
+        "at": 0.4,
+        "text": "It works on phones, tablets and compatible smart TVs."
       },
       {
         "scene": "touch",
         "at": 0.4,
-        "text": "Just watch, or take the keyboard and mouse when you allow it. On a phone, your finger is the mouse."
+        "text": "And when you need your computer, take the keyboard and mouse from the sofa. On a phone, your finger is the mouse."
       },
       {
         "scene": "safe",
@@ -70,23 +54,28 @@
       {
         "scene": "lag",
         "at": 5.0,
-        "text": "Every click lands late. Every drag stutters. And the sound? It never arrives."
+        "text": "Every click lands late. Every scroll stutters. And you lose your flow."
       },
       {
         "scene": "race",
         "at": 0.4,
-        "text": "VidVNC streams your desktop as video instead. Fluid, with clear stereo sound."
+        "text": "VidVNC streams your desktop as video instead. Smooth, sharp, and in step with your hands."
       },
       {
         "scene": "race",
-        "at": 6.4,
+        "at": 7.0,
         "text": "Same desk. Same network. Nothing to wait for."
       },
       {
         "scene": "number",
         "at": 0.4,
-        "text": "About sixty-three milliseconds, screen to screen, in full HD. And it streams up to 4K.",
-        "caption": "About 63 milliseconds, screen to screen, in full HD. And it streams up to 4K."
+        "text": "About sixty-three milliseconds, screen to screen, in full HD. And up to 4K, for sharp text.",
+        "caption": "About 63 milliseconds, screen to screen, in full HD. And up to 4K, for sharp text."
+      },
+      {
+        "scene": "flow",
+        "at": 0.4,
+        "text": "Type and scroll at full speed. It keeps up with you, so you stay in your flow."
       },
       {
         "scene": "app-code",
@@ -111,7 +100,7 @@
       {
         "scene": "platforms",
         "at": 0.3,
-        "text": "On a Mac or a Windows PC, the graphics hardware does the work."
+        "text": "On a Mac or a Windows PC, the graphics hardware does the encoding, so the processor stays free for your work."
       },
       {
         "scene": "trust",

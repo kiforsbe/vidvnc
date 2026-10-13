@@ -1,6 +1,6 @@
 import { cursorSvg, ease, el, fade, makePhone, setDesk, vidTime, winPos } from '../engine/kit.mjs';
 
-// Scene: watch, or take control. The keyboard and mouse switch on in the viewer's toolbar,
+// Scene: take control from the sofa. The keyboard and mouse switch on in the viewer's toolbar,
 // then a finger drags a window: the finger is the mouse (README, "Viewing on an iPhone").
 
 export const build = (root) => {
@@ -29,7 +29,7 @@ export const build = (root) => {
     'abs',
     root,
     { left: 0, right: 0, top: '860px' },
-    '<div class="title" style="font-size:56px">Watch, or take control.</div><div class="sub" style="margin-top:12px">On a phone, your finger is the mouse.</div>',
+    '<div class="title" style="font-size:56px">Take control from the sofa.</div><div class="sub" style="margin-top:12px">On a phone, your finger is the mouse.</div>',
   );
   return { p, cur, finger, chip, t };
 };
@@ -37,7 +37,7 @@ export const build = (root) => {
 export const update = ({ p, cur, finger, chip, t }, lt, dur, root, { start }) => {
   root.style.opacity = fade(lt, dur);
   const time = vidTime(start + lt);
-  setDesk(p.desk, time);
+  setDesk(p.desk, time, false, 'film'); // a film plays while you take control
   const on = lt > 1.6;
   chip.style.background = on ? '#2f6feb' : 'rgba(30,36,52,0.92)';
   chip.style.color = on ? '#fff' : '#a9b5ca';

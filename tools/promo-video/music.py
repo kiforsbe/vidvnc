@@ -4,7 +4,7 @@ usage: python music.py <out.wav> <timeline.json> [eq.json]
 
 Writes 44.1 kHz stereo. Two kinds of music: the film's own quiet score (pads, soft keys and
 a gentle pulse), and the "desktop track", a full, wide song that plays on the shared desktop
-in the race scene only, to show sound arriving with the picture. Its spectrum goes to
+in one scene only (the race, or the consumer cut's watch scene), to show sound arriving with the picture. Its spectrum goes to
 eq.json, which drives the desktop player's visualiser (engine/kit.mjs), so what you see is
 what you hear. Cue times come from timeline.json, which promo.mjs writes from one cut of
 timeline.mjs; the security act's cues apply only to a cut that has it (the developer cut).
@@ -27,7 +27,10 @@ rng = np.random.default_rng(7)
 
 # Cue times from the timeline
 SC = {s['id']: s for s in TIMELINE['scenes']}
-RACE, NUMBER, END = SC['race']['start'], SC['race']['end'], SC['end']['start']
+# The desktop's song plays over the scene whose opts mark it (the race, or the consumer cut's
+# watch scene); the quiet score takes over after it.
+SONG = next(s for s in TIMELINE['scenes'] if s.get('opts', {}).get('song'))
+RACE, NUMBER, END = SONG['start'], SONG['end'], SC['end']['start']
 # The developer cut has the security act (trust, security, network); the consumer cut doesn't,
 # so its middle section runs on to the end card.
 SECURITY = all(k in SC for k in ('trust', 'security', 'network'))
@@ -238,8 +241,8 @@ track = desktop_track()
 score = Bus()
 tt = np.arange(N) / SR
 
-# The desktop's song plays in the race only: it comes in after the first line and fades out
-# as the race ends.
+# The desktop's song plays in its one scene only: it comes in after the first line and fades
+# out as the scene ends.
 race_gain = np.interp(tt, [RACE + 0.5, RACE + 1.6, RACE + 3.0, NUMBER - 0.8, NUMBER + 0.2], [0, 0.6, 1.0, 1.0, 0])
 score.x += track * race_gain
 

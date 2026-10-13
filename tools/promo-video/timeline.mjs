@@ -1,9 +1,11 @@
 // The films' timelines. There are two cuts of the promo from the same scenes:
 //
-//   consumer   about 70 s, for people choosing a way to watch their desktop on a phone,
-//              tablet or TV: what it feels like, how to start, one line on safety.
-//   developer  about 100 s, for developers and power users: the comparison with
-//              traditional VNC, sign-in, and the full security design.
+//   consumer   about 50 s, for people at home: watch what's on your computer from the sofa,
+//              on a TV or phone, and take control of it from there. How to start, and one
+//              line on safety.
+//   developer  about 110 s, for developers and power users: productivity. A remote desktop
+//              that keeps up (the comparison with traditional VNC, 63 ms, typing and
+//              scrolling), sign-in, and the full security design.
 //
 // Each cut lists its scenes in order and how long each lasts. Start and end times follow
 // from the lengths, so changing one scene moves everything after it. Times inside a scene
@@ -14,30 +16,28 @@
 const CUTS = {
   consumer: [
     { id: 'hook', length: 7, stills: [4] },
-    { id: 'lag', length: 8.5, stills: [7], opts: { label: 'Typical remote desktop' } },
-    { id: 'race', length: 11.8, stills: [7.8], opts: { label: 'Typical remote desktop' } },
-    { id: 'number', length: 7, stills: [3.5] },
-    { id: 'app-code', length: 4, stills: [2.5] },
-    { id: 'scan', length: 5.5, stills: [4] },
-    { id: 'screens', length: 6.5, stills: [4] },
-    { id: 'touch', length: 7, stills: [4.5] },
+    { id: 'watch', length: 8.5, stills: [5], opts: { song: true } },
+    { id: 'app-code', length: 5, stills: [2.5] },
+    { id: 'scan', length: 6, stills: [4] },
+    { id: 'screens', length: 5.5, stills: [3.5] },
+    { id: 'touch', length: 8, stills: [5] },
     { id: 'safe', length: 6.5, stills: [4.5] },
     { id: 'end', length: 7, stills: [3], opts: { audience: 'consumer' } },
   ],
   developer: [
     { id: 'lag', length: 12.2, stills: [10.5], opts: { label: 'Traditional VNC' } },
-    { id: 'race', length: 11.8, stills: [7.8] },
-    { id: 'number', length: 7, stills: [3.5] },
+    { id: 'race', length: 11.8, stills: [7.8], opts: { song: true } },
+    { id: 'number', length: 7.5, stills: [3.5] },
+    { id: 'flow', length: 7.5, stills: [5] },
     { id: 'app-code', length: 4, stills: [2.5] },
     { id: 'scan', length: 5, stills: [4] },
     { id: 'accounts', length: 9.5, stills: [4.5] },
     { id: 'control', length: 4, stills: [2.5] },
-    { id: 'platforms', length: 5, stills: [2] },
+    { id: 'platforms', length: 7.5, stills: [2.5] },
     { id: 'trust', length: 4, stills: [2] },
     // marks: when the spotlight moves to the edge, the sandbox and the trusted side
     { id: 'security', length: 26, stills: [9, 15, 22], marks: [6, 12.2, 19.4] },
     { id: 'network', length: 6.4, stills: [3] },
-    { id: 'devices', length: 3, stills: [1.8] },
     { id: 'end', length: 7, stills: [3], opts: { audience: 'developer' } },
   ],
 };

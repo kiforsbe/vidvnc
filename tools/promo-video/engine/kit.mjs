@@ -97,7 +97,8 @@ export const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).p
 // so they fill a wide phone screen.
 export const PL = { right: 60, y: 230, w: 680, h: 640 };
 // playing: whether the player is playing; the film only plays the desktop's song in the race.
-export function drawDesk(g, time, W, H, playing) {
+// content 'film' swaps the music player for a window playing the film (drawFilm).
+export function drawDesk(g, time, W, H, playing, content = 'player') {
   const eq = playing ? eqAt(time) : new Float32Array(49);
   const level = eq[48];
   const k = Math.max(W / 1600, H / 1000); // the wallpaper covers any desk size
@@ -122,6 +123,7 @@ export function drawDesk(g, time, W, H, playing) {
     18,
   );
   g.textAlign = 'left';
+  if (content === 'film') return drawFilmWindow(g, time, W, H);
   // player window
   const { w, h } = PL;
   const y = H > 1000 ? 150 : PL.y; // a tall (portrait) desk puts the player at the top
@@ -259,6 +261,40 @@ export function drawDesk(g, time, W, H, playing) {
   }
   g.restore();
 }
+// A window playing the film where the player would be, with a title bar.
+function drawFilmWindow(g, time, W, H) {
+  const w = PL.w,
+    fh = Math.round((w * 9) / 16),
+    h = fh + 52;
+  const x = W - PL.right - w,
+    y = H > 1000 ? 150 : PL.y;
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.55)';
+  g.shadowBlur = 60;
+  g.shadowOffsetY = 24;
+  rrect(g, x, y, w, h, 22);
+  g.fillStyle = 'rgba(16,20,34,0.96)';
+  g.fill();
+  g.restore();
+  g.save();
+  rrect(g, x, y, w, h, 22);
+  g.clip();
+  ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => {
+    g.fillStyle = c;
+    g.beginPath();
+    g.arc(x + 30 + i * 26, y + 26, 8, 0, 7);
+    g.fill();
+  });
+  g.fillStyle = '#a9b5ca';
+  g.font = '500 20px "Instrument Sans"';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('Coastline', x + w / 2, y + 27);
+  g.textAlign = 'left';
+  g.translate(x, y + 52);
+  drawFilm(g, time, w, fh);
+  g.restore();
+}
 // A desk is 1600 x 1000 desk pixels unless a screen needs it wider or taller to fill it.
 export function makeDesk(parent, W = 1600, H = 1000) {
   const root = el('desk', parent, { width: W + 'px', height: H + 'px' });
@@ -274,8 +310,8 @@ export const winPos = (time) => ({
   x: 60 + 200 * (0.5 - 0.5 * Math.cos(time * 1.15)),
   y: 90 + 110 * (0.5 - 0.5 * Math.cos(time * 0.83)),
 });
-export function setDesk(d, time, playing = false) {
-  drawDesk(d.g, time, d.W, d.H, playing);
+export function setDesk(d, time, playing = false, content = 'player') {
+  drawDesk(d.g, time, d.W, d.H, playing, content);
   const p = winPos(time);
   d.win.style.left = p.x + 'px';
   d.win.style.top = p.y + (d.H > 1000 ? 760 : 0) + 'px'; // below the player on a tall desk

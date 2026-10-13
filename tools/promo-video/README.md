@@ -3,13 +3,12 @@
 Scripts that generate the VidVNC promo films from code: the voiceover, the music, every
 shot, the mix and the captions. There are two cuts from the same scenes:
 
-- **consumer**, about 70 s, for people choosing a way to watch their desktop on a phone,
-  tablet or smart TV: a living room, the side-by-side race, the 63 ms figure, how to connect,
-  touch control and one line on safety.
-- **developer**, about 100 s, for developers and power users: the comparison with
-  traditional VNC, sign-in for registered devices, and the full security design.
-  Nothing is filmed or edited by hand, and no generated media is
-  kept in the repository; it all goes to `out/promo-video/` (ignored by git).
+- **consumer**, about 55 s, for people at home: watching what's on your computer from the
+  sofa, on a TV or phone, and taking control of it from there; how to connect, and one line
+  on safety.
+- **developer**, about 110 s, for developers and power users: productivity with a remote
+  desktop that keeps up (the comparison with traditional VNC, the 63 ms figure, typing and
+  scrolling), sign-in for registered devices, and the full security design.
 
 | File                                       | What it does                                                                                                                                                             |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -75,8 +74,8 @@ backdrop's glow comes out wrong.
   the Mac app's, and the type is the website's own fonts in [site/fonts](../../site/fonts)
   (SIL Open Font License). Nothing is copied: the build serves them from where they are.
 - The voice is Kokoro's `af_heart` (Apache 2.0), run locally.
-- The phones, the living room, the film playing on the screens and the side-by-side with a
-  traditional VNC client are animated illustrations, and the film says so on screen.
+- The phones, the living room, the film playing on the screens, the code editor and the
+  side-by-side with a traditional VNC client are animated illustrations, and the film says so on screen.
 - Smart TVs are named as "compatible smart TVs": the viewer is a web page, so a TV whose
   browser runs it can show it, but no TV has been tested yet. The end card's requirements
   are the [README's](../../README.md). The one measured figure, about 63 ms glass to glass at 1080p60
