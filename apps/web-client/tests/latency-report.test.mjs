@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeState, detailRows, resultRows } from '../src/latency-report.js';
+import {
+  describeState,
+  detailRows,
+  latencySignature,
+  resultRows,
+  stateLine,
+} from '../src/latency-report.js';
 
 const timing = (median) => ({ count: 40, min: 20.04, median, p95: 61.25, max: 80 });
 const results = {
@@ -82,4 +88,20 @@ test('detail rows give the receiver, overhead, timeouts, video and browser', () 
     ['Video', '2560 × 1440'],
     ['Browser', 'Mozilla/5.0 (iPhone)'],
   ]);
+});
+
+test('a notice from the last click lasts only until the measurement state changes', () => {
+  const idle = { active: null, history: [{ id: 'a', state: 'done' }] };
+  const notice = { text: 'A measurement is already running.', seen: latencySignature(idle) };
+  assert.equal(stateLine(idle, notice), 'A measurement is already running.');
+  assert.equal(
+    stateLine({ active: { id: 'b', state: 'requested' }, history: idle.history }, notice),
+    'Waiting for the viewer…',
+  );
+  assert.equal(
+    stateLine({ active: null, history: [{ id: 'b', state: 'done' }, ...idle.history] }, notice),
+    'Done',
+  );
+  assert.equal(stateLine(idle, null), 'Done');
+  assert.equal(stateLine(undefined, null), 'No measurement yet.');
 });

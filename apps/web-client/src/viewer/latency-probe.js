@@ -247,12 +247,24 @@ function canvasReader(source) {
 
 const failed = (reason) => ({ state: 'failed', reason });
 
+// What the viewer posts for a run's outcome, given why it was stopped (`stopReason`: null when
+// it wasn't). Nothing when the server refused the run (`refused`, never posted) or the viewer
+// went away (`gone`): the server has already settled it, or settles it when the stream ends.
+export function outcomeReport(outcome, stopReason) {
+  if (outcome.reason === 'refused' || (outcome.reason === 'cancelled' && stopReason === 'gone'))
+    return null;
+  if (outcome.reason === 'cancelled') return { state: 'failed', reason: stopReason ?? 'cancelled' };
+  return outcome;
+}
+
 // One measurement: checks that it can run, then times `trials` pointer moves and as many key
 // presses, alternating, each to the first frame that shows its effect. Frames are read only
 // while it runs. `send` is the viewer's input sender, `canControl` says whether this device
 // holds control, `source` gives the shared display's size (null for a stretched stream),
 // `getStats` the peer connection's stats, or null, and `onRunning` is called once the checks
-// pass. Resolves to {state: 'done', results} or {state: 'failed', reason}.
+// pass; if it rejects (the server refused the run), the run stops before sending anything. A
+// run stops starting trials after `deadlineMs`, well inside the server's 120 s, and reports
+// what it has. Resolves to {state: 'done', results} or {state: 'failed', reason}.
 export async function runLatencyProbe({
   video,
   send,
@@ -266,6 +278,7 @@ export async function runLatencyProbe({
   readFrameFrom = null,
   probeWaitMs = 2_000,
   trialTimeoutMs = 2_000,
+  deadlineMs = 100_000,
   pauseMs = () => 150 + Math.random() * 250,
   browser = globalThis.navigator?.userAgent ?? '',
 }) {
@@ -360,14 +373,20 @@ export async function runLatencyProbe({
     if (signal.aborted) return failed('cancelled');
     if (latest.hostTime === null) return failed('no-probe-page');
     if (!canControl()) return failed('no-control');
-    await onRunning();
+    try {
+      await onRunning();
+    } catch {
+      return failed('refused');
+    }
     running = true;
+    const runStart = performance.now();
     const before = await receiverSnapshot();
     const samples = { move: [], key: [] };
     const timeouts = { move: 0, key: 0 };
     for (let index = 0; index < trials * 2; index++) {
       if (signal.aborted) return failed('cancelled');
       if (!canControl()) return failed('control-lost');
+      if (performance.now() - runStart > deadlineMs) break;
       const kind = index % 2 ? 'key' : 'move';
       const sample = await trial(kind);
       if (signal.aborted) return failed('cancelled');

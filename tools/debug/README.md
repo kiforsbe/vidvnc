@@ -98,7 +98,9 @@ A measurement fails, with the reason shown in Diagnostics, when the viewer doesn
 keyboard and mouse control, can't read the probe page within 2 seconds, has no
 `requestVideoFrameCallback`, isn't showing that stream, loses control or switches stream
 during the run, or is cancelled. One that no viewer picks up within 15 seconds, or that
-sends no result within 120 seconds, expires. One measurement runs at a time.
+sends no result within 120 seconds, expires. The viewer starts no new trial after 100 seconds and
+reports what it has, and it stops before sending anything if the server has already ended the
+measurement. One measurement runs at a time.
 
 The probe sends input only while the device holds control, through the normal input path and
 its checks, and stops if the first key press doesn't flip the patch, so it doesn't keep

@@ -71,3 +71,16 @@ export function detailRows(results) {
     ['Browser', results.browser],
   ];
 }
+
+// Identifies a measurement snapshot's state, so a notice from the last click (a busy server,
+// for example) can be shown only until that state changes.
+export function latencySignature(probe) {
+  return `${probe?.active?.id ?? ''}:${probe?.active?.state ?? ''}:${probe?.history?.[0]?.id ?? ''}`;
+}
+
+// The state line: the notice `{text, seen}` while the snapshot is still the one it was given
+// against, otherwise the measurement's state.
+export function stateLine(probe, notice) {
+  if (notice && notice.seen === latencySignature(probe)) return notice.text;
+  return describeState(probe?.active ?? probe?.history?.[0] ?? null);
+}

@@ -188,7 +188,8 @@ export function createViewer({ onExit }) {
     disposed = true;
     connectionAttempt++;
     events.abort();
-    latencyRun?.stop('cancelled');
+    // Leaving: the stream's end settles the measurement on the server.
+    latencyRun?.stop('gone');
     headerObserver.disconnect();
     clearTimeout(dockTimer);
     if (document.pictureInPictureElement === $('video'))
@@ -801,22 +802,24 @@ export function createViewer({ onExit }) {
     if (latencyRun || subscriptions?.selected?.id !== streamId)
       return report({ state: 'failed', reason: 'stream-changed' });
     const controller = new AbortController();
-    let reason = 'cancelled';
+    let stopReason = null;
     const run = (latencyRun = {
       streamId,
       stop(why) {
         if (controller.signal.aborted) return;
-        reason = why;
+        stopReason = why;
         controller.abort();
       },
     });
     $('latencyBanner').hidden = false;
     let outcome;
+    let outcomeReport = (value) => value;
     try {
-      const { runLatencyProbe } = await import('./latency-probe.js');
+      const probe = await import('./latency-probe.js');
+      outcomeReport = probe.outcomeReport;
       outcome = controller.signal.aborted
-        ? { state: 'failed', reason }
-        : await runLatencyProbe({
+        ? { state: 'failed', reason: 'cancelled' }
+        : await probe.runLatencyProbe({
             video: $('video'),
             send,
             canControl: () => enabled,
@@ -824,15 +827,16 @@ export function createViewer({ onExit }) {
             getStats: () => (pc ? pc.getStats() : Promise.resolve(null)),
             summarizeReceiver,
             signal: controller.signal,
-            onRunning: () => report({ state: 'running' }),
+            // A refusal (the server already ended it) stops the run before any input.
+            onRunning: () => api('latency-result', { streamId, id, state: 'running' }),
           });
     } catch {
       outcome = { state: 'failed', reason: 'unsupported' };
     }
-    if (outcome.state === 'failed' && outcome.reason === 'cancelled') outcome.reason = reason;
     if (latencyRun === run) latencyRun = null;
     $('latencyBanner').hidden = true;
-    await report(outcome);
+    const body = outcomeReport(outcome, stopReason);
+    if (body) await report(body);
   }
   $('latencyCancel').onclick = () => latencyRun?.stop('cancelled');
   function position(event) {

@@ -11,6 +11,7 @@ import {
   decodeTimestamp,
   desktopRect,
   encodeTimestamp,
+  outcomeReport,
   readFrame,
   runLatencyProbe,
   summarize,
@@ -336,4 +337,41 @@ test('a run stops reading frames when it returns', async (t) => {
   const after = reads;
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(reads, after);
+});
+
+test('a run whose running report is refused stops at once and sends nothing', async (t) => {
+  const host = fakeHost();
+  t.after(host.stop);
+  const outcome = await run(host, {
+    onRunning: async () => {
+      throw new Error('Unknown measurement');
+    },
+  });
+  assert.deepEqual(outcome, { state: 'failed', reason: 'refused' });
+  assert.equal(host.sent.length, 0);
+});
+
+test('a run that reaches its deadline ends with the samples it has', async (t) => {
+  const host = fakeHost({ inputMs: 20 });
+  t.after(host.stop);
+  const outcome = await run(host, { trials: 40, deadlineMs: 150 });
+  assert.equal(outcome.state, 'done');
+  const taken = outcome.results.handToGlassMs.move.count + outcome.results.handToGlassMs.key.count;
+  assert.ok(taken > 0 && taken < 80, `took ${taken} samples`);
+});
+
+test('the outcome a viewer reports: none after a refusal or when it goes away', () => {
+  const results = { any: 1 };
+  assert.deepEqual(outcomeReport({ state: 'done', results }, null), { state: 'done', results });
+  assert.deepEqual(outcomeReport({ state: 'failed', reason: 'cancelled' }, 'stream-changed'), {
+    state: 'failed',
+    reason: 'stream-changed',
+  });
+  assert.deepEqual(outcomeReport({ state: 'failed', reason: 'no-control' }, 'cancelled'), {
+    state: 'failed',
+    reason: 'no-control',
+  });
+  assert.equal(outcomeReport({ state: 'failed', reason: 'refused' }, null), null);
+  // Disconnecting or leaving the page: the stream's end settles it on the server.
+  assert.equal(outcomeReport({ state: 'failed', reason: 'cancelled' }, 'gone'), null);
 });

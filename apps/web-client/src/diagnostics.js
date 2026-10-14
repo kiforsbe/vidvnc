@@ -1,7 +1,13 @@
 import { CODEC_LABELS } from './codec-preferences.js';
 import { profileTooltip, targetBitrateText } from './profile-labels.js';
 import { fetchDiagnostics, takeDiagnosticsCapability } from './diagnostics-auth.js';
-import { describeState, detailRows, resultRows } from './latency-report.js';
+import {
+  describeState,
+  detailRows,
+  latencySignature,
+  resultRows,
+  stateLine,
+} from './latency-report.js';
 let capability = takeDiagnosticsCapability(location, history);
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 1) =>
@@ -72,6 +78,7 @@ function chart(id, history, now, series, minimum, unit) {
 // server, for example), kept until the next click or stream change.
 let latencyNotice = null;
 let latencyActive = false;
+let latencyProbe = null;
 function cells(tag, values) {
   const row = document.createElement('tr');
   for (const value of values) {
@@ -86,7 +93,8 @@ function renderLatency(probe) {
   const history = probe?.history ?? [];
   latencyActive = active !== null;
   $('measureLatency').disabled = latencyActive || !selectedStream;
-  $('latencyState').textContent = latencyNotice ?? describeState(active ?? history[0] ?? null);
+  latencyProbe = probe;
+  $('latencyState').textContent = stateLine(probe, latencyNotice);
   const signature = JSON.stringify(history);
   if ($('latency').dataset.history === signature) return;
   $('latency').dataset.history = signature;
@@ -135,14 +143,23 @@ $('measureLatency').addEventListener('click', async () => {
       body: JSON.stringify({ streamId: selectedStream }),
       signal: AbortSignal.timeout(3000),
     });
-    if (response.status === 409) latencyNotice = 'A measurement is already running.';
-    else if (response.status === 404) latencyNotice = "That stream isn't live.";
-    else if (!response.ok) latencyNotice = "Couldn't start the measurement.";
+    const text =
+      response.status === 409
+        ? 'A measurement is already running.'
+        : response.status === 404
+          ? "That stream isn't live."
+          : response.ok
+            ? null
+            : "Couldn't start the measurement.";
+    if (text) latencyNotice = { text, seen: latencySignature(latencyProbe) };
     else latencyActive = true;
   } catch {
-    latencyNotice = "Couldn't start the measurement.";
+    latencyNotice = {
+      text: "Couldn't start the measurement.",
+      seen: latencySignature(latencyProbe),
+    };
   }
-  $('latencyState').textContent = latencyNotice ?? 'Waiting for the viewer…';
+  $('latencyState').textContent = latencyNotice?.text ?? 'Waiting for the viewer…';
   $('measureLatency').disabled = latencyActive;
 });
 async function refresh() {
