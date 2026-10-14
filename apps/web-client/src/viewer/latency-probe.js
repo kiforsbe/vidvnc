@@ -1,7 +1,8 @@
-// Latency probe, for development: measures hand-to-glass and glass-to-glass latency against
-// the host probe page (tools/debug/latency-probe.html) shown full screen on the shared
-// display. The viewer creates it only with ?latency-probe in its address, and it sends input
-// only while this device holds keyboard and mouse control, through the normal input path.
+// Latency probe: measures hand-to-glass and glass-to-glass latency against the host probe
+// page (tools/debug/latency-probe.html) shown full screen on the shared display. The viewer
+// imports it only when the host starts a measurement from Diagnostics, and the server serves
+// it only then. It sends input only while this device holds keyboard and mouse control,
+// through the normal input path.
 //
 // The probe page divides the screen into a grid of cells. Two rows of cells carry a barcode
 // of the host's clock (Date.now(), low 32 bits, and an 8-bit check), each row led by a black
@@ -139,50 +140,82 @@ export function videoReceiverStats(stats) {
   return { inbound, pair };
 }
 
-const randomPause = () => new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 250));
+const MAX_SAMPLES = 1_000; // The server's limit on a timing's count.
+const MAX_MS = 60_000;
+const RECEIVER_FIELDS = [
+  'decodeFps',
+  'jitterBufferMs',
+  'decodeMs',
+  'rttMs',
+  'lostInterval',
+  'framesDropped',
+];
 
-// The panel and the measurement loop. `send` is the viewer's input sender, `canControl` says
-// whether this device holds control, `source` gives the shared display's size (null for a
-// stretched stream), and `getStats` the peer connection's stats, or null.
-export function createLatencyProbe({
-  video,
-  send,
-  canControl,
-  source,
-  getStats,
-  summarizeReceiver,
-}) {
-  const panel = document.createElement('section');
-  panel.className = 'latency-probe';
-  panel.setAttribute('aria-label', 'Latency probe');
-  const heading = document.createElement('strong');
-  heading.textContent = 'Latency probe';
-  const start = document.createElement('button');
-  start.className = 'secondary';
-  start.textContent = 'Measure';
-  const copy = document.createElement('button');
-  copy.className = 'secondary';
-  copy.textContent = 'Copy results';
-  copy.disabled = true;
-  const output = document.createElement('pre');
-  output.textContent =
-    'Show tools/debug/latency-probe.html full screen on the shared display, enable keyboard & mouse, then Measure. Keep your hands off the mouse while it runs.';
-  panel.append(heading, start, copy, output);
-  document.body.append(panel);
+// Keeps a uniform sample of at most MAX_SAMPLES values from a stream of them.
+function reservoir() {
+  const values = [];
+  let seen = 0;
+  return {
+    values,
+    add(value) {
+      seen++;
+      if (values.length < MAX_SAMPLES) values.push(value);
+      else {
+        const index = Math.floor(Math.random() * seen);
+        if (index < MAX_SAMPLES) values[index] = value;
+      }
+    },
+  };
+}
 
+// A timing in the server's schema: values outside its range are left out rather than failing
+// the whole report.
+const within = (values, minimum) =>
+  summarize(
+    values
+      .filter((value) => Number.isFinite(value) && value >= minimum && value <= MAX_MS)
+      .slice(0, MAX_SAMPLES),
+  );
+
+// The results body for POST /api/latency-result, exactly in the server's schema
+// (apps/server/src/latency-results.mjs).
+export function buildResults({ samples, timeouts, glass, overhead, receiver, video, browser }) {
+  const pick = (kind, name) => samples[kind].map((sample) => sample[name]);
+  const finite = (value) => (Number.isFinite(value) ? value : null);
+  return {
+    handToGlassMs: {
+      move: within(pick('move', 'handToGlass'), 0),
+      key: within(pick('key', 'handToGlass'), 0),
+    },
+    handToReceiveMs: {
+      move: within(pick('move', 'handToReceive'), 0),
+      key: within(pick('key', 'handToReceive'), 0),
+    },
+    // From another device it includes the offset between the two clocks, so it may be
+    // negative.
+    glassToGlassMs: within(glass, -MAX_MS),
+    timeouts: { move: timeouts.move, key: timeouts.key },
+    overhead: {
+      callbackMs: within(overhead.callbackMs, 0),
+      skippedFrames: overhead.skippedFrames,
+    },
+    receiver: Object.fromEntries(
+      RECEIVER_FIELDS.map((field) => [field, finite(receiver?.[field])]),
+    ),
+    video: { width: video.width, height: video.height },
+    browser: String(browser).slice(0, 200),
+  };
+}
+
+// Reads frames on a GPU-backed canvas: the browser scales the frame on the GPU, and only the
+// small grid-sized result is read back. (willReadFrequently would keep the canvas in system
+// memory, copying the whole decoded frame there first.)
+function canvasReader(source) {
   const canvas = document.createElement('canvas');
   canvas.width = GRID.columns * CELL;
   canvas.height = GRID.rows * CELL;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  let disposed = false,
-    running = false,
-    latest = { hostTime: null, key: null, move: null },
-    lastHostTime = null,
-    pending = null,
-    glass = [],
-    results = null;
-
-  function read() {
+  const context = canvas.getContext('2d');
+  return (video) => {
     const width = video.videoWidth,
       height = video.videoHeight;
     if (!width || !height) return null;
@@ -209,20 +242,69 @@ export function createLatencyProbe({
         }
       return sum / 4;
     });
-  }
+  };
+}
+
+const failed = (reason) => ({ state: 'failed', reason });
+
+// One measurement: checks that it can run, then times `trials` pointer moves and as many key
+// presses, alternating, each to the first frame that shows its effect. Frames are read only
+// while it runs. `send` is the viewer's input sender, `canControl` says whether this device
+// holds control, `source` gives the shared display's size (null for a stretched stream),
+// `getStats` the peer connection's stats, or null, and `onRunning` is called once the checks
+// pass. Resolves to {state: 'done', results} or {state: 'failed', reason}.
+export async function runLatencyProbe({
+  video,
+  send,
+  canControl,
+  source,
+  getStats,
+  summarizeReceiver,
+  signal = new AbortController().signal,
+  trials = 40,
+  onRunning = () => {},
+  readFrameFrom = null,
+  probeWaitMs = 2_000,
+  trialTimeoutMs = 2_000,
+  pauseMs = () => 150 + Math.random() * 250,
+  browser = globalThis.navigator?.userAgent ?? '',
+}) {
+  if (typeof video.requestVideoFrameCallback !== 'function') return failed('unsupported');
+  if (!canControl()) return failed('no-control');
+  if (signal.aborted) return failed('cancelled');
+  const read = readFrameFrom ?? canvasReader(source);
+
+  let stopped = false,
+    running = false,
+    latest = { hostTime: null, key: null, move: null },
+    lastHostTime = null,
+    lastPresented = null,
+    pending = null,
+    waiters = [];
+  const glass = reservoir();
+  const callbackMs = reservoir();
+  let skippedFrames = 0;
 
   function onFrame(now, metadata) {
-    if (disposed) return;
+    if (stopped) return;
     video.requestVideoFrameCallback(onFrame);
-    const frame = read();
+    const started = performance.now();
+    const frame = read(video);
+    callbackMs.add(performance.now() - started);
+    if (Number.isFinite(metadata.presentedFrames)) {
+      if (lastPresented !== null && metadata.presentedFrames - lastPresented > 1)
+        skippedFrames += metadata.presentedFrames - lastPresented - 1;
+      lastPresented = metadata.presentedFrames;
+    }
     if (!frame) return;
     latest = frame;
     const shown = metadata.expectedDisplayTime ?? now;
     if (running && frame.hostTime !== null && frame.hostTime !== lastHostTime) {
       const host = unwrapTimestamp(frame.hostTime, Date.now());
-      glass.push(performance.timeOrigin + shown - host);
+      glass.add(performance.timeOrigin + shown - host);
     }
     if (frame.hostTime !== null) lastHostTime = frame.hostTime;
+    for (const wake of waiters.splice(0)) wake();
     if (pending && frame[pending.kind] === pending.expected) {
       const { resolve, sentAt } = pending;
       pending = null;
@@ -233,30 +315,36 @@ export function createLatencyProbe({
     }
   }
 
-  function trial(kind) {
-    const current = latest[kind];
-    if (current === null) return Promise.resolve(null);
-    const expected = current ^ 1;
+  // Resolves after `ms`, or at once on abort, or (with `frames`) on the next frame read.
+  function wait(ms, { frames = false } = {}) {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        pending = null;
-        resolve({ timeout: true });
-      }, 2000);
-      pending = {
-        kind,
-        expected,
-        sentAt: performance.now(),
-        resolve: (sample) => {
-          clearTimeout(timer);
-          resolve(sample);
-        },
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
       };
-      if (kind === 'move') send({ type: 'move', ...MOVE_TARGETS[expected] });
-      else {
-        send({ type: 'key', code: PROBE_KEY, down: true });
-        send({ type: 'key', code: PROBE_KEY, down: false });
-      }
+      const timer = setTimeout(done, ms);
+      signal.addEventListener('abort', done, { once: true });
+      if (frames) waiters.push(done);
     });
+  }
+
+  async function trial(kind) {
+    const current = latest[kind];
+    if (current === null) return null;
+    const expected = current ^ 1;
+    let sample = { timeout: true };
+    const shown = new Promise((resolve) => {
+      pending = { kind, expected, sentAt: performance.now(), resolve };
+    });
+    if (kind === 'move') send({ type: 'move', ...MOVE_TARGETS[expected] });
+    else {
+      send({ type: 'key', code: PROBE_KEY, down: true });
+      send({ type: 'key', code: PROBE_KEY, down: false });
+    }
+    await Promise.race([shown.then((value) => (sample = value)), wait(trialTimeoutMs)]);
+    pending = null;
+    return sample;
   }
 
   async function receiverSnapshot() {
@@ -264,88 +352,53 @@ export function createLatencyProbe({
     return stats ? videoReceiverStats(stats) : null;
   }
 
-  async function measure(trials = 40) {
-    if (latest.hostTime === null) {
-      output.textContent =
-        'The probe page is not visible: show tools/debug/latency-probe.html full screen on the shared display.';
-      return;
-    }
-    if (!canControl()) {
-      output.textContent = 'Enable keyboard & mouse first.';
-      return;
-    }
+  video.requestVideoFrameCallback(onFrame);
+  try {
+    const deadline = performance.now() + probeWaitMs;
+    while (latest.hostTime === null && !signal.aborted && performance.now() < deadline)
+      await wait(deadline - performance.now(), { frames: true });
+    if (signal.aborted) return failed('cancelled');
+    if (latest.hostTime === null) return failed('no-probe-page');
+    if (!canControl()) return failed('no-control');
+    await onRunning();
     running = true;
-    start.textContent = 'Stop';
-    copy.disabled = true;
-    glass = [];
+    const before = await receiverSnapshot();
     const samples = { move: [], key: [] };
     const timeouts = { move: 0, key: 0 };
-    const before = await receiverSnapshot();
-    for (let index = 0; running && index < trials * 2; index++) {
-      if (!canControl()) break;
+    for (let index = 0; index < trials * 2; index++) {
+      if (signal.aborted) return failed('cancelled');
+      if (!canControl()) return failed('control-lost');
       const kind = index % 2 ? 'key' : 'move';
       const sample = await trial(kind);
+      if (signal.aborted) return failed('cancelled');
       if (sample?.timeout) timeouts[kind]++;
       else if (sample) samples[kind].push(sample);
-      // The first key trial that times out means the key is going somewhere else: stop.
-      if (kind === 'key' && timeouts.key && !samples.key.length) break;
-      output.textContent = `Measuring… ${index + 1} of ${trials * 2}`;
-      await randomPause();
+      // The first key press that doesn't flip the patch means the key goes somewhere else.
+      if (kind === 'key' && timeouts.key && !samples.key.length) return failed('no-probe-page');
+      await wait(pauseMs());
     }
+    if (signal.aborted) return failed('cancelled');
     running = false;
-    start.textContent = 'Measure';
     const after = await receiverSnapshot();
     const receiver =
       after && summarizeReceiver
         ? summarizeReceiver(after.inbound, before?.inbound, after.pair)
         : null;
-    const pick = (kind, name) => samples[kind].map((sample) => sample[name]);
-    results = {
-      measuredAt: new Date().toISOString(),
-      userAgent: navigator.userAgent,
-      video: { width: video.videoWidth, height: video.videoHeight },
-      handToGlassMs: {
-        move: summarize(pick('move', 'handToGlass')),
-        key: summarize(pick('key', 'handToGlass')),
-      },
-      handToReceiveMs: {
-        move: summarize(pick('move', 'handToReceive')),
-        key: summarize(pick('key', 'handToReceive')),
-      },
-      timeouts,
-      glassToGlassMs: summarize(glass),
-      glassToGlassNote:
-        'Exact only when the viewer runs on the host; otherwise includes the clock offset.',
-      receiver: receiver && {
-        decodeFps: receiver.decodeFps,
-        jitterBufferMs: receiver.jitterBufferMs,
-        decodeMs: receiver.decodeMs,
-        rttMs: receiver.rttMs,
-        lostInterval: receiver.lostInterval,
-        framesDropped: receiver.framesDropped,
-      },
+    return {
+      state: 'done',
+      results: buildResults({
+        samples,
+        timeouts,
+        glass: glass.values,
+        overhead: { callbackMs: callbackMs.values, skippedFrames },
+        receiver,
+        video: { width: video.videoWidth, height: video.videoHeight },
+        browser,
+      }),
     };
-    output.textContent = JSON.stringify(results, null, 2);
-    copy.disabled = false;
-    console.info('Latency probe', results);
+  } finally {
+    stopped = true;
+    pending = null;
+    for (const wake of waiters.splice(0)) wake();
   }
-
-  start.onclick = () => {
-    if (running) running = false;
-    else measure();
-  };
-  copy.onclick = () => navigator.clipboard?.writeText(JSON.stringify(results, null, 2));
-  if (typeof video.requestVideoFrameCallback === 'function')
-    video.requestVideoFrameCallback(onFrame);
-  else {
-    output.textContent = 'This browser has no requestVideoFrameCallback, so it cannot measure.';
-    start.disabled = true;
-  }
-  return {
-    dispose() {
-      disposed = true;
-      running = false;
-      panel.remove();
-    },
-  };
 }

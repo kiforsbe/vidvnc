@@ -3,7 +3,6 @@ import { StreamSubscriptions } from './stream-subscriptions.js';
 import { applyCodecPreferences, videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip, sizeText } from './profile-labels.js';
 import { needsImmersive, videoPoint } from './stage-geometry.js';
-import { createLatencyProbe } from './latency-probe.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -187,7 +186,6 @@ export function createViewer({ onExit }) {
     disposed = true;
     connectionAttempt++;
     events.abort();
-    latencyProbe?.dispose();
     headerObserver.disconnect();
     clearTimeout(dockTimer);
     if (document.pictureInPictureElement === $('video'))
@@ -787,18 +785,6 @@ export function createViewer({ onExit }) {
   renderAudio();
   renderPictureInPicture();
   renderFullscreen();
-  // Development only: ?latency-probe adds a panel that measures latency against the host's
-  // probe page (tools/debug/latency-probe.html).
-  const latencyProbe = new URLSearchParams(location.search).has('latency-probe')
-    ? createLatencyProbe({
-        video: $('video'),
-        send,
-        canControl: () => enabled,
-        source: () => (stretched ? null : catalog?.display),
-        getStats: () => (pc ? pc.getStats() : Promise.resolve(null)),
-        summarizeReceiver,
-      })
-    : null;
   function position(event) {
     const video = $('video');
     return videoPoint(
