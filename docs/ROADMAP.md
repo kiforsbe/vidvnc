@@ -331,7 +331,8 @@ Explore before choosing an architecture:
   where feasible. Compatibility must not bypass VidVNC authorization, expose unshared
   displays or allow unrestricted process launching.
 - Start with one approved display, H.264, audio, and keyboard and mouse on the local
-  network. Investigate game controllers separately; don't imply HDR, HEVC or AV1,
+  network. Investigate game controllers separately (the browser gamepad test is in
+  [Gamepad input](investigations/GAMEPAD-INPUT.md)); don't imply HDR, HEVC or AV1,
   arbitrary app launching or multiple displays at first.
 - Map Moonlight's requested settings to host limits, and investigate how its
   negotiation and adaptation constraints differ from the WebRTC client's.

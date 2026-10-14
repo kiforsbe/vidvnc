@@ -19,9 +19,11 @@ may include breaking changes.
 
 - Turning Gamepads off stops gamepad input at once, but Windows keeps its virtual controller
   device until the server is restarted.
-- Games and other programs on the PC do not see the virtual controller yet: Windows plugs it
-  in, but XInput, Windows.Gaming.Input and Game Controllers (joy.cpl) do not report it. Some
-  anti-cheat software may also refuse or flag a virtual controller.
+- Gamepads are a failed test, not to be released as they stand
+  ([Gamepad input](docs/investigations/GAMEPAD-INPUT.md)): input reaches the VidVNC app,
+  but games and other programs on the PC do not see the virtual controller. XInput,
+  Windows.Gaming.Input and Game Controllers (joy.cpl) do not report it. Some anti-cheat
+  software may also refuse or flag a virtual controller.
 - Mac hosts do not support gamepads.
 
 ## [0.11.1] - 2026-10-13

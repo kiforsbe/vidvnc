@@ -1060,11 +1060,10 @@ macOS has no virtual gamepad without Apple's restricted virtual HID entitlement.
   code in the process starts and ends that thread's COM apartment. On Windows, an unhandled
   crash also writes a `CRASH` line to `native-worker.log` with the code, the faulting
   module+offset and the call frames, since the server sees only the exit code, which it logs.
-- **Not working with games yet.** End to end from a Samsung TV browser on 2026-10-14, the
-  worker plugged in the pad and Windows reported the device present, but neither XInput nor
-  Windows.Gaming.Input (`pad-probe observe`) nor Game Controllers (joy.cpl) saw it. The
-  in-box controller that `InputInjector` uses is not visible to desktop games; a driver
-  that presents an XInput device (such as ViGEmBus) is the likely replacement.
+- **Failed test.** Games and other programs do not see the controller: XInput,
+  Windows.Gaming.Input and Game Controllers (joy.cpl) do not report `InputInjector`'s
+  virtual gamepad. The branch is not merged; see
+  [Gamepad input](investigations/GAMEPAD-INPUT.md) for the evidence and the options.
 
 ## Resilience
 
