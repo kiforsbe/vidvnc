@@ -1053,6 +1053,12 @@ macOS has no virtual gamepad without Apple's restricted virtual HID entitlement.
   pad on that stream's row ([HostWindow.Gamepads.cs](../apps/windows-host/HostWindow.Gamepads.cs))
   and `vidvnc sessions` lists them. The viewer's toolbar shows a gamepad icon once the
   browser reports one, lit while pads are sent and brighter for a moment on each send.
+- **Keepalive.** The viewer sends a pad only when it changes, and a virtual pad left
+  without input crashed the worker about 30 s later with an access violation (0xC0000005,
+  2026-10-14, a Samsung TV left idle). Like a real controller, the worker now injects each
+  plugged pad's last state again twice a second. On Windows, an unhandled crash also writes
+  a `CRASH` line to `native-worker.log` with the code and the faulting module+offset and
+  call frames, since the server sees only the exit code, which it logs.
 - **Not working with games yet.** End to end from a Samsung TV browser on 2026-10-14, the
   worker plugged in the pad and Windows reported the device present, but neither XInput nor
   Windows.Gaming.Input (`pad-probe observe`) nor Game Controllers (joy.cpl) saw it. The
