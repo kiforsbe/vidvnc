@@ -391,7 +391,7 @@ static void emit(const char *type,
     write_object(object);
 }
 // Tells the server which virtual gamepads are plugged in and their latest state, so the host
-// can show that gamepad input arrives. Sent at most five times a second, only after a change.
+// can show that gamepad input arrives. Sent at most ten times a second, only after a change.
 static void report_pads() {
     if (!pads_changed)
         return;
@@ -1228,7 +1228,7 @@ static gboolean command(gpointer data) {
 static int session() {
     loop = g_main_loop_new(nullptr, false);
     g_timeout_add(
-        200,
+        100,
         [](gpointer) -> gboolean {
             report_pads();
             return G_SOURCE_CONTINUE;

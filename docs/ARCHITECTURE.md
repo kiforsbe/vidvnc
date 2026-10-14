@@ -1046,9 +1046,9 @@ macOS has no virtual gamepad without Apple's restricted virtual HID entitlement.
   record outright needs an administrator, and Windows recreates it on the next use.
 - **Status.** The worker logs `PAD` lines to `native-worker.log` once per change (plugged,
   unplugged, or why a pad message was ignored) and reports the plugged-in pads to the
-  server as `pads {pads: [{index, buttons, lx, ly, rx, ry, lt, rt}]}`, at most five times a
+  server as `pads {pads: [{index, buttons, lx, ly, rx, ry, lt, rt}]}`, at most ten times a
   second and only after a change. The server checks the report like the viewer's message
-  and adds it as `gamepads` to the host status of the stream holding control only
+  and adds it as `gamepads` to the host status of the stream holding control only, sending the desktop host an extra `status` line within 100 ms of each report instead of waiting for the once-a-second one
   ([stream-runtime.mjs](../apps/server/src/stream-runtime.mjs)); the Windows app draws each
   pad on that stream's row ([HostWindow.Gamepads.cs](../apps/windows-host/HostWindow.Gamepads.cs))
   and `vidvnc sessions` lists them. The viewer's toolbar shows a gamepad icon once the

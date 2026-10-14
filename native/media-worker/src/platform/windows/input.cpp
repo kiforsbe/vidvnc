@@ -111,10 +111,13 @@ bool post_pad(const PadState &pad) {
         return true;
     } catch (const winrt::hresult_error &error) {
         log_pad_failure("injection failed:", &error);
-        pads_unavailable = true;
-        injector = nullptr;
-        return false;
+    } catch (...) {
+        // Anything else must not end the stream: gamepads stop, video and input carry on.
+        log_pad_failure("injection failed with a non-WinRT exception");
     }
+    pads_unavailable = true;
+    injector = nullptr;
+    return false;
 }
 
 void unplug_pad(int index) {
@@ -127,6 +130,8 @@ void unplug_pad(int index) {
         injector.UninitializeGamepadInjection();
     } catch (const winrt::hresult_error &error) {
         log_pad_failure("unplug failed:", &error);
+    } catch (...) {
+        log_pad_failure("unplug failed with a non-WinRT exception");
     }
     injector = nullptr;
 }

@@ -43,6 +43,16 @@ export function iceBindEnvironment(bind) {
 
 // One worker per source (a capture/encode or an audio mix); each viewer is a peer inside it.
 
+// How a worker process ended, for the log: a Windows crash shows as its NTSTATUS in hex
+// (0xC0000409 is a fail-fast, for example), so a silent exit can still be told apart.
+function exitStatus(code, signal) {
+  if (signal) return `signal ${signal}`;
+  if (typeof code !== 'number') return 'no exit code';
+  return code > 0xffff || code < 0
+    ? `exit code 0x${(code >>> 0).toString(16).toUpperCase()}`
+    : `exit code ${code}`;
+}
+
 // A worker's `pads` report, checked like any worker message: at most four pads, each with an
 // index 0-3, a 16-bit button mask, sticks -1..1 and triggers 0..1. Anything else is dropped.
 export function padReport(pads) {
@@ -78,6 +88,7 @@ export class NativeMedia {
   constructor({
     onExit = () => {},
     onMetrics = () => {},
+    onPads = () => {},
     onPeerFailed = () => {},
     diagnostics = null,
     log = (message) => process.stderr.write(message),
@@ -102,6 +113,7 @@ export class NativeMedia {
       throw new Error('Invalid worker limit');
     this.onExit = onExit;
     this.onMetrics = onMetrics;
+    this.onPads = onPads;
     this.onPeerFailed = onPeerFailed;
     this.workers = new Map();
     this.log = log;
@@ -181,7 +193,7 @@ export class NativeMedia {
       for (const entry of active.peers.values())
         if (entry.state === 'negotiating') entry.fail(error);
     });
-    child.on('close', () => {
+    child.on('close', (code, signal) => {
       if (active.exited) return;
       active.exited = true;
       active.permission?.reject(new Error('Control worker exited'));
@@ -190,7 +202,7 @@ export class NativeMedia {
       if (this.workers.get(sourceId) === active) this.workers.delete(sourceId);
       const error = new Error(active.stderr.trim() || 'Native media worker stopped.');
       this.#log(
-        `[native-media ${sourceId}] Worker exited${active.stopping ? ' during shutdown' : ' unexpectedly'}: ${error.message}`,
+        `[native-media ${sourceId}] Worker exited${active.stopping ? ' during shutdown' : ' unexpectedly'} (${exitStatus(code, signal)}): ${error.message}`,
       );
       active.rejectReady(error);
       for (const entry of active.peers.values()) {
@@ -302,7 +314,10 @@ export class NativeMedia {
     }
     // The virtual gamepads the worker has plugged in, for the host's status (gamepad.js on
     // the viewer sends them). Replaced whole on every report.
-    if (message.type === 'pads') active.pads = padReport(message.pads);
+    if (message.type === 'pads') {
+      active.pads = padReport(message.pads);
+      this.onPads(active.id);
+    }
     if (message.type === 'metrics') {
       active.diagnostics?.record('server', peerSample(message, active.id));
       this.onMetrics(active.id, message);

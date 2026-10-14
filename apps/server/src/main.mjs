@@ -123,12 +123,16 @@ async function serve() {
     // predecessor; registry budgets decide what starts.
     // Workers gather on 127.0.0.1 only; every viewer's media reaches them through the
     // authenticating media relay on the one media port.
+    // Set once the desktop host's status lines start: a gamepad change goes to the host at
+    // once rather than with the next once-a-second status.
+    let gamepadsChanged = () => {};
     const media = new NativeMedia({
       iceBind: () => 'loopback',
       maxWorkers: 12,
       hostControl: true,
       diagnostics,
       log: serverLog,
+      onPads: () => gamepadsChanged(),
     });
     let runtime;
     const policy = new PolicyController(await StreamPolicyStore.open(files.policy), store, {
@@ -413,7 +417,7 @@ async function serve() {
         secureUrls: currentAddresses().urls,
       });
     if (desktop) {
-      statusTimer = setInterval(() => {
+      const writeStatus = (only) => {
         if (!stopping && !process.stdout.writableNeedDrain) {
           for (const line of statusLines({
             runtime,
@@ -423,9 +427,18 @@ async function serve() {
             store,
             knownNetworks,
           }))
-            console.log(JSON.stringify(line));
+            if (!only || line.type === only) console.log(JSON.stringify(line));
         }
-      }, 1000).unref();
+      };
+      statusTimer = setInterval(writeStatus, 1000).unref();
+      // At most ten extra status lines a second, and only while gamepad state changes.
+      let gamepadsTimer = null;
+      gamepadsChanged = () => {
+        gamepadsTimer ??= setTimeout(() => {
+          gamepadsTimer = null;
+          writeStatus('status');
+        }, 100).unref();
+      };
       owner = createInterface({ input: process.stdin });
       owner.on(
         'line',
