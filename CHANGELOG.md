@@ -12,9 +12,10 @@ may include breaking changes.
 - When a media worker stops unexpectedly, the server log now says how it ended (its exit
   code, a crash as a Windows error code such as `0xC0000005`), and on Windows the worker
   log records where it crashed ([Diagnostics](docs/ARCHITECTURE.md#diagnostics)).
-- A latency probe for development: open `tools/debug/latency-probe.html` full screen on the
-  host and the viewer with `?latency-probe` to measure hand-to-glass and glass-to-glass
-  latency ([Latency probe](tools/debug/README.md#latency-probe)).
+- **Measure latency** in Diagnostics: with `tools/debug/latency-probe.html` full screen on the
+  host, it measures hand-to-glass and glass-to-glass latency on the selected stream's viewer,
+  which shows a banner with Cancel while it runs, and shows the results in Diagnostics
+  ([Latency probe](tools/debug/README.md#latency-probe)).
 
 ### Fixed
 

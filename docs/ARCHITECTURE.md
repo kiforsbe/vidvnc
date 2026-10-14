@@ -1064,10 +1064,46 @@ dbghelp. A crash can otherwise leave no trace: no stderr, and no Windows Error R
 event.
 
 Latency is measured end to end, from the viewer, against a probe page on the host
-([latency probe](../tools/debug/README.md#latency-probe)). The viewer loads its panel only with
-`?latency-probe` in its address; the panel reads decoded frames on a canvas and sends input
-only through the normal input path while its device holds control, so it adds no route,
-message or privilege.
+([latency probe](../tools/debug/README.md#latency-probe)). Only Diagnostics starts a
+measurement, for the stream selected there. The server holds at most one at a time, in memory
+([latency-probes.mjs](../apps/server/src/latency-probes.mjs)), and delivers it in the reply to
+that stream's next `stream-telemetry` post, so no push channel, worker or data-channel
+message is added. The viewer then imports the probe module, which the server serves only to a
+session with a measurement requested or running, shows a banner with **Cancel**, reads decoded
+frames on a canvas only during the run, sends input only through the normal input path while
+its device holds control, and posts the results to `POST /api/latency-result`, which validates
+them field by field ([latency-results.mjs](../apps/server/src/latency-results.mjs)).
+Diagnostics reads them from its snapshot.
+
+```mermaid
+sequenceDiagram
+    participant D as Diagnostics page (host)
+    participant S as Node server
+    participant V as Viewer
+    participant P as Probe page (host, full screen)
+
+    D->>S: POST /api/diagnostics/latency-probe {streamId}
+    S-->>D: 202 {id, state: requested}
+    V->>S: POST /api/stream-telemetry (every 2 s)
+    S-->>V: 200 {latencyProbe: {id}}, once
+    V->>S: GET /viewer/latency-probe.js (served only now)
+    V->>V: banner, checks: control held, probe page readable
+    V->>S: POST /api/latency-result {state: running}
+    loop 40 moves and 40 presses of L
+        V->>P: input through the data channel, relay, media-net, broker
+        P-->>V: patch changes, seen in decoded frames
+    end
+    V->>S: POST /api/latency-result {state: done, results}
+    D->>S: GET /api/diagnostics (polled every second)
+    S-->>D: latencyProbe {active, history}
+```
+
+A measurement is `requested` until the viewer reports `running`, and ends `done` or `failed`
+with a reason: one of the viewer's (`no-control`, `no-probe-page`, `unsupported`,
+`cancelled`, `stream-changed`, `control-lost`), or the server's: `expired` (not picked up within
+15 s, or no result within 120 s), `ended` (the stream or session ended) and `invalid-report`.
+The server settles timeouts and ended streams whenever the registry is used, so no timer runs.
+A report for another id, session or stream, or after the end, is a `404` and changes nothing.
 
 ## Security architecture
 

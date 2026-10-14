@@ -255,7 +255,9 @@ per-user VidVNC data directory and also apply to the CLI server. Esc releases
 local control/exits fullscreen; Ctrl+C stops the server and all its workers.
 For live diagnostics on the server PC, use the host's Diagnostics action or the CLI
 `diagnostics open` command. It creates a short-lived link to a separate local-only
-listener; the normal connection address does not serve diagnostics.
+listener; the normal connection address does not serve diagnostics. Its **Measure latency**
+button measures hand-to-glass and glass-to-glass latency on the selected stream's viewer
+([Latency probe](tools/debug/README.md#latency-probe)).
 
 ### CLI server configuration
 

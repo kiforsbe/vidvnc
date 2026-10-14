@@ -62,9 +62,9 @@ group and is the only holder of its owner pipe.
 
 ## Latency probe
 
-[latency-probe.html](latency-probe.html) and the viewer's `?latency-probe` panel
+[latency-probe.html](latency-probe.html) and the viewer's probe module
 ([latency-probe.js](../../apps/web-client/src/viewer/latency-probe.js)) measure two
-latencies on a real session:
+latencies on a real session, on the stream the viewer is showing:
 
 - **Hand-to-glass**: the viewer sends input, the probe page changes a patch, and the
   viewer times it from sending to the first decoded frame that shows the change
@@ -75,29 +75,45 @@ latencies on a real session:
   compares it with its own clock as each frame is shown. This is exact only when the viewer runs
   on the host itself; on another device it includes the difference between the two clocks.
 
-To measure:
+A measurement is started from the host, never from the viewer:
 
 1. On the host, open `tools/debug/latency-probe.html` in a browser on the shared display
    and click **Full screen**. The layout is in fractions of the screen, so the page must
    fill it.
-2. Connect a viewer with `?latency-probe` in its address (for example
-   `https://<host>:<port>/?latency-probe`), sign in, and enable keyboard & mouse.
-3. Click **Measure** in the panel and keep your hands off the mouse. It runs 40 moves and 40
-   key presses with random pauses, then shows the median, p95 and range of each, the
-   glass-to-glass figures, and the receiver's jitter-buffer delay, decode time, round trip
-   and losses over the run. **Copy results** copies the JSON.
+2. On the viewer, turn on keyboard & mouse, and keep your hands off the screen.
+3. On the host, open Diagnostics (the host's Diagnostics action, or `diagnostics open` in the
+   CLI), pick the viewer's stream, and click **Measure latency** in the **Latency** section.
 
-The panel sends input only while this device holds control, through the normal input path
-and its checks, and stops if the first key press doesn't flip the patch, so it doesn't
-keep typing into another window. Hand-to-glass includes the probe page's own input-to-paint
-time, as any app would, but not the viewer's mouse or display hardware. `handToReceive` is
-the same timing up to the arrival of the frame's last packet (Chrome only), so the rest is
-the viewer's jitter buffer, decode and render. Single-stream sessions only.
+The viewer learns of the request in the reply to its next stream-telemetry post (every 2
+seconds), loads the probe module, which a normal session never fetches and the server serves
+only while that session has a measurement, and shows "Measuring latency for the host. Keep
+your hands off the screen." with **Cancel**. It then runs 40 moves and 40 key presses with
+random pauses of 150 to 400 ms, and posts the results. Diagnostics shows the median, p95,
+range and count of each, the glass-to-glass figures, the receiver's decode rate,
+jitter-buffer delay, decode time, round trip and losses over the run, and the run's own
+overhead: the time each frame read took, and the frames the probe missed. The last five runs
+are listed with **Copy as JSON**. The viewer shows no results.
+
+A measurement fails, with the reason shown in Diagnostics, when the viewer doesn't hold
+keyboard and mouse control, can't read the probe page within 2 seconds, has no
+`requestVideoFrameCallback`, isn't showing that stream, loses control or switches stream
+during the run, or is cancelled. One that no viewer picks up within 15 seconds, or that
+sends no result within 120 seconds, expires. One measurement runs at a time.
+
+The probe sends input only while the device holds control, through the normal input path and
+its checks, and stops if the first key press doesn't flip the patch, so it doesn't keep
+typing into another window. Frames are read only during a run, on a GPU-backed canvas, so only
+a 128 × 72 scaled copy is read back. Hand-to-glass includes the probe page's own
+input-to-paint time, as any app would, but not the viewer's mouse or display hardware.
+**To last packet** is the same timing up to the arrival of the frame's last packet (Chrome
+only), so the rest is the viewer's jitter buffer, decode and render.
 
 Verified: the page's barcode decodes back to its own clock in a browser, and the shared
-layout and encoder are checked by
-[latency-probe.test.mjs](../../apps/web-client/tests/latency-probe.test.mjs). Not yet run
-against a live session.
+layout and encoder, the run's checks, cancel and lost control are checked by
+[latency-probe.test.mjs](../../apps/web-client/tests/latency-probe.test.mjs); the request,
+banner and cancel in a real browser by
+[stream-browser-check.mjs](../../apps/web-client/tests/stream-browser-check.mjs). Not yet run
+against a live session or on an iPhone.
 
 ## Implementation contract
 
