@@ -63,6 +63,27 @@ video {
   width: 100%;
   height: 100%;
 }
+/* Shown only while the host measures latency (latency-probe.js). */
+.latency-banner {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px 8px 14px;
+  border: 1px solid #ffffff26;
+  border-radius: 12px;
+  background: #18212eef;
+  color: #fff;
+  font-size: 14px;
+  transform: translateX(-50%);
+}
+.latency-banner[hidden] {
+  display: none;
+}
 .stage:fullscreen {
   border-radius: 0;
   height: 100vh;

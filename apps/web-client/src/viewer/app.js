@@ -24,7 +24,9 @@ export function createViewer({ onExit }) {
     reconnecting = false,
     connectionAttempt = 0,
     catalog = null,
-    currentRequest = { profile: 'auto', audio: 'on' };
+    currentRequest = { profile: 'auto', audio: 'on' },
+    // The latency measurement this viewer is running for the host, if any.
+    latencyRun = null;
   const status = (text) => ($('status').textContent = text);
   const toolbarIcons = {
     control:
@@ -186,6 +188,7 @@ export function createViewer({ onExit }) {
     disposed = true;
     connectionAttempt++;
     events.abort();
+    latencyRun?.stop('cancelled');
     headerObserver.disconnect();
     clearTimeout(dockTimer);
     if (document.pictureInPictureElement === $('video'))
@@ -585,6 +588,7 @@ export function createViewer({ onExit }) {
       }),
       onSelect: (row) => {
         if (subscriptions !== peers) return;
+        if (latencyRun && row?.id !== latencyRun.streamId) latencyRun.stop('stream-changed');
         pc = row?.pc;
         channel = row?.channel;
         $('video').srcObject = row?.stream ?? null;
@@ -601,6 +605,9 @@ export function createViewer({ onExit }) {
             .play()
             .catch(() => status('Tap the desktop to start video playback.'));
         fitVideo();
+      },
+      onLatencyProbe: (streamId, { id }) => {
+        if (subscriptions === peers) startLatencyProbe(streamId, id);
       },
       onControl: (value, allowed, requestable = false) => {
         if (subscriptions !== peers) return;
@@ -785,6 +792,49 @@ export function createViewer({ onExit }) {
   renderAudio();
   renderPictureInPicture();
   renderFullscreen();
+  // The host asked, from Diagnostics, for a latency measurement on `streamId`. The probe
+  // module is loaded only now (the server serves it only while the measurement is active),
+  // the banner shows while it runs, and the outcome goes back to the server; the viewer
+  // shows no results.
+  async function startLatencyProbe(streamId, id) {
+    const report = (outcome) => api('latency-result', { streamId, id, ...outcome }).catch(() => {});
+    if (latencyRun || subscriptions?.selected?.id !== streamId)
+      return report({ state: 'failed', reason: 'stream-changed' });
+    const controller = new AbortController();
+    let reason = 'cancelled';
+    const run = (latencyRun = {
+      streamId,
+      stop(why) {
+        if (controller.signal.aborted) return;
+        reason = why;
+        controller.abort();
+      },
+    });
+    $('latencyBanner').hidden = false;
+    let outcome;
+    try {
+      const { runLatencyProbe } = await import('./latency-probe.js');
+      outcome = controller.signal.aborted
+        ? { state: 'failed', reason }
+        : await runLatencyProbe({
+            video: $('video'),
+            send,
+            canControl: () => enabled,
+            source: () => (stretched ? null : catalog?.display),
+            getStats: () => (pc ? pc.getStats() : Promise.resolve(null)),
+            summarizeReceiver,
+            signal: controller.signal,
+            onRunning: () => report({ state: 'running' }),
+          });
+    } catch {
+      outcome = { state: 'failed', reason: 'unsupported' };
+    }
+    if (outcome.state === 'failed' && outcome.reason === 'cancelled') outcome.reason = reason;
+    if (latencyRun === run) latencyRun = null;
+    $('latencyBanner').hidden = true;
+    await report(outcome);
+  }
+  $('latencyCancel').onclick = () => latencyRun?.stop('cancelled');
   function position(event) {
     const video = $('video');
     return videoPoint(

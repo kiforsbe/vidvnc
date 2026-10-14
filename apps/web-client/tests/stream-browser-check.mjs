@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { createHttpApp } from '../../server/src/http-app.mjs';
 import { SessionStore } from '../../server/src/session-store.mjs';
 import { StreamRuntime } from '../../server/src/stream-runtime.mjs';
+import { LatencyProbes } from '../../server/src/latency-probes.mjs';
 import { DisplayInventory } from '../../server/src/displays.mjs';
 import { defaultStreamPolicy } from '../../server/src/stream-policy.mjs';
 const { chromium } = createRequire(import.meta.url)(process.argv[2]);
@@ -113,8 +114,12 @@ const runtime = new StreamRuntime({
   policy: { snapshot: () => policy },
   videoBackends: [{ id: 'synthetic', label: 'Synthetic fixture', codecs: ['h264'] }],
 });
+const latencyProbes = new LatencyProbes({
+  isLive: (sessionId, streamId) => runtime.registry.get(sessionId, streamId)?.state === 'live',
+});
 const server = createHttpApp({
   runtime,
+  latencyProbes,
   sessionStore: sessions,
   media,
   inventory: runtime.inventory,
@@ -123,12 +128,16 @@ const server = createHttpApp({
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}`;
 const errors = [];
+const probeFetches = [];
 try {
   const pages = [];
   for (let i = 0; i < 2; i++) {
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', (error) => errors.push(error.message));
+    page.on('request', (request) => {
+      if (request.url().endsWith('/viewer/latency-probe.js')) probeFetches.push(request.url());
+    });
     pages.push(page);
     await page.goto(url);
     await page.locator('#password').fill(sessions.password);
@@ -255,9 +264,47 @@ try {
   assert.equal(runtime.registry.list().length, 1);
   assert.equal(runtime.audio.size, 1);
   assert.equal(await pages[1].locator('#video').evaluate((v) => v.paused), false);
+
+  // The latency probe: a normal session never fetches it. Once the host asks, the viewer
+  // fetches it on its next telemetry post and shows the banner, and Cancel reports
+  // cancelled. The module is held back so Cancel lands while the run is starting.
+  assert.deepEqual(probeFetches, [], 'a normal session never loads the latency probe');
+  const [measured] = runtime.registry.list();
+  let releaseModule;
+  const moduleHeld = new Promise((resolve) => {
+    releaseModule = resolve;
+  });
+  await pages[1].route('**/viewer/latency-probe.js', async (route) => {
+    const response = await route.fetch();
+    await moduleHeld;
+    await route.fulfill({ response });
+  });
+  const reported = new Promise((resolve) =>
+    pages[1].on('request', (request) => {
+      if (request.url().endsWith('/api/latency-result')) resolve(request.postDataJSON());
+    }),
+  );
+  latencyProbes.request(measured.id, measured.sessionId);
+  await pages[1].locator('#latencyBanner').waitFor({ state: 'visible', timeout: 6000 });
+  assert.equal(
+    (await pages[1].locator('#latencyBanner').textContent()).trim(),
+    'Measuring latency for the host. Keep your hands off the screen.Cancel',
+  );
+  await pages[1].locator('#latencyCancel').click();
+  releaseModule();
+  const report = await reported;
+  assert.deepEqual(
+    { state: report.state, reason: report.reason },
+    { state: 'failed', reason: 'cancelled' },
+  );
+  await pages[1].locator('#latencyBanner').waitFor({ state: 'hidden' });
+  assert.equal(probeFetches.length, 1);
+  for (let wait = 0; latencyProbes.snapshot(measured.id).active && wait < 20; wait++)
+    await pages[1].waitForTimeout(50);
+  assert.equal(latencyProbes.snapshot(measured.id).history[0].reason, 'cancelled');
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: two viewers, three video streams, independent audio, quality replacement and disconnect',
+    'PASS: two viewers, three video streams, independent audio, quality replacement, disconnect and a cancelled latency measurement',
   );
 } finally {
   await runtime.shutdown();

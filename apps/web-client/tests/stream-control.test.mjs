@@ -58,3 +58,59 @@ test('releasing hands control back and redraws the button from the server state'
   assert.equal(peers.allowed(row), false);
   assert.deepEqual(controls.at(-1), [false, false, true]);
 });
+
+test('a telemetry reply carrying a latency measurement is passed on once, with its stream', async () => {
+  const measurements = [];
+  let reply = { latencyProbe: { id: 'measurement-1' } };
+  const peers = new StreamSubscriptions({
+    api: async (route) => (route === 'stream-telemetry' ? reply : null),
+    onMetrics: () => {},
+    onLatencyProbe: (...args) => measurements.push(args),
+  });
+  clearInterval(peers.timer);
+  const stats = new Map([['inbound', { type: 'inbound-rtp', kind: 'video' }]]);
+  peers.rows.set('stream-1', {
+    id: 'stream-1',
+    channel: { readyState: 'closed' },
+    pc: { getStats: async () => stats },
+  });
+  peers.selected = peers.rows.get('stream-1');
+  await peers.sample();
+  reply = null; // A 204.
+  await peers.sample();
+  assert.deepEqual(measurements, [['stream-1', { id: 'measurement-1' }]]);
+});
+
+test('a measurement for a stream this viewer is not showing fails as stream-changed', async () => {
+  const measurements = [];
+  const calls = [];
+  const peers = new StreamSubscriptions({
+    api: async (route, body) => {
+      calls.push([route, body]);
+      return route === 'stream-telemetry' && body.streamId === 'hidden'
+        ? { latencyProbe: { id: 'measurement-2' } }
+        : null;
+    },
+    onMetrics: () => {},
+    onLatencyProbe: (...args) => measurements.push(args),
+  });
+  clearInterval(peers.timer);
+  const stats = new Map([['inbound', { type: 'inbound-rtp', kind: 'video' }]]);
+  const row = (id) => ({
+    id,
+    channel: { readyState: 'closed' },
+    pc: { getStats: async () => stats },
+  });
+  peers.rows.set('shown', row('shown'));
+  peers.rows.set('hidden', row('hidden'));
+  peers.selected = peers.rows.get('shown');
+  await peers.sample();
+  assert.deepEqual(measurements, []);
+  assert.deepEqual(
+    calls.find(([route]) => route === 'latency-result'),
+    [
+      'latency-result',
+      { streamId: 'hidden', id: 'measurement-2', state: 'failed', reason: 'stream-changed' },
+    ],
+  );
+});

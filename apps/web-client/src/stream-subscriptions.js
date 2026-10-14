@@ -7,8 +7,27 @@ const DECODE_CHECK_PROFILE = { width: 1920, height: 1080, fps: 30, bitrateKbps: 
 
 // One browser device owns several video peers and one independent audio peer.
 export class StreamSubscriptions {
-  constructor({ api, onSelect, onMetrics, onState, onControl, onAudio, playback = () => ({}) }) {
-    Object.assign(this, { api, onSelect, onMetrics, onState, onControl, onAudio, playback });
+  constructor({
+    api,
+    onSelect,
+    onMetrics,
+    onState,
+    onControl,
+    onAudio,
+    playback = () => ({}),
+    // Called with (streamId, {id}) when the host asks this viewer for a latency measurement.
+    onLatencyProbe = () => {},
+  }) {
+    Object.assign(this, {
+      api,
+      onSelect,
+      onMetrics,
+      onState,
+      onControl,
+      onAudio,
+      playback,
+      onLatencyProbe,
+    });
     this.rows = new Map();
     this.selected = null;
     this.closed = false;
@@ -218,7 +237,22 @@ export class StreamSubscriptions {
           if (this.selected === row) this.onMetrics(metrics);
           // The video element shows only the selected stream, so only its row reports playback.
           const playback = this.selected === row ? this.playback() : {};
-          await this.api('stream-telemetry', { streamId: row.id, ...metrics, ...playback });
+          const reply = await this.api('stream-telemetry', {
+            streamId: row.id,
+            ...metrics,
+            ...playback,
+          });
+          // A measurement runs only on the stream the video element shows.
+          if (reply?.latencyProbe && !this.closed) {
+            if (this.selected === row) this.onLatencyProbe(row.id, reply.latencyProbe);
+            else
+              await this.api('latency-result', {
+                streamId: row.id,
+                id: reply.latencyProbe.id,
+                state: 'failed',
+                reason: 'stream-changed',
+              });
+          }
         }),
       );
     } catch {
