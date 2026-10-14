@@ -237,6 +237,7 @@ async function serve() {
       diagnostics,
       diagnosticsCapabilities,
       runtime,
+      latencyProbes,
     });
     try {
       await new Promise((resolve, reject) => {
