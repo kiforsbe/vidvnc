@@ -218,3 +218,30 @@ test('a media port range from earlier versions becomes its first port', async (t
   await writeFile(file, '{"revision":1,"mediaPorts":{"min":1,"max":2}}');
   await assert.rejects(AccessSettings.open(file), /invalid/i);
 });
+
+test('unknown settings in the file are ignored with a warning, but never accepted as changes', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vidvnc-access-unknown-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'access.json');
+  // As a build from another branch might leave it.
+  await writeFile(
+    file,
+    '{"revision":3,"defaultControl":"available","gamepads":true,"future":{"a":1}}',
+  );
+  const warnings = [];
+  const store = await AccessSettings.open(file, { warn: (message) => warnings.push(message) });
+  assert.equal(store.snapshot().defaultControl, 'available');
+  assert.equal(store.snapshot().revision, 3);
+  assert.equal(Object.hasOwn(store.snapshot(), 'gamepads'), false);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /unknown access setting "gamepads"/i);
+  assert.match(warnings[1], /unknown access setting "future"/i);
+  // A change may not introduce one.
+  await assert.rejects(store.replace({ gamepads: true }, 3), /invalid/i);
+  // The next save writes known settings only, so the warning does not repeat.
+  await store.replace({ maxSessions: 2 }, 3);
+  assert.equal(Object.hasOwn(JSON.parse(await readFile(file, 'utf8')), 'gamepads'), false);
+  // Known settings with bad values still stop it.
+  await writeFile(file, '{"revision":1,"maxSessions":99,"gamepads":true}');
+  await assert.rejects(AccessSettings.open(file, { warn() {} }), /invalid/i);
+});

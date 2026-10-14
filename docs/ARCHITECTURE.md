@@ -1424,7 +1424,11 @@ system's per-user file permissions:
 | `server.log`                               | Lifecycle messages                                                      | None by design                                      |
 
 Settings are written to a temporary file and renamed, so a crash cannot leave a half-written
-file. Standing passwords, codes, bearers and grants are never written to disk. On the
+file. A setting in `access-settings.json` that this version doesn't know, left by a newer
+build or another branch sharing the folder, is ignored with a warning in `server.log` and left
+out of the next save ([access-settings.mjs](../apps/server/src/access-settings.mjs)); a known
+setting with an invalid value still stops the server, and a change from the host or the CLI
+that names an unknown setting is refused. Standing passwords, codes, bearers and grants are never written to disk. On the
 client, the approved-device secret is kept in IndexedDB for the origin, and the bearer only
 in page memory.
 

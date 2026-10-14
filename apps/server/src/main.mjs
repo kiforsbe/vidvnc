@@ -102,7 +102,8 @@ async function serve() {
     const hostCodecs = info.codecs?.length ? info.codecs : ['h264'];
     const directory = dataDirectory();
     const files = settingsFiles(directory);
-    const access = await AccessSettings.open(files.access);
+    const serverLog = createServerLog({ desktop, directory: logDirectory });
+    const access = await AccessSettings.open(files.access, { warn: serverLog });
     const sharingNotice = sharingMode ? await applySharingMode(access, sharingMode) : null;
     const admission = new AdmissionBudget();
     const store = new SessionStore({ maxSessions: () => access.snapshot().maxSessions });
@@ -110,7 +111,6 @@ async function serve() {
       directory: logDirectory,
     });
     const diagnosticsCapabilities = new DiagnosticsCapabilities();
-    const serverLog = createServerLog({ desktop, directory: logDirectory });
     const knownNetworks = confirmNetworks ? await KnownNetworks.open(files.knownNetworks) : null;
     const detectLan = lanAdapterDetector({ executable: workerExecutable, env: workerEnvironment });
     const localSession = createLocalSessionScopeController({

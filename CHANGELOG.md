@@ -16,6 +16,12 @@ may include breaking changes.
   host and the viewer with `?latency-probe` to measure hand-to-glass and glass-to-glass
   latency ([Latency probe](tools/debug/README.md#latency-probe)).
 
+### Fixed
+
+- VidVNC no longer fails to start when its access settings contain a setting it doesn't know,
+  for example one saved by a newer version; it logs a warning in `server.log` and ignores it
+  ([At rest](docs/ARCHITECTURE.md#data-protection-asvs-v8-v9)).
+
 ## [0.11.1] - 2026-10-13
 
 ### Added

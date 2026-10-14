@@ -159,9 +159,25 @@ function validate(value) {
     throw new Error('Invalid access settings');
   return { ...next, publicHostnames: [...next.publicHostnames] };
 }
-async function read(filename) {
+// Settings this version does not know, left by a newer build or another branch sharing the
+// data folder, are dropped with a warning so the server still starts; the next save leaves
+// them out. Only the file gets this leniency: a change naming one is still refused.
+function withoutUnknown(value, filename, warn) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const known = {};
+  for (const [key, entry] of Object.entries(value)) {
+    // mediaPorts is the old name migrate() still reads.
+    if (Object.hasOwn(DEFAULTS, key) || key === 'mediaPorts') known[key] = entry;
+    else
+      warn(
+        `Ignoring unknown access setting ${JSON.stringify(key.slice(0, 64))} in ${filename}; it is removed the next time access settings are saved.`,
+      );
+  }
+  return known;
+}
+async function read(filename, warn = () => {}) {
   try {
-    return validate(JSON.parse(await readFile(filename, 'utf8')));
+    return validate(withoutUnknown(JSON.parse(await readFile(filename, 'utf8')), filename, warn));
   } catch (error) {
     if (error.code === 'ENOENT') return { ...DEFAULTS };
     throw error;
@@ -178,8 +194,9 @@ export class AccessSettings {
     this.#filename = filename;
     this.#value = value;
   }
-  static async open(filename) {
-    return new AccessSettings(filename, await read(filename));
+  // `warn` receives a message for each unknown setting in the file.
+  static async open(filename, { warn = (message) => console.error(message) } = {}) {
+    return new AccessSettings(filename, await read(filename, warn));
   }
   snapshot() {
     return structuredClone(this.#value);
