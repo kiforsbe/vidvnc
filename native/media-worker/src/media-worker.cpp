@@ -1230,13 +1230,6 @@ static int session() {
     g_timeout_add(
         100,
         [](gpointer) -> gboolean {
-            // A real controller reports all the time; one left without input crashed the worker
-            // about 30 s later (0xC0000005), so each plugged pad's last state is sent again
-            // twice a second.
-            static int ticks = 0;
-            if (++ticks % 5 == 0)
-                for (const auto &[index, pad] : plugged_pads)
-                    platform::post_pad(pad);
             report_pads();
             return G_SOURCE_CONTINUE;
         },

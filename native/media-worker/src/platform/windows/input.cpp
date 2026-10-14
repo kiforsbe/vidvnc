@@ -4,8 +4,16 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
+#include <cstdio>
+#include <map>
+#include <mutex>
 #include <ostream>
+#include <string>
+#include <thread>
+#include <vector>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Gaming.Input.h>
 #include <winrt/Windows.UI.Input.Preview.Injection.h>
@@ -64,76 +72,139 @@ bool post_wheel(double delta) {
 }
 
 // ---- Gamepads. One InputInjector per pad index, each with its virtual gamepad plugged in
-// while that pad is in use. All calls come from the worker's main loop.
+// while that pad is in use. Every WinRT call runs on one thread of its own, which joins the
+// multithreaded apartment once and keeps it for the worker's life. Called from the GLib main
+// thread instead, they crashed the worker (0xC0000005 in C++/WinRT's cached activation factory,
+// about 30 s in): that thread's COM apartment is started and ended by other code in the
+// process, which left the cached factory pointing at freed memory.
 
 namespace injection = winrt::Windows::UI::Input::Preview::Injection;
 
-static injection::InputInjector pads[max_pads] = {nullptr, nullptr, nullptr, nullptr};
+namespace {
+
+struct PadCommand {
+    bool unplug = false;
+    PadState pad;
+};
+
+std::mutex pad_mutex;
+std::condition_variable pad_wake;
+// The newest command per pad index, so a slow injection can never build up a backlog.
+std::map<int, PadCommand> pad_commands;
+bool pad_thread_started = false;
 // Set once creating an injector has failed: without the capability every later attempt fails
-// the same way, and the log should say so once.
-static bool pads_unavailable = false;
+// the same way. Read by the main thread, set by the pad thread.
+std::atomic<bool> pads_unavailable{false};
+// Failures the pad thread found, logged by the main thread (the log is not thread-safe).
+std::vector<std::string> pad_failures;
 
-static void log_pad_failure(const char *what, const winrt::hresult_error *error = nullptr) {
-    if (auto log = worker_log()) {
-        *log << "PAD " << what;
-        if (error)
-            *log << " hr=0x" << std::hex << static_cast<uint32_t>(error->code().value) << std::dec
-                 << " " << winrt::to_string(error->message());
-        *log << std::endl;
-    }
+void pad_failure(std::string what, const winrt::hresult_error *error = nullptr) {
+    if (error)
+        what += " hr=0x" +
+                [&] {
+                    char code[9];
+                    std::snprintf(code, sizeof(code), "%08x",
+                                  static_cast<uint32_t>(error->code().value));
+                    return std::string(code);
+                }() +
+                " " + winrt::to_string(error->message());
+    std::lock_guard lock(pad_mutex);
+    if (pad_failures.size() < 16)
+        pad_failures.push_back(std::move(what));
 }
 
-bool post_pad(const PadState &pad) {
-    auto &injector = pads[pad.index];
-    try {
+void inject(injection::InputInjector &injector, const PadState &pad) {
+    if (!injector) {
+        injector = injection::InputInjector::TryCreate();
         if (!injector) {
-            if (pads_unavailable)
-                return false;
-            injector = injection::InputInjector::TryCreate();
-            if (!injector) {
-                pads_unavailable = true;
-                log_pad_failure("unavailable: InputInjector::TryCreate returned null (is the "
-                                "inputInjectionBrokered capability declared?)");
-                return false;
-            }
-            injector.InitializeGamepadInjection();
+            pads_unavailable = true;
+            pad_failure("unavailable: InputInjector::TryCreate returned null (is the "
+                        "inputInjectionBrokered capability declared?)");
+            return;
         }
-        const auto reading = windows_pad_reading(pad);
-        injection::InjectedInputGamepadInfo info;
-        info.Buttons(static_cast<winrt::Windows::Gaming::Input::GamepadButtons>(reading.buttons));
-        info.LeftThumbstickX(reading.left_x);
-        info.LeftThumbstickY(reading.left_y);
-        info.RightThumbstickX(reading.right_x);
-        info.RightThumbstickY(reading.right_y);
-        info.LeftTrigger(reading.left_trigger);
-        info.RightTrigger(reading.right_trigger);
-        injector.InjectGamepadInput(info);
-        return true;
-    } catch (const winrt::hresult_error &error) {
-        log_pad_failure("injection failed:", &error);
-    } catch (...) {
-        // Anything else must not end the stream: gamepads stop, video and input carry on.
-        log_pad_failure("injection failed with a non-WinRT exception");
+        injector.InitializeGamepadInjection();
     }
-    pads_unavailable = true;
-    injector = nullptr;
-    return false;
+    const auto reading = windows_pad_reading(pad);
+    injection::InjectedInputGamepadInfo info;
+    info.Buttons(static_cast<winrt::Windows::Gaming::Input::GamepadButtons>(reading.buttons));
+    info.LeftThumbstickX(reading.left_x);
+    info.LeftThumbstickY(reading.left_y);
+    info.RightThumbstickX(reading.right_x);
+    info.RightThumbstickY(reading.right_y);
+    info.LeftTrigger(reading.left_trigger);
+    info.RightTrigger(reading.right_trigger);
+    injector.InjectGamepadInput(info);
 }
 
-void unplug_pad(int index) {
-    auto &injector = pads[index];
+void remove(injection::InputInjector &injector) {
     if (!injector)
         return;
-    try {
-        // Back to rest first, so nothing reads a held button between now and the removal.
-        injector.InjectGamepadInput(injection::InjectedInputGamepadInfo());
-        injector.UninitializeGamepadInjection();
-    } catch (const winrt::hresult_error &error) {
-        log_pad_failure("unplug failed:", &error);
-    } catch (...) {
-        log_pad_failure("unplug failed with a non-WinRT exception");
-    }
+    // Back to rest first, so nothing reads a held button between now and the removal.
+    injector.InjectGamepadInput(injection::InjectedInputGamepadInfo());
+    injector.UninitializeGamepadInjection();
     injector = nullptr;
 }
+
+void pad_thread() {
+    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    injection::InputInjector pads[max_pads] = {nullptr, nullptr, nullptr, nullptr};
+    for (;;) {
+        std::map<int, PadCommand> commands;
+        {
+            std::unique_lock lock(pad_mutex);
+            pad_wake.wait(lock, [] { return !pad_commands.empty(); });
+            commands.swap(pad_commands);
+        }
+        for (auto &[index, command] : commands) {
+            auto &injector = pads[index];
+            try {
+                if (command.unplug)
+                    remove(injector);
+                else if (!pads_unavailable)
+                    inject(injector, command.pad);
+            } catch (const winrt::hresult_error &error) {
+                pad_failure(command.unplug ? "unplug failed:" : "injection failed:", &error);
+                if (!command.unplug)
+                    pads_unavailable = true;
+                injector = nullptr;
+            } catch (...) {
+                pad_failure(command.unplug ? "unplug failed with a non-WinRT exception"
+                                           : "injection failed with a non-WinRT exception");
+                if (!command.unplug)
+                    pads_unavailable = true;
+                injector = nullptr;
+            }
+        }
+    }
+}
+
+void queue(int index, PadCommand command) {
+    std::vector<std::string> failures;
+    {
+        std::lock_guard lock(pad_mutex);
+        if (!pad_thread_started) {
+            pad_thread_started = true;
+            std::thread(pad_thread).detach();
+        }
+        pad_commands[index] = command;
+        failures.swap(pad_failures);
+    }
+    pad_wake.notify_one();
+    if (auto log = worker_log())
+        for (const auto &failure : failures)
+            *log << "PAD " << failure << std::endl;
+}
+
+} // namespace
+
+// Queued for the pad thread; false once injection is known to be unavailable.
+bool post_pad(const PadState &pad) {
+    if (pads_unavailable)
+        return false;
+    queue(pad.index, {false, pad});
+    return true;
+}
+
+void unplug_pad(int index) { queue(index, {true, {}}); }
 
 } // namespace platform
