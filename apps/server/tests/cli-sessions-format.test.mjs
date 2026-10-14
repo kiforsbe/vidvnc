@@ -172,6 +172,10 @@ test('sessions table says why a stream cannot take input', () => {
               profile: 'Mobile',
               viewers: 1,
               inputUnavailable: 'Remote control needs permission.',
+              gamepads: [
+                { index: 0, buttons: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0 },
+                { index: 2, buttons: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0 },
+              ],
             },
             { id: 'stream-b', name: 'Side', profile: 'Mobile', viewers: 1, inputUnavailable: null },
           ],
@@ -182,4 +186,6 @@ test('sessions table says why a stream cannot take input', () => {
   );
   assert.match(text, /stream-a input unavailable: Remote control needs permission\./);
   assert.doesNotMatch(text, /stream-b input unavailable/);
+  assert.match(text, /stream-a gamepads: player 1, player 3/);
+  assert.doesNotMatch(text, /stream-b gamepads/);
 });

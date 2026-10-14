@@ -152,7 +152,10 @@ static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
 static std::set<unsigned short> held_keys;
 static std::set<int> held_buttons;
-static std::set<int> plugged_pads;
+// Each plugged-in virtual gamepad's latest state, reported to the server (`pads`) so the host
+// can show that gamepad input arrives; `pads_changed` until the next report.
+static std::map<int, PadState> plugged_pads;
+static bool pads_changed = false;
 // Whether the owner allows gamepads (access setting `gamepads`), from the latest
 // control-permission. Off by default: a virtual gamepad can upset anti-cheat software.
 static bool gamepads_allowed = false;
@@ -259,18 +262,35 @@ static void button_input(int button, bool down) {
             held_buttons.erase(button);
     }
 }
+// Logs a gamepad event once, not again until a different one happens: pads send up to 60
+// messages a second, so the log shows each change of state rather than each message.
+static void pad_note(const std::string &note) {
+    static std::string last;
+    if (note == last)
+        return;
+    last = note;
+    if (auto log = worker_log())
+        *log << "PAD " << note << std::endl;
+}
 static void pad_input(const PadState &pad) {
-    if (platform::post_pad(pad))
-        plugged_pads.insert(pad.index);
+    if (platform::post_pad(pad)) {
+        if (!plugged_pads.count(pad.index))
+            pad_note("plugged index=" + std::to_string(pad.index));
+        plugged_pads[pad.index] = pad;
+        pads_changed = true;
+    }
 }
 static void unplug_pad(int index) {
     platform::unplug_pad(index);
-    plugged_pads.erase(index);
+    if (plugged_pads.erase(index)) {
+        pad_note("unplugged index=" + std::to_string(index));
+        pads_changed = true;
+    }
 }
 static void unplug_pads() {
     auto pads = plugged_pads;
-    for (auto pad : pads)
-        unplug_pad(pad);
+    for (const auto &pad : pads)
+        unplug_pad(pad.first);
 }
 // Releasing also unplugs every virtual gamepad: a game sees its controller disconnect rather
 // than a stick left pushed.
@@ -370,6 +390,30 @@ static void emit(const char *type,
         json_object_set_string_member(object, field.first, field.second.c_str());
     write_object(object);
 }
+// Tells the server which virtual gamepads are plugged in and their latest state, so the host
+// can show that gamepad input arrives. Sent at most five times a second, only after a change.
+static void report_pads() {
+    if (!pads_changed)
+        return;
+    pads_changed = false;
+    auto list = json_array_new();
+    for (const auto &[index, pad] : plugged_pads) {
+        auto item = json_object_new();
+        json_object_set_int_member(item, "index", index);
+        json_object_set_int_member(item, "buttons", pad.buttons);
+        json_object_set_double_member(item, "lx", pad.left_x);
+        json_object_set_double_member(item, "ly", pad.left_y);
+        json_object_set_double_member(item, "rx", pad.right_x);
+        json_object_set_double_member(item, "ry", pad.right_y);
+        json_object_set_double_member(item, "lt", pad.left_trigger);
+        json_object_set_double_member(item, "rt", pad.right_trigger);
+        json_array_add_object_element(list, item);
+    }
+    auto object = json_object_new();
+    json_object_set_string_member(object, "type", "pads");
+    json_object_set_array_member(object, "pads", list);
+    write_object(object);
+}
 static void fatal(const char *message) {
     std::cerr << message << std::endl;
     if (error_log.is_open())
@@ -449,7 +493,9 @@ static gboolean input_message(gpointer data) {
                 double delta = number_member(object, "delta");
                 if (std::isfinite(delta) && std::abs(delta) <= 1200)
                     platform::post_wheel(delta);
-            } else if (type == "pad" && gamepads_allowed) {
+            } else if (type == "pad" && !gamepads_allowed) {
+                pad_note("ignored: the latest control permission does not allow gamepads");
+            } else if (type == "pad") {
                 const auto pad =
                     pad_state({number_member(object, "index"), number_member(object, "buttons"),
                                number_member(object, "lx"), number_member(object, "ly"),
@@ -457,11 +503,15 @@ static gboolean input_message(gpointer data) {
                                number_member(object, "lt"), number_member(object, "rt")});
                 if (pad)
                     pad_input(*pad);
+                else
+                    pad_note("ignored: invalid pad message");
             } else if (type == "pad-remove") {
                 double index = number_member(object, "index");
                 if (valid_pad_index(index))
                     unplug_pad(static_cast<int>(index));
             }
+        } else if (type == "pad") {
+            pad_note("ignored: this viewer does not hold control");
         }
     }
     // The viewer learns its control state after every message, as before the split.
@@ -1177,6 +1227,13 @@ static gboolean command(gpointer data) {
 }
 static int session() {
     loop = g_main_loop_new(nullptr, false);
+    g_timeout_add(
+        200,
+        [](gpointer) -> gboolean {
+            report_pads();
+            return G_SOURCE_CONTINUE;
+        },
+        nullptr);
     g_timeout_add(
         1000,
         [](gpointer) -> gboolean {

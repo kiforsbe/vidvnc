@@ -132,6 +132,31 @@ video {
   cursor: default;
   opacity: 0.35;
 }
+/* Gamepad: shown once the browser reports one; lit while its input goes to the host, and
+   brighter for a moment each time some is sent. */
+.immersive-toolbar .gamepad-state {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 38px;
+  color: #d5dfed;
+  opacity: 0.45;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
+}
+.immersive-toolbar .gamepad-state[hidden] {
+  display: none;
+}
+.immersive-toolbar .gamepad-state.live {
+  opacity: 0.8;
+  color: #a9d3ff;
+}
+.immersive-toolbar .gamepad-state.live.sending {
+  opacity: 1;
+  color: #fff;
+}
 .immersive-toolbar svg {
   width: 21px;
   height: 21px;

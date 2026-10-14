@@ -334,7 +334,14 @@ export function formatSessions(status, numbers) {
       const input = row.streams
         .filter((stream) => stream.inputUnavailable)
         .map((stream) => `${stream.id} input unavailable: ${clean(stream.inputUnavailable)}`);
-      return `${header}\n${[...streams.split('\n'), ...paths, ...input].map((line) => `    ${line}`).join('\n')}`;
+      // Virtual gamepads the device in control has plugged in, by player number.
+      const pads = row.streams
+        .filter((stream) => stream.gamepads?.length)
+        .map(
+          (stream) =>
+            `${stream.id} gamepads: ${stream.gamepads.map((pad) => `player ${pad.index + 1}`).join(', ')}`,
+        );
+      return `${header}\n${[...streams.split('\n'), ...paths, ...input, ...pads].map((line) => `    ${line}`).join('\n')}`;
     })
     .join('\n');
 }

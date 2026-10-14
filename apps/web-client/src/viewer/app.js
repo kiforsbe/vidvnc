@@ -34,6 +34,8 @@ export function createViewer({ onExit }) {
     muted: '<path d="M11 4 6 8H3v8h3l5 4zM16 9l5 6M21 9l-5 6"/>',
     pictureInPicture:
       '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
+    gamepad:
+      '<path d="M7 8h10a4 4 0 0 1 3.9 3.1l.9 4.3a2.2 2.2 0 0 1-3.8 1.9L16 15H8l-2 2.3a2.2 2.2 0 0 1-3.8-1.9l.9-4.3A4 4 0 0 1 7 8zM8 10.5v3M6.5 12h3M15.5 11.5h.01M17.5 13h.01"/>',
     expand: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5"/>',
     collapse: '<path d="M3 8h5V3M16 3v5h5M21 16h-5v5M8 21v-5H3"/>',
   };
@@ -78,7 +80,17 @@ export function createViewer({ onExit }) {
   // Gamepads: while this device holds control and the host's owner allows them, each pad's state
   // goes to the host (gamepad.js), which plugs in a virtual controller for it. Browsers show a
   // pad to the page only after one of its buttons is pressed while the page is in front.
-  const pads = new PadSender(send);
+  // Each message sent brightens the toolbar's gamepad icon for a moment: a sign of life.
+  let padPulse = 0;
+  const pads = new PadSender((message) => {
+    const sent = send(message);
+    if (sent) {
+      $('gamepadState').classList.add('sending');
+      clearTimeout(padPulse);
+      padPulse = setTimeout(() => $('gamepadState').classList.remove('sending'), 150);
+    }
+    return sent;
+  });
   let padFrame = 0;
   let lastPadPoll = 0;
   const padsActive = () =>
@@ -97,6 +109,28 @@ export function createViewer({ onExit }) {
   }
   function renderPads() {
     if (padsActive() && !padFrame) padFrame = requestAnimationFrame(pollPads);
+    renderGamepadState();
+  }
+  // Why a connected gamepad does or does not reach the host, on the toolbar's gamepad icon.
+  function gamepadHint() {
+    if (padsActive()) return 'Gamepad: controls this PC as an Xbox controller';
+    if (subscriptions?.gamepads !== true)
+      return 'Gamepad connected · the host has gamepads turned off';
+    return 'Gamepad connected · enable keyboard & mouse to use it on this PC';
+  }
+  function renderGamepadState() {
+    const element = $('gamepadState');
+    const connected =
+      typeof navigator.getGamepads === 'function' &&
+      [...navigator.getGamepads()].some((pad) => pad?.connected);
+    element.hidden = !connected;
+    if (!connected) return;
+    if (!element.firstChild)
+      element.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${toolbarIcons.gamepad}</svg>`;
+    const hint = gamepadHint();
+    element.classList.toggle('live', padsActive());
+    element.setAttribute('aria-label', hint);
+    element.title = hint;
   }
   function renderPictureInPicture() {
     const video = $('video');
@@ -974,11 +1008,12 @@ export function createViewer({ onExit }) {
   window.addEventListener(
     'gamepadconnected',
     () => {
-      if (padsActive()) status('Gamepad connected · it controls this PC as an Xbox controller');
+      status(gamepadHint());
       renderPads();
     },
     { signal: events.signal },
   );
+  window.addEventListener('gamepaddisconnected', renderGamepadState, { signal: events.signal });
   document.addEventListener(
     'visibilitychange',
     () => {

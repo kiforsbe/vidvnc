@@ -753,6 +753,33 @@ test('status says when the worker cannot post input, and is silent when it can',
   assert.equal(available.runtime.status().sessions[0].streams[0].inputUnavailable, null);
 });
 
+test('status shows the virtual gamepads on the stream holding control, and nowhere else', async (t) => {
+  const { runtime, a, b, offer, access } = await setup(t, 'approval', undefined, {
+    launch: () =>
+      spawn(
+        process.execPath,
+        [fileURLToPath(new URL('./fixtures/media-process.mjs', import.meta.url))],
+        {
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, VIDVNC_FAKE_PADS: '1' },
+        },
+      ),
+  });
+  access.gamepads = true;
+  const controlled = await offer(a);
+  await offer(b);
+  await runtime.selectStream(a, controlled.streamId);
+  const streams = (sessionId) =>
+    runtime.status().sessions.find((row) => row.id === sessionId).streams;
+  assert.deepEqual(streams(a)[0].gamepads, []);
+  await runtime.command({ action: 'grant', sessionId: a });
+  assert.deepEqual(streams(a)[0].gamepads, [
+    { index: 0, buttons: 5, lx: 0.5, ly: 0, rx: 0, ry: 0, lt: 0, rt: 1 },
+  ]);
+  assert.deepEqual(streams(b)[0].gamepads, []);
+});
+
 test('two sessions on the same profile and display get separate sources when they support different codecs', async (t) => {
   const { a, b, offer, media, starts } = await setup(t);
   await offer(a, 0, 'mobile', av1H264Sdp());

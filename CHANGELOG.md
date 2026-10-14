@@ -11,14 +11,17 @@ may include breaking changes.
 
 - Gamepads on Windows hosts: with Access → Gamepads (or `gamepads on` in the command line)
   turned on, the device in control can use its gamepads as Xbox controllers on the PC. Off by
-  default ([how it works](README.md#build-and-run-windows)).
+  default ([how it works](README.md#build-and-run-windows)). The viewer's toolbar shows a
+  gamepad icon that lights up while gamepad input is sent, and the VidVNC app shows each
+  plugged-in controller and its pressed buttons on the device's stream.
 
 ### Known limitations
 
 - Turning Gamepads off stops gamepad input at once, but Windows keeps its virtual controller
   device until the server is restarted.
-- Gamepads have not yet been checked against real games: whether XInput-only games see the
-  virtual controller is still to be tested. Some anti-cheat software may refuse or flag it.
+- Games and other programs on the PC do not see the virtual controller yet: Windows plugs it
+  in, but XInput, Windows.Gaming.Input and Game Controllers (joy.cpl) do not report it. Some
+  anti-cheat software may also refuse or flag a virtual controller.
 - Mac hosts do not support gamepads.
 
 ## [0.11.1] - 2026-10-13

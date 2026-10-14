@@ -42,6 +42,38 @@ export function iceBindEnvironment(bind) {
 }
 
 // One worker per source (a capture/encode or an audio mix); each viewer is a peer inside it.
+
+// A worker's `pads` report, checked like any worker message: at most four pads, each with an
+// index 0-3, a 16-bit button mask, sticks -1..1 and triggers 0..1. Anything else is dropped.
+export function padReport(pads) {
+  if (!Array.isArray(pads)) return [];
+  const within = (value, low, high) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
+  return pads
+    .filter(
+      (pad) =>
+        pad &&
+        Number.isInteger(pad.index) &&
+        within(pad.index, 0, 3) &&
+        Number.isInteger(pad.buttons) &&
+        within(pad.buttons, 0, 0xffff) &&
+        ['lx', 'ly', 'rx', 'ry'].every((axis) => within(pad[axis], -1, 1)) &&
+        within(pad.lt, 0, 1) &&
+        within(pad.rt, 0, 1),
+    )
+    .slice(0, 4)
+    .map(({ index, buttons, lx, ly, rx, ry, lt, rt }) => ({
+      index,
+      buttons,
+      lx,
+      ly,
+      rx,
+      ry,
+      lt,
+      rt,
+    }));
+}
+
 export class NativeMedia {
   constructor({
     onExit = () => {},
@@ -268,6 +300,9 @@ export class NativeMedia {
       const check = active.portChecks?.get(`${message.peerId}|${message.port}`);
       check?.(message.owned);
     }
+    // The virtual gamepads the worker has plugged in, for the host's status (gamepad.js on
+    // the viewer sends them). Replaced whole on every report.
+    if (message.type === 'pads') active.pads = padReport(message.pads);
     if (message.type === 'metrics') {
       active.diagnostics?.record('server', peerSample(message, active.id));
       this.onMetrics(active.id, message);
@@ -332,6 +367,10 @@ export class NativeMedia {
   // Why the worker cannot post input for this source, or null when it can (or has not said).
   inputUnavailable(sourceId) {
     return this.workers.get(sourceId)?.inputUnavailable ?? null;
+  }
+  // The virtual gamepads plugged in for this source, as its worker last reported them.
+  pads(sourceId) {
+    return this.workers.get(sourceId)?.pads ?? [];
   }
   removePeer(sourceId, peerId) {
     const active = this.workers.get(sourceId);

@@ -260,8 +260,12 @@ controller on the PC while that device holds control. The browser shows a gamepa
 page only after one of its buttons is pressed. Some games with anti-cheat software refuse or
 flag a virtual controller, so leave this off unless you need it. Turning it off stops gamepad
 input within about two seconds, but Windows keeps its virtual controller device until the
-server is restarted (stop and start sharing in the app). See
-[Input and control](docs/ARCHITECTURE.md#input-and-control).
+server is restarted (stop and start sharing in the app). The viewer's toolbar shows a
+gamepad icon once the browser reports a gamepad: dimmed, with the reason, while its input is
+not sent, and lit while it is. On the Sessions page, the stream in control shows each virtual
+controller plugged in, with its pressed buttons, sticks and triggers; `vidvnc sessions` lists
+them by player. Games on the PC do not see the controller yet (see the
+[changelog](CHANGELOG.md)). See [Input and control](docs/ARCHITECTURE.md#input-and-control).
 For live diagnostics on the server PC, use the host's Diagnostics action or the CLI
 `diagnostics open` command. It creates a short-lived link to a separate local-only
 listener; the normal connection address does not serve diagnostics.

@@ -1040,13 +1040,24 @@ macOS has no virtual gamepad without Apple's restricted virtual HID entitlement.
 - **The device.** `InputInjector` needs the package's restricted `inputInjectionBrokered`
   capability ([AppxManifest.xml](../packaging/windows/msix/AppxManifest.xml)). Its first use
   makes Windows install an in-box software device, "Xbox Virtual Game Controller"
-  (`SWDXboxgipSyntheticXboxgipSynthetic_000`, `xboxgipsynthetic.inf`). It stays present
+  (`SWD\XBOXGIPSYNTHETIC\XBOXGIPSYNTHETIC_000`, `xboxgipsynthetic.inf`). It stays present
   after the worker unplugs its pads, while the process that used it runs; once the server
   and its workers stop, Windows removes it, typically within a minute. Removing its device
   record outright needs an administrator, and Windows recreates it on the next use.
-- **Not yet validated.** `tests/pad-probe.cpp` creates the device and injects without
-  error, but in a console process neither XInput nor Windows.Gaming.Input reported a pad,
-  so which games see the controller is still to be checked with real games.
+- **Status.** The worker logs `PAD` lines to `native-worker.log` once per change (plugged,
+  unplugged, or why a pad message was ignored) and reports the plugged-in pads to the
+  server as `pads {pads: [{index, buttons, lx, ly, rx, ry, lt, rt}]}`, at most five times a
+  second and only after a change. The server checks the report like the viewer's message
+  and adds it as `gamepads` to the host status of the stream holding control only
+  ([stream-runtime.mjs](../apps/server/src/stream-runtime.mjs)); the Windows app draws each
+  pad on that stream's row ([HostWindow.Gamepads.cs](../apps/windows-host/HostWindow.Gamepads.cs))
+  and `vidvnc sessions` lists them. The viewer's toolbar shows a gamepad icon once the
+  browser reports one, lit while pads are sent and brighter for a moment on each send.
+- **Not working with games yet.** End to end from a Samsung TV browser on 2026-10-14, the
+  worker plugged in the pad and Windows reported the device present, but neither XInput nor
+  Windows.Gaming.Input (`pad-probe observe`) nor Game Controllers (joy.cpl) saw it. The
+  in-box controller that `InputInjector` uses is not visible to desktop games; a driver
+  that presents an XInput device (such as ViGEmBus) is the likely replacement.
 
 ## Resilience
 

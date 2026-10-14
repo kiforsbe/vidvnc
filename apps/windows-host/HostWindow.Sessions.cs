@@ -107,6 +107,7 @@ public sealed partial class HostWindow
         readonly TextBlock name = Label("", 16), resolution = Label(""), fps = Label(""), profile = Label(""), codec = Label(""), encoder = Label(""), mediaPath = Label("");
         readonly TextBlock shared = new() { FontSize = 12, Visibility = Visibility.Collapsed };
         readonly SessionGraph graph = new();
+        readonly GamepadsVisual gamepads = new();
         public StreamVisual(string? id, Func<string, string?, Task> command)
         {
             Root.ColumnDefinitions.Add(new() { Width = new(1.35, GridUnitType.Star) });
@@ -155,6 +156,7 @@ public sealed partial class HostWindow
                 if (width > 0 && Math.Abs(media.MaxWidth - width) > 0.5) media.MaxWidth = width;
             };
             content.Children.Add(values);
+            content.Children.Add(gamepads);
             Root.Children.Add(content); Grid.SetColumn(graph, 1); Root.Children.Add(graph);
             Root.SizeChanged += (_, _) => {
                 var narrow = Root.ActualWidth < 580;
@@ -210,6 +212,7 @@ public sealed partial class HostWindow
             shared.Text = viewers > 1 ? $"Shared · {viewers} devices" : "";
             shared.Visibility = viewers > 1 ? Visibility.Visible : Visibility.Collapsed;
             graph.Update(row);
+            gamepads.Update(row);
         }
     }
 }

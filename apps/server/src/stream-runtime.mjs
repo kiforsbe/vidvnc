@@ -276,6 +276,12 @@ export class StreamRuntime {
           // Set when the worker cannot post input (macOS without the user's approval), so the
           // host can say why control does nothing.
           inputUnavailable: this.media.inputUnavailable?.(stream.sourceId) ?? null,
+          // The virtual gamepads this device's controller input has plugged in, shown only on
+          // the stream that holds control: other viewers of the same source sent none of it.
+          gamepads:
+            owner?.sessionId === session.sessionId && owner.streamId === stream.id
+              ? (this.media.pads?.(stream.sourceId) ?? [])
+              : [],
           ...this.#mediaPath(stream.id, session.clientKey),
         };
       });

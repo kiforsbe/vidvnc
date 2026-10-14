@@ -96,6 +96,16 @@ input.on('line', (line) => {
   if (message.type === 'stop') setTimeout(() => process.exit(0), 100);
   if (message.type === 'control-permission') {
     if (message.allowed === false && peers.get(peerId)?.includes('no-revoke')) return;
+    // As if the viewer's gamepad arrived once gamepads were allowed: one valid pad and one
+    // the server must drop.
+    if (process.env.VIDVNC_FAKE_PADS && message.allowed && message.gamepads)
+      send({
+        type: 'pads',
+        pads: [
+          { index: 0, buttons: 5, lx: 0.5, ly: 0, rx: 0, ry: 0, lt: 0, rt: 1 },
+          { index: 7, buttons: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0 },
+        ],
+      });
     send({
       type: 'control-result',
       requestId: message.requestId,
