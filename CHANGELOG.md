@@ -5,6 +5,14 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- When a media worker stops unexpectedly, the server log now says how it ended (its exit
+  code, a crash as a Windows error code such as `0xC0000005`), and on Windows the worker
+  log records where it crashed ([Diagnostics](docs/ARCHITECTURE.md#diagnostics)).
+
 ## [0.11.1] - 2026-10-13
 
 ### Added

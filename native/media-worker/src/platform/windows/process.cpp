@@ -7,6 +7,8 @@
 #include <iphlpapi.h>
 #include <shellapi.h>
 #include <cstdio>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -14,7 +16,41 @@
 
 namespace platform {
 
-void init_process() { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+// A crash (an access violation, say) reaches the server only as an exit code, so the worker
+// log gets a line saying where it happened: the faulting module and offset, then the calling
+// frames, each as module+offset to look up against the module's symbols.
+static void log_address(std::ostream &log, const void *address) {
+    HMODULE module = nullptr;
+    char name[MAX_PATH] = "unknown";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCSTR>(address), &module))
+        GetModuleFileNameA(module, name, MAX_PATH);
+    const char *base = std::strrchr(name, '\\');
+    log << (base ? base + 1 : name) << "+0x" << std::hex
+        << (reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(module)) << std::dec;
+}
+static LONG WINAPI log_crash(EXCEPTION_POINTERS *info) {
+    if (auto log = worker_log()) {
+        const auto record = info->ExceptionRecord;
+        *log << "CRASH code=0x" << std::hex << record->ExceptionCode << std::dec
+             << " thread=" << GetCurrentThreadId() << " at ";
+        log_address(*log, record->ExceptionAddress);
+        void *frames[32];
+        const auto count = RtlCaptureStackBackTrace(0, 32, frames, nullptr);
+        for (USHORT frame = 0; frame < count; ++frame) {
+            *log << "\n  ";
+            log_address(*log, frames[frame]);
+        }
+        *log << std::endl;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void init_process() {
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    SetUnhandledExceptionFilter(log_crash);
+}
 
 unsigned long process_id() { return GetCurrentProcessId(); }
 

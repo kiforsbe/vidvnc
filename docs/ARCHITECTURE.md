@@ -1052,6 +1052,17 @@ because the worker chooses its encoder once per stream and never switches mid-st
 Which GPU is encoding is host-facing only. It appears in host status and diagnostics, and
 no client ever sees it.
 
+A worker that ends without being asked to is logged with how it ended:
+`Worker exited unexpectedly (exit code 0xC0000005)` in the server log, a Windows crash
+shown as its NTSTATUS in hex ([native-media.mjs](../apps/server/src/native-media.mjs)).
+On Windows the worker also writes a `CRASH` line to `native-worker.log` from its unhandled
+exception filter: the code, the thread, the faulting module and offset, and up to 32
+calling frames as module+offset
+([process.cpp](../native/media-worker/src/platform/windows/process.cpp)). Module names
+only, never full paths. The offsets resolve against the build's symbols (`.pdb`) with
+dbghelp. A crash can otherwise leave no trace: no stderr, and no Windows Error Reporting
+event.
+
 ## Security architecture
 
 This section is the security view of the architecture. It follows the usual structure of

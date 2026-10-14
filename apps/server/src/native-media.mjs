@@ -42,6 +42,16 @@ export function iceBindEnvironment(bind) {
 }
 
 // One worker per source (a capture/encode or an audio mix); each viewer is a peer inside it.
+// How a worker process ended, for the log: a Windows crash shows as its NTSTATUS in hex
+// (0xC0000409 is a fail-fast, for example), so a silent exit can still be told apart.
+function exitStatus(code, signal) {
+  if (signal) return `signal ${signal}`;
+  if (typeof code !== 'number') return 'no exit code';
+  return code > 0xffff || code < 0
+    ? `exit code 0x${(code >>> 0).toString(16).toUpperCase()}`
+    : `exit code ${code}`;
+}
+
 export class NativeMedia {
   constructor({
     onExit = () => {},
@@ -149,7 +159,7 @@ export class NativeMedia {
       for (const entry of active.peers.values())
         if (entry.state === 'negotiating') entry.fail(error);
     });
-    child.on('close', () => {
+    child.on('close', (code, signal) => {
       if (active.exited) return;
       active.exited = true;
       active.permission?.reject(new Error('Control worker exited'));
@@ -158,7 +168,7 @@ export class NativeMedia {
       if (this.workers.get(sourceId) === active) this.workers.delete(sourceId);
       const error = new Error(active.stderr.trim() || 'Native media worker stopped.');
       this.#log(
-        `[native-media ${sourceId}] Worker exited${active.stopping ? ' during shutdown' : ' unexpectedly'}: ${error.message}`,
+        `[native-media ${sourceId}] Worker exited${active.stopping ? ' during shutdown' : ' unexpectedly'} (${exitStatus(code, signal)}): ${error.message}`,
       );
       active.rejectReady(error);
       for (const entry of active.peers.values()) {

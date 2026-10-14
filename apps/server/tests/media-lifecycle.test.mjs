@@ -176,6 +176,26 @@ test('peer negotiation failures log the stream configuration without its SDP', a
   assert.doesNotMatch(messages.join(''), /private-offer-sdp/);
 });
 
+test('a worker that dies logs how it ended, a crash as its Windows code in hex', async (t) => {
+  for (const [code, expected] of [
+    [3, /exited unexpectedly \(exit code 3\)/],
+    [0xc0000005, /exited unexpectedly \(exit code 0xC0000005\)/],
+  ]) {
+    const messages = [];
+    const media = new NativeMedia({
+      launch: () =>
+        spawn(process.execPath, ['-e', `process.stdin.once('data', () => process.exit(${code}))`], {
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      log: (message) => messages.push(message),
+    });
+    t.after(() => media.shutdown());
+    await assert.rejects(media.start('s', { video: true, profile: profile(30) }));
+    assert.match(messages.join(''), expected);
+  }
+});
+
 test('unacknowledged removal stops the source', async (t) => {
   const media = new NativeMedia({ launch, removalTimeoutMs: 100 });
   t.after(() => media.shutdown());
