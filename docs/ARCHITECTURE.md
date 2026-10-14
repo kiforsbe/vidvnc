@@ -1008,6 +1008,46 @@ Only the first finger is tracked; a second concurrent touch is ignored. A cancel
 touch releases control like any other `pointercancel`. Mouse and pen input still press
 and release buttons exactly as the device reports them.
 
+### Gamepads
+
+Gamepads are off unless the owner turns on Access → Gamepads (`gamepads` in
+[access-settings.mjs](../apps/server/src/access-settings.mjs), `gamepads on` in the CLI),
+because some anti-cheat software refuses or flags a virtual controller. Windows hosts only:
+macOS has no virtual gamepad without Apple's restricted virtual HID entitlement.
+
+- **Owner switch.** The server adds `gamepads` to every `control-permission` it sends the
+  worker, renewals included, and only to grants
+  ([native-media.mjs](../apps/server/src/native-media.mjs)). The worker accepts pad
+  messages only while the latest lease carries `gamepads: true`; a lease without it, or a
+  revoke, unplugs every pad. Turning the setting off therefore stops gamepad input within one
+  renewal (2 s). `heartbeat` and `stream-select` report `gamepads` so the viewer reads
+  pads only while it may use them.
+- **Viewer.** While it holds control, the viewer polls `navigator.getGamepads()` at most
+  every 16 ms and sends each pad that uses the browser's standard layout, among the first
+  four, whenever its state changes: `pad {index, buttons, lx, ly, rx, ry, lt, rt}`, where
+  `buttons` has a bit per standard button index, sticks are -1..1 with down positive and
+  triggers 0..1. A pad that goes away sends `pad-remove {index}`
+  ([viewer/gamepad.js](../apps/web-client/src/viewer/gamepad.js)). Browsers show a pad to the
+  page only after one of its buttons is pressed.
+- **Worker.** `pad` is checked whole: index 0..3, buttons an integer with only the allowed
+  bits (never the triggers' bits 6 and 7, or home, 16), every axis finite and in range
+  ([input-policy.hpp](../native/media-worker/src/input-policy.hpp)). Pad messages count
+  towards the same 1000-a-second limit. Each pad index gets its own `InputInjector` with a
+  virtual gamepad plugged in on its first message
+  ([platform/windows/input.cpp](../native/media-worker/src/platform/windows/input.cpp)), the
+  standard buttons mapped to `GamepadButtons` and the sticks' Y axes flipped. Wherever held
+  keys are released, the worker also returns each pad to rest and unplugs it.
+- **The device.** `InputInjector` needs the package's restricted `inputInjectionBrokered`
+  capability ([AppxManifest.xml](../packaging/windows/msix/AppxManifest.xml)). Its first use
+  makes Windows install an in-box software device, "Xbox Virtual Game Controller"
+  (`SWDXboxgipSyntheticXboxgipSynthetic_000`, `xboxgipsynthetic.inf`). It stays present
+  after the worker unplugs its pads, while the process that used it runs; once the server
+  and its workers stop, Windows removes it, typically within a minute. Removing its device
+  record outright needs an administrator, and Windows recreates it on the next use.
+- **Not yet validated.** `tests/pad-probe.cpp` creates the device and injects without
+  error, but in a console process neither XInput nor Windows.Gaming.Input reported a pad,
+  so which games see the controller is still to be checked with real games.
+
 ## Resilience
 
 Recovery is driven by what the browser reports, and is deliberately damped.
@@ -1209,7 +1249,7 @@ flowchart LR
         server["Node server"]
         worker["media-worker<br/>capture, encode, input broker"]
         store[("Settings, approved devices,<br/>TLS key (per-user)")]
-        os["DXGI, WASAPI, SendInput"]
+        os["DXGI, WASAPI, SendInput,<br/>InputInjector (gamepads)"]
     end
     subgraph Z4["Z4 Sandbox: restricted token, low integrity, job, own desktop"]
         net["media-net<br/>ICE/DTLS/SRTP/SCTP on 127.0.0.1 only"]
@@ -1427,8 +1467,9 @@ clients, and the encoder is never sent to any client.
   are stored; a client can never widen them.
 - **Worker.** Messages from peers are parsed as JSON objects. Coordinates must be finite and
   within 0..1; buttons and key codes pass through explicit allow-lists
-  ([input-policy.hpp](../native/media-worker/src/input-policy.hpp)); more than 1000 input
-  messages a second revokes control. The owner pipe accepts only known message types.
+  ([input-policy.hpp](../native/media-worker/src/input-policy.hpp)); a gamepad state is
+  accepted only whole and in range, and only while the owner allows gamepads; more than 1000
+  input messages a second revokes control. The owner pipe accepts only known message types.
 - **Output.** The web client writes server- and user-supplied text with text APIs
   (`textContent`). Its only HTML insertion is the viewer's own same-origin fragment and
   built-in toolbar icons, and the CSP below forbids inline script.
@@ -1515,6 +1556,7 @@ server; the receiving page strips it and refuses to replace a different stored s
 | Remote access    | Off; each host start is local-only     | Internet peers get `403` everywhere                                                    |
 | Remote access on | Forces `approved-only`                 | Standing password and one-time codes stop working for everyone                         |
 | Control          | Keyboard and mouse start off           | Nobody can inject input until the owner grants it                                      |
+| Gamepads         | Off                                    | No virtual controller is created until the owner turns gamepads on                     |
 | Closing window   | Keeps sharing, icon stays              | The notification-area icon and a one-time notice say sharing is still on               |
 | Codes            | Issued on request, single use, 300 s   | No standing code sits waiting                                                          |
 | Media            | One UDP port (4384), the media relay   | The worker is on loopback only; nothing is forwarded before the ICE password is proved |
@@ -1567,6 +1609,8 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T24 | Mac packages             | T, E   | Run other code with VidVNC's grants: inherited `NODE_OPTIONS`, a swapped library or plugin, or a manifest path out of the bundle | Every program is Developer ID signed with the hardened runtime and library validation; the `vidvnc` launcher and the host drop inherited `NODE_` variables; packaged manifest paths stay inside the bundle; **Install Command-Line Tool** writes only the `/usr/local/bin/vidvnc` link, after the owner confirms, through macOS's own administrator prompt | None                          |
 | T25 | Project website          | T      | Publish misleading instructions or a harmful link on the project's site                                                          | Built only from `main` by the Website workflow; only its deploy job can publish; the page hosts no downloads and loads nothing from other sites                                                                                                                                                                                                            | —                             |
 
+| T26 | Gamepads (B2, B5, B9) | E, D | Plug a virtual controller into the host without the owner's consent, from a viewer or a compromised media-net or relay, or leave one plugged in; or set off anti-cheat software | Owner-only `gamepads` setting, off by default, sent by the server with every lease (absent means off); the worker accepts pads only with control and that lease, checks each state whole, caps four pads, and unplugs them on revoke, lease expiry, the setting turning off and display change; the relay's sandbox cannot create an `InputInjector` | The device stays until restart |
+
 ### Residual risk and open items
 
 The current register, with severity and verification, is kept in the
@@ -1595,8 +1639,9 @@ VidVNC from outside, as [SECURITY.md](../SECURITY.md) states.
   diagnostics isolation, viewer grants, approved-device registration and revocation, SDP
   candidate filtering, and settings validation. HTTPS regressions drive an internet client
   against a real TLS listener.
-- Native unit tests (CTest) cover the input allow-lists, peer permission and the media port
-  range; `npm run test:hardware` exercises the real worker.
+- Native unit tests (CTest) cover the input allow-lists (gamepad states included), peer
+  permission and the media port range; `pad-probe` (run by hand) shows where Windows'
+  virtual gamepad can be created; `npm run test:hardware` exercises the real worker.
 - The [verification record](security/internet-exposure.md#verification-record) lists each
   review and run, including what was not tested.
 

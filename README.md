@@ -27,6 +27,7 @@ on a phone, tablet or another computer.
 | Capture            | DXGI desktop duplication, WASAPI desktop audio                               | ScreenCaptureKit, a Core Audio tap for desktop audio                               |
 | Hardware encoding  | H.264, H.265 and AV1 on NVIDIA, Intel and AMD graphics                       | H.264 and H.265 with VideoToolbox                                                  |
 | Keyboard and mouse | `SendInput`, when the host grants control                                    | `CGEventPost`, when the host grants control                                        |
+| Gamepads           | Virtual Xbox controllers (`InputInjector`), when the host turns them on      | Not supported                                                                      |
 | The VidVNC app     | WinUI 3; [how to use it](apps/windows-host/README.md#using-the-app)          | SwiftUI, in the menu bar; [how to use it](apps/macos-host/README.md#using-the-app) |
 | Packages           | MSIX app and ZIP, development-signed ([Windows packages](#windows-packages)) | DMG app and ZIP, Developer ID-signed and notarized ([Mac packages](#mac-packages)) |
 | Status             | Multi-session hardware acceptance in progress                                | Clean-Mac acceptance in progress                                                   |
@@ -253,6 +254,14 @@ existing sessions, take control from another device, or undo a manual revoke. Th
 locally. Access defaults are stored separately in `access-settings.json` in the
 per-user VidVNC data directory and also apply to the CLI server. Esc releases
 local control/exits fullscreen; Ctrl+C stops the server and all its workers.
+Access → Gamepads (off by default; Windows hosts only) lets the device in control use its
+gamepads: each one the browser reports in the standard layout becomes a virtual Xbox
+controller on the PC while that device holds control. The browser shows a gamepad to the
+page only after one of its buttons is pressed. Some games with anti-cheat software refuse or
+flag a virtual controller, so leave this off unless you need it. Turning it off stops gamepad
+input within about two seconds, but Windows keeps its virtual controller device until the
+server is restarted (stop and start sharing in the app). See
+[Input and control](docs/ARCHITECTURE.md#input-and-control).
 For live diagnostics on the server PC, use the host's Diagnostics action or the CLI
 `diagnostics open` command. It creates a short-lived link to a separate local-only
 listener; the normal connection address does not serve diagnostics.
@@ -273,7 +282,7 @@ server print above the prompt. Type `help` for the full list:
 - Profiles: `profiles`, `profile add|edit|duplicate|remove|enable|disable|move …`
 - Client customization: `client-mode profiles|options`, `options`,
   `options add|remove size WxH|framerate N|bitrate KBPS`
-- Access: `access [approval|available]`,
+- Access: `access [approval|available]`, `gamepads [on|off]`,
   `connection-mode [session-key|one-time-keys|approved-only]`, `max-devices [1-8]`
 - Sign-in codes and passwords: `code-alphabet`, `code-ttl`, `code-attempts`,
   `code-source-attempts`, `session-password-attempts`, `local-session-networks`

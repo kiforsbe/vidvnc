@@ -118,7 +118,11 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
   assert.equal((await post('control-request', { streamId: stream.streamId })).status, 401);
   const released = await post('control-release', {}, a.sessionId);
   assert.equal(released.status, 200);
-  assert.deepEqual(await released.json(), { controlStreamId: null, controlRequestable: false });
+  assert.deepEqual(await released.json(), {
+    controlStreamId: null,
+    controlRequestable: false,
+    gamepads: false,
+  });
   assert.equal(
     (await post('session-command', { action: 'grant', sessionId: a.sessionId }, a.sessionId))
       .status,

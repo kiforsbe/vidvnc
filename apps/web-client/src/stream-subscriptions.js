@@ -16,6 +16,8 @@ export class StreamSubscriptions {
     // Whether this device may take keyboard and mouse control itself right now (the host
     // allows it when available, and nobody else holds it).
     this.controlRequestable = false;
+    // Whether the host lets the device in control use its gamepads (the owner's setting).
+    this.gamepads = false;
     this.lastProfile = DECODE_CHECK_PROFILE;
     this.timer = setInterval(() => this.sample(), 2000);
   }
@@ -110,6 +112,7 @@ export class StreamSubscriptions {
     if (this.closed || row.closed) throw new Error('Connection cancelled.');
     this.controlStreamId = selection.controlStreamId;
     this.controlRequestable = selection.controlRequestable === true;
+    this.gamepads = selection.gamepads === true;
     this.selected = row;
     this.onSelect(row);
     this.onControl(false, this.allowed(row), this.requestable(row));
@@ -138,6 +141,7 @@ export class StreamSubscriptions {
     if (this.closed || this.selected !== row) return false;
     this.controlStreamId = state.controlStreamId;
     this.controlRequestable = state.controlRequestable === true;
+    this.gamepads = state.gamepads === true;
     return this.allowed(row);
   }
   // The user released control: hand back control this device took itself, so another device
@@ -149,6 +153,7 @@ export class StreamSubscriptions {
         if (this.closed || !state) return;
         this.controlStreamId = state.controlStreamId;
         this.controlRequestable = state.controlRequestable === true;
+        this.gamepads = state.gamepads === true;
         if (this.selected)
           this.onControl(false, this.allowed(this.selected), this.requestable(this.selected));
       })
@@ -157,6 +162,7 @@ export class StreamSubscriptions {
   update(state, knownIds) {
     this.controlStreamId = state.controlStreamId;
     this.controlRequestable = state.controlRequestable === true;
+    this.gamepads = state.gamepads === true;
     for (const row of [...this.rows.values()]) {
       if (row.id && knownIds.has(row.id) && !state.streams.some((s) => s.streamId === row.id)) {
         const selected = this.selected === row;

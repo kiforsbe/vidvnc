@@ -83,7 +83,9 @@ export class StreamRuntime {
         setPermission: (streamId, allowed) => {
           const source = registry.sourceOf(streamId);
           if (!source) return Promise.reject(new Error('Inactive control worker'));
-          return media.setPermission(source.id, streamId, allowed);
+          return media.setPermission(source.id, streamId, allowed, {
+            gamepads: this.#gamepads(),
+          });
         },
         removePeer: (streamId) => this.#endSubscription(streamId),
       },
@@ -156,6 +158,11 @@ export class StreamRuntime {
   #defaultControl() {
     return this.access?.snapshot().defaultControl ?? 'view-only';
   }
+  // The Access page's gamepad switch, off unless the owner turned it on. Read for every lease
+  // renewal, so turning it off reaches the worker within one renewal.
+  #gamepads() {
+    return this.access?.snapshot().gamepads === true;
+  }
   async revokeApprovedClient(clientId) {
     const affected = this.sessions.list().filter((row) => row.approvedClientId === clientId);
     for (const row of affected) this.automaticControl.delete(row.sessionId);
@@ -190,6 +197,8 @@ export class StreamRuntime {
         selected !== undefined &&
         this.automaticControl.has(sessionId) &&
         this.currentControl(sessionId, selected),
+      // The viewer reads its gamepads only while the owner allows them.
+      gamepads: this.#gamepads(),
     };
   }
   // The viewer's user asked for keyboard and mouse. Granted without the host when the session

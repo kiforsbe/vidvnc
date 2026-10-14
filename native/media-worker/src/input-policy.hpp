@@ -343,6 +343,86 @@ inline const std::map<std::string, unsigned short> &macos_key_codes() {
     });
     return keys;
 }
+// ---- Gamepads.
+//
+// A viewer's gamepad arrives as its whole state, in the browser's standard layout (the Gamepad
+// API's "standard" mapping): `buttons` is a bit per standard button index, sticks are -1..1
+// with down and right positive, and triggers are 0..1. The triggers (standard buttons 6 and 7)
+// travel only as `lt` and `rt`, and the home button (16) is not passed on, so their bits are
+// never allowed.
+constexpr int max_pads = 4;
+constexpr unsigned pad_button_mask = 0xFF3F;
+struct PadState {
+    int index = 0;
+    unsigned buttons = 0;
+    double left_x = 0, left_y = 0, right_x = 0, right_y = 0, left_trigger = 0, right_trigger = 0;
+};
+// The members of a `pad` message as numbers, NaN where one is missing or not a number.
+struct PadFields {
+    double index, buttons, left_x, left_y, right_x, right_y, left_trigger, right_trigger;
+};
+inline bool valid_pad_index(double index) {
+    return std::isfinite(index) && index == std::floor(index) && index >= 0 && index < max_pads;
+}
+inline std::optional<PadState> pad_state(const PadFields &fields) {
+    const auto stick = [](double v) { return std::isfinite(v) && v >= -1 && v <= 1; };
+    const auto trigger = [](double v) { return std::isfinite(v) && v >= 0 && v <= 1; };
+    const auto buttons = fields.buttons;
+    if (!valid_pad_index(fields.index) || !std::isfinite(buttons) ||
+        buttons != std::floor(buttons) || buttons < 0 || buttons > 0xFFFF ||
+        (static_cast<unsigned>(buttons) & ~pad_button_mask) || !stick(fields.left_x) ||
+        !stick(fields.left_y) || !stick(fields.right_x) || !stick(fields.right_y) ||
+        !trigger(fields.left_trigger) || !trigger(fields.right_trigger))
+        return std::nullopt;
+    return PadState{static_cast<int>(fields.index),
+                    static_cast<unsigned>(buttons),
+                    fields.left_x,
+                    fields.left_y,
+                    fields.right_x,
+                    fields.right_y,
+                    fields.left_trigger,
+                    fields.right_trigger};
+}
+// Standard button index to Windows.Gaming.Input's GamepadButtons flag (platform/windows/
+// input.cpp injects them through InputInjector).
+struct PadButtonEntry {
+    int index;
+    unsigned flag;
+};
+inline const std::vector<PadButtonEntry> &windows_pad_buttons() {
+    static const std::vector<PadButtonEntry> buttons = {
+        {0, 0x4},     // A
+        {1, 0x8},     // B
+        {2, 0x10},    // X
+        {3, 0x20},    // Y
+        {4, 0x400},   // LeftShoulder
+        {5, 0x800},   // RightShoulder
+        {8, 0x2},     // View (Back, Share)
+        {9, 0x1},     // Menu (Start, Options)
+        {10, 0x1000}, // LeftThumbstick
+        {11, 0x2000}, // RightThumbstick
+        {12, 0x40},   // DPadUp
+        {13, 0x80},   // DPadDown
+        {14, 0x100},  // DPadLeft
+        {15, 0x200},  // DPadRight
+    };
+    return buttons;
+}
+// A pad's state as Windows.Gaming.Input reads it: GamepadButtons flags, and sticks with up
+// positive where the browser has down positive.
+struct WindowsPadReading {
+    unsigned buttons;
+    double left_x, left_y, right_x, right_y, left_trigger, right_trigger;
+};
+inline WindowsPadReading windows_pad_reading(const PadState &pad) {
+    unsigned flags = 0;
+    for (const auto &entry : windows_pad_buttons())
+        if (pad.buttons & (1u << entry.index))
+            flags |= entry.flag;
+    return {flags,        pad.left_x,       -pad.left_y,      pad.right_x,
+            -pad.right_y, pad.left_trigger, pad.right_trigger};
+}
+
 // This platform's code for an allowed key, or nothing.
 inline std::optional<unsigned short> key_code(const std::string &code) {
 #ifdef __APPLE__

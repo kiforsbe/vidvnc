@@ -80,7 +80,8 @@ configure_worker_target(media-worker)
 target_compile_definitions(media-worker PRIVATE GST_USE_UNSTABLE_API)
 target_link_libraries(media-worker PRIVATE gstreamer_sdk gstapp-1.0 gstvideo-1.0 gstwebrtc-1.0 gstsdp-1.0)
 if(VIDVNC_PLATFORM STREQUAL "windows")
-  target_link_libraries(media-worker PRIVATE user32 dxgi ws2_32 advapi32 iphlpapi shell32)
+  # windowsapp: the WinRT runtime C++/WinRT calls into (InputInjector's virtual gamepad).
+  target_link_libraries(media-worker PRIVATE user32 dxgi ws2_32 advapi32 iphlpapi shell32 windowsapp)
 else()
   target_link_libraries(media-worker PRIVATE gstbase-1.0 "-framework AppKit"
     "-framework ApplicationServices" "-framework CoreAudio" "-framework CoreFoundation" "-framework CoreGraphics"
@@ -114,6 +115,11 @@ if(BUILD_TESTING)
     configure_worker_target(sandbox-probe)
     target_compile_definitions(sandbox-probe PRIVATE GST_USE_UNSTABLE_API)
     target_link_libraries(sandbox-probe PRIVATE gstreamer_sdk gstwebrtc-1.0 gstsdp-1.0 ws2_32 user32 advapi32)
+    # What sees InputInjector's virtual gamepad (XInput, Windows.Gaming.Input). Run by hand,
+    # not CTest: the answer depends on the process's package identity.
+    add_executable(pad-probe tests/pad-probe.cpp)
+    configure_worker_target(pad-probe)
+    target_link_libraries(pad-probe PRIVATE windowsapp xinput cfgmgr32)
   else()
     # Answer attestation on macOS: ports owned by this process, by another one and by nobody.
     add_executable(udp-ports-test tests/udp-ports.cpp)

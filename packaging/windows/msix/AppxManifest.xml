@@ -31,5 +31,8 @@
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
     <rescap:Capability Name="unvirtualizedResources" />
+    <!-- The media worker's virtual gamepads (InputInjector), used only while the owner's
+         Gamepads access setting is on. -->
+    <rescap:Capability Name="inputInjectionBrokered" />
   </Capabilities>
 </Package>

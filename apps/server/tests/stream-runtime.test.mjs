@@ -154,6 +154,7 @@ test('selecting a stream never takes control by itself, even when it is allowed'
   assert.deepEqual(await runtime.selectStream(a, first.streamId), {
     controlStreamId: null,
     controlRequestable: true,
+    gamepads: false,
   });
   assert.equal(runtime.control.owner, null);
 });
@@ -165,6 +166,7 @@ test('a viewer takes allowed control on request, never from another device or af
   assert.deepEqual(await take(runtime, a, first.streamId), {
     controlStreamId: first.streamId,
     controlRequestable: false,
+    gamepads: false,
   });
   await runtime.selectStream(b, second.streamId);
   assert.equal(runtime.controlState(b).controlRequestable, false);
@@ -318,8 +320,8 @@ test('downgrade during a native grant releases control before the grant resolves
   const setPermission = media.setPermission.bind(media);
   const events = [];
   media.setPermission = async (...args) => {
-    events.push(args.at(-1));
-    if (args.at(-1) === true) {
+    events.push(args[2]);
+    if (args[2] === true) {
       nativeGrantStarted();
       await gate;
     }

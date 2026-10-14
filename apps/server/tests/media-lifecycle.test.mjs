@@ -202,6 +202,32 @@ test('owner permission commands address one peer', async (t) => {
   await assert.rejects(media.setPermission('absent', 'p1', true), /inactive/i);
 });
 
+test('every lease tells the worker whether gamepads are allowed', async (t) => {
+  const media = new NativeMedia({ launch, hostControl: true });
+  t.after(() => media.shutdown());
+  await media.start('v', { video: true, profile: profile(15) });
+  await media.addPeer('v', 'p1', 'x');
+  const stdin = media.workers.get('v').child.stdin;
+  const sent = [];
+  const write = stdin.write.bind(stdin);
+  stdin.write = (text, ...rest) => {
+    sent.push(JSON.parse(text));
+    return write(text, ...rest);
+  };
+  await media.setPermission('v', 'p1', true);
+  await media.setPermission('v', 'p1', true, { gamepads: true });
+  // A revoke never carries gamepads, whatever the setting.
+  await media.setPermission('v', 'p1', false, { gamepads: true });
+  assert.deepEqual(
+    sent.map((message) => [message.type, message.allowed, message.gamepads]),
+    [
+      ['control-permission', true, false],
+      ['control-permission', true, true],
+      ['control-permission', false, false],
+    ],
+  );
+});
+
 test('keyframes are limited per source', async (t) => {
   const media = new NativeMedia({ maxWorkers: 2, launch });
   t.after(() => media.shutdown());

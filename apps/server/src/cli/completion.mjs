@@ -54,6 +54,7 @@ const ARGUMENTS = {
   codecs: [() => ['set'], () => VIDEO_CODECS],
   'encoder-backend': [() => [...ENCODER_BACKEND_CHOICES]],
   access: [() => ['approval', 'available']],
+  gamepads: [() => ON_OFF],
   'remote-access': [() => ON_OFF],
   'public-hosts': [() => ['clear']],
   'media-port': [() => ['auto', '4384']],

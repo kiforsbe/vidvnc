@@ -5,6 +5,7 @@ import {
   codecRows,
   displayLabel,
   formatAccess,
+  formatGamepads,
   formatCodecs,
   formatConnectionMode,
   formatDisplays,
@@ -461,6 +462,20 @@ export const settingsCommands = [
         ? await context.saveAccess({ defaultControl: positionals[0] })
         : context.access();
       return { text: formatAccess(access), data: access };
+    },
+  },
+  {
+    name: 'gamepads',
+    usage: 'gamepads [on|off]',
+    summary: 'Show or set whether the device in control may use its gamepads (Windows hosts).',
+    where: 'both',
+    json: true,
+    run: async (context, { positionals }) => {
+      expectArguments(positionals, 0, 1);
+      const access = positionals.length
+        ? await context.saveAccess({ gamepads: onOff(positionals[0]) })
+        : context.access();
+      return { text: formatGamepads(access), data: access };
     },
   },
   {

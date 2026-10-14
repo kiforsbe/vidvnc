@@ -9,6 +9,9 @@ export const MAX_PUBLIC_HOSTNAMES = 8;
 const DEFAULTS = Object.freeze({
   revision: 0,
   defaultControl: 'approval',
+  // Whether a viewer in control may use its gamepads, as virtual Xbox controllers on this PC.
+  // Off by default: some anti-cheat software reacts to a virtual controller.
+  gamepads: false,
   connectionMode: 'session-key',
   maxSessions: 4,
   shortCodeTtlSeconds: 300,
@@ -134,6 +137,7 @@ function validate(value) {
     next.revision < 0 ||
     next.revision >= Number.MAX_SAFE_INTEGER ||
     !['approval', 'available'].includes(next.defaultControl) ||
+    typeof next.gamepads !== 'boolean' ||
     !['session-key', 'one-time-keys', 'approved-only'].includes(next.connectionMode) ||
     !Number.isSafeInteger(next.maxSessions) ||
     next.maxSessions < 1 ||

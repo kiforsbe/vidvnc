@@ -194,6 +194,7 @@ test('access shows and saves the default for new connections', async (t) => {
   assert.deepEqual(saved.data, {
     revision: 1,
     defaultControl: 'available',
+    gamepads: false,
     connectionMode: 'session-key',
     maxSessions: 4,
     shortCodeTtlSeconds: 300,
@@ -209,6 +210,16 @@ test('access shows and saves the default for new connections', async (t) => {
     mediaPort: null,
   });
   await assert.rejects(run('access always'), usage(/^Use approval or available\./));
+});
+
+test('gamepads shows and saves whether the device in control may use gamepads', async (t) => {
+  const { run } = await offline(t);
+  assert.equal((await run('gamepads')).text, 'Gamepads: off');
+  const saved = await run('gamepads on --json');
+  assert.equal(saved.data.gamepads, true);
+  assert.match(saved.text, /^Gamepads: on\n.*anti-cheat/s);
+  assert.equal((await run('gamepads off')).text, 'Gamepads: off');
+  await assert.rejects(run('gamepads maybe'));
 });
 
 test('max-devices shows and saves the connected-device limit', async (t) => {

@@ -14,6 +14,7 @@ export const OWNER_STOP_LINE = '{"type":"stop"}';
 // The fields `access-set` may change; anything else in the command is ignored.
 const ACCESS_FIELDS = [
   'defaultControl',
+  'gamepads',
   'connectionMode',
   'maxSessions',
   'publicName',

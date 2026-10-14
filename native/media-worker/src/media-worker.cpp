@@ -152,6 +152,10 @@ static PeerPermission peer_permission;
 static KeyframeLimiter keyframe_limiter;
 static std::set<unsigned short> held_keys;
 static std::set<int> held_buttons;
+static std::set<int> plugged_pads;
+// Whether the owner allows gamepads (access setting `gamepads`), from the latest
+// control-permission. Off by default: a virtual gamepad can upset anti-cheat software.
+static bool gamepads_allowed = false;
 
 // One viewer, as the input broker sees it. Its WebRTC connection - webrtcbin, payloaders,
 // the data channel - lives in the sandboxed media-net process (media-net.cpp); this side keeps
@@ -255,6 +259,21 @@ static void button_input(int button, bool down) {
             held_buttons.erase(button);
     }
 }
+static void pad_input(const PadState &pad) {
+    if (platform::post_pad(pad))
+        plugged_pads.insert(pad.index);
+}
+static void unplug_pad(int index) {
+    platform::unplug_pad(index);
+    plugged_pads.erase(index);
+}
+static void unplug_pads() {
+    auto pads = plugged_pads;
+    for (auto pad : pads)
+        unplug_pad(pad);
+}
+// Releasing also unplugs every virtual gamepad: a game sees its controller disconnect rather
+// than a stick left pushed.
 static void release_held() {
     auto keys = held_keys;
     auto buttons = held_buttons;
@@ -262,6 +281,7 @@ static void release_held() {
         key_input(key, false);
     for (auto button : buttons)
         button_input(button, false);
+    unplug_pads();
 }
 static void fatal(const char *message);
 
@@ -429,6 +449,18 @@ static gboolean input_message(gpointer data) {
                 double delta = number_member(object, "delta");
                 if (std::isfinite(delta) && std::abs(delta) <= 1200)
                     platform::post_wheel(delta);
+            } else if (type == "pad" && gamepads_allowed) {
+                const auto pad =
+                    pad_state({number_member(object, "index"), number_member(object, "buttons"),
+                               number_member(object, "lx"), number_member(object, "ly"),
+                               number_member(object, "rx"), number_member(object, "ry"),
+                               number_member(object, "lt"), number_member(object, "rt")});
+                if (pad)
+                    pad_input(*pad);
+            } else if (type == "pad-remove") {
+                double index = number_member(object, "index");
+                if (valid_pad_index(index))
+                    unplug_pad(static_cast<int>(index));
             }
         }
     }
@@ -1079,10 +1111,15 @@ static gboolean command(gpointer data) {
             auto allowed = json_object_get_member(object, "allowed");
             auto request = number_member(object, "requestId");
             auto duration = number_member(object, "leaseMs");
+            // The owner's gamepad switch rides on every lease; absent means off.
+            auto gamepads = json_object_get_member(object, "gamepads");
             if (!valid_peer || !allowed || !JSON_NODE_HOLDS_VALUE(allowed) ||
-                json_node_get_value_type(allowed) != G_TYPE_BOOLEAN || !std::isfinite(request) ||
-                request < 1 || request > 9007199254740991.0 || request != std::floor(request) ||
-                !std::isfinite(duration) || duration < 1 || duration > 5000) {
+                json_node_get_value_type(allowed) != G_TYPE_BOOLEAN ||
+                (gamepads && (!JSON_NODE_HOLDS_VALUE(gamepads) ||
+                              json_node_get_value_type(gamepads) != G_TYPE_BOOLEAN)) ||
+                !std::isfinite(request) || request < 1 || request > 9007199254740991.0 ||
+                request != std::floor(request) || !std::isfinite(duration) || duration < 1 ||
+                duration > 5000) {
                 release_held();
                 fatal("Invalid control permission");
             } else {
@@ -1090,7 +1127,11 @@ static gboolean command(gpointer data) {
                 const auto found = peers.find(peer_id);
                 const bool known =
                     video_enabled && found != peers.end() && !found->second->removing;
-                if (json_node_get_boolean(allowed))
+                const bool allow = json_node_get_boolean(allowed);
+                gamepads_allowed = allow && gamepads && json_node_get_boolean(gamepads);
+                if (!gamepads_allowed)
+                    unplug_pads();
+                if (allow)
                     peer_permission.grant(peer_id, known, now, static_cast<gint64>(duration));
                 else {
                     peer_permission.revoke(peer_id);

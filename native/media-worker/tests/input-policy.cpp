@@ -100,4 +100,52 @@ int main() {
     assert(!valid_point(0, INFINITY));
     assert(valid_button(0) && valid_button(2));
     assert(!valid_button(3));
+
+    // Gamepads: whole states within range only.
+    const PadFields rest{0, 0, 0, 0, 0, 0, 0, 0};
+    assert(pad_state(rest));
+    const PadFields edges{3, 0xFF3F, -1, 1, 1, -1, 1, 1};
+    const auto pad = pad_state(edges);
+    assert(pad && pad->index == 3 && pad->buttons == 0xFF3F && pad->left_y == 1);
+    const auto rejected = [&](auto change) {
+        auto fields = rest;
+        change(fields);
+        return !pad_state(fields);
+    };
+    assert(rejected([](PadFields &f) { f.index = 4; }));
+    assert(rejected([](PadFields &f) { f.index = -1; }));
+    assert(rejected([](PadFields &f) { f.index = 0.5; }));
+    assert(rejected([](PadFields &f) { f.index = NAN; }));
+    assert(rejected([](PadFields &f) { f.buttons = 1 << 6; }));  // left trigger travels as lt
+    assert(rejected([](PadFields &f) { f.buttons = 1 << 7; }));  // right trigger as rt
+    assert(rejected([](PadFields &f) { f.buttons = 1 << 16; })); // home is not passed on
+    assert(rejected([](PadFields &f) { f.buttons = -1; }));
+    assert(rejected([](PadFields &f) { f.buttons = 1.5; }));
+    assert(rejected([](PadFields &f) { f.left_x = 1.01; }));
+    assert(rejected([](PadFields &f) { f.right_y = -1.01; }));
+    assert(rejected([](PadFields &f) { f.left_y = INFINITY; }));
+    assert(rejected([](PadFields &f) { f.right_x = NAN; }));
+    assert(rejected([](PadFields &f) { f.left_trigger = -0.01; }));
+    assert(rejected([](PadFields &f) { f.right_trigger = 1.01; }));
+    // Every allowed button maps to exactly one distinct GamepadButtons flag.
+    std::set<int> indices;
+    std::set<unsigned> flags;
+    for (const auto &entry : windows_pad_buttons()) {
+        assert(pad_button_mask & (1u << entry.index));
+        assert(indices.insert(entry.index).second);
+        assert(flags.insert(entry.flag).second);
+    }
+    unsigned mapped = 0;
+    for (auto index : indices)
+        mapped |= 1u << index;
+    assert(mapped == pad_button_mask);
+    PadState state;
+    state.buttons = (1u << 0) | (1u << 9) | (1u << 12);
+    state.left_y = 0.5; // stick pushed down in the browser...
+    state.right_y = -1; // ...and up
+    state.left_trigger = 0.25;
+    const auto reading = windows_pad_reading(state);
+    assert(reading.buttons == (0x4u | 0x1u | 0x40u));       // A, Menu, DPadUp
+    assert(reading.left_y == -0.5 && reading.right_y == 1); // Windows has up positive
+    assert(reading.left_trigger == 0.25 && reading.right_trigger == 0);
 }

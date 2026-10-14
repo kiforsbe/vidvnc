@@ -92,6 +92,7 @@
       "access": {
         "revision": 0,
         "defaultControl": "approval",
+        "gamepads": false,
         "connectionMode": "session-key",
         "maxSessions": 4,
         "shortCodeTtlSeconds": 300,
@@ -237,6 +238,7 @@
       "access": {
         "revision": 0,
         "defaultControl": "approval",
+        "gamepads": false,
         "connectionMode": "session-key",
         "maxSessions": 4,
         "shortCodeTtlSeconds": 300,

@@ -90,6 +90,16 @@ export function formatDisplays(displays, policy) {
 
 export const formatAccess = (access) =>
   `Keyboard and mouse for new connections: ${accessLabel(access.defaultControl)}`;
+export const formatGamepads = (access) =>
+  access.gamepads
+    ? [
+        'Gamepads: on',
+        'The device in control can use its gamepads as Xbox controllers on this PC. Some games with',
+        'anti-cheat software may refuse or flag a virtual controller; turn this off if one does.',
+        'Turning it off stops gamepad input at once, but Windows keeps the virtual controller',
+        'until the VidVNC server is restarted.',
+      ].join('\n')
+    : 'Gamepads: off';
 export const formatConnectionMode = (access) =>
   `Ordinary connections: ${connectionModeLabel(access.connectionMode)}`;
 export const formatMaxSessions = (access) =>

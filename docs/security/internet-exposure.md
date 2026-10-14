@@ -455,6 +455,23 @@ the public host avoids the rest.
 
 ## Verification record
 
+- **2026-10-14, `feature/gamepad-input`, gamepad input (Windows 11, owner's PC), Release
+  build:**
+  - CTest 13/13, including the gamepad checks in `input-policy`: out-of-range indexes,
+    axes and triggers, NaN, trigger and home bits are refused; every allowed button maps to
+    one `GamepadButtons` flag.
+  - Server tests: `gamepads` is off by default and only a boolean is stored; every lease
+    carries it, and a revoke never does.
+  - `pad-probe` under the relay's sandbox launcher (`media-worker --sandbox`, the
+    restricted token media-net also uses): `InputInjector::TryCreate` fails, so a
+    sandboxed process cannot create a virtual gamepad. Not tested inside media-net's own
+    launch path (its job and desktop).
+  - Unsandboxed, with and without package identity (a test package with
+    `inputInjectionBrokered`): the virtual gamepad is created without error and Windows
+    installs its "Xbox Virtual Game Controller" device, which stays present while the
+    process runs, after unplugging; neither XInput nor Windows.Gaming.Input in a console
+    process reported a pad. Not tested: real games, the packaged VidVNC end to end.
+
 - **2026-10-11, `claude/macos-phase-4`, media-net and relay sandbox on macOS, owner's Mac
   (macOS 27, Apple Silicon), development build:**
   - Xcode build clean; CTest 16/16, including the socket audit (loopback IPv4 and IPv6, a

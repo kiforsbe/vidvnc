@@ -365,7 +365,9 @@ export class NativeMedia {
   shutdown() {
     return Promise.all([...this.workers.keys()].map((id) => this.stop(id)));
   }
-  setPermission(sourceId, peerId, allowed) {
+  // `gamepads`: the owner's access setting, sent with every lease so the worker accepts
+  // gamepad input only while it is on.
+  setPermission(sourceId, peerId, allowed, { gamepads = false } = {}) {
     const active = this.workers.get(sourceId);
     if (!this.hostControl || !active || active.stopping || !active.child.stdin.writable)
       return Promise.reject(new Error('Inactive control worker'));
@@ -392,6 +394,7 @@ export class NativeMedia {
           peerId,
           requestId,
           allowed: allowed === true,
+          gamepads: allowed === true && gamepads === true,
           leaseMs: 5000,
         }) + '\n',
         (error) => {

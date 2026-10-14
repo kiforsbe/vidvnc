@@ -38,6 +38,7 @@ test('the connected-device limit is saved alone and bounded to what the host can
   assert.deepEqual(saved, {
     revision: 2,
     defaultControl: 'available',
+    gamepads: false,
     connectionMode: 'session-key',
     maxSessions: 8,
     shortCodeTtlSeconds: 300,
@@ -67,6 +68,7 @@ test('old access settings default to session-key admission and four devices', as
   assert.deepEqual((await AccessSettings.open(file)).snapshot(), {
     revision: 3,
     defaultControl: 'approval',
+    gamepads: false,
     connectionMode: 'session-key',
     maxSessions: 4,
     shortCodeTtlSeconds: 300,
@@ -217,4 +219,16 @@ test('a media port range from earlier versions becomes its first port', async (t
   await assert.rejects(store.replace({ mediaPorts: { min: 1, max: 2 } }, 4), /invalid/i);
   await writeFile(file, '{"revision":1,"mediaPorts":{"min":1,"max":2}}');
   await assert.rejects(AccessSettings.open(file), /invalid/i);
+});
+
+test('gamepads are off by default and only a boolean turns them on', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'vidvnc-access-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'access.json');
+  const store = await AccessSettings.open(file);
+  assert.equal(store.snapshot().gamepads, false);
+  for (const value of ['on', 1, null])
+    await assert.rejects(store.replace({ gamepads: value }, 0), /invalid/i);
+  await store.replace({ gamepads: true }, 0);
+  assert.equal((await AccessSettings.open(file)).snapshot().gamepads, true);
 });

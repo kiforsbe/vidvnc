@@ -5,7 +5,7 @@
 // (media-worker.cpp) and media-net (media-net.cpp) are platform-neutral and call only this.
 //
 // Windows: platform/windows/ (DXGI and D3D11 capture, the hardware encoder families,
-// SendInput, the tier T1 sandbox in sandbox.hpp, GetExtendedUdpTable).
+// SendInput and InputInjector, the tier T1 sandbox in sandbox.hpp, GetExtendedUdpTable).
 // macOS: platform/macos/ (docs/superpowers/specs/2026-10-09-macos-support-design.md):
 // ScreenCaptureKit and VideoToolbox through the worker's own elements (elements.hpp),
 // CGEventPost, and the sandbox profile the launcher applies before `exec`.
@@ -17,6 +17,7 @@
 #include "../display-inventory.hpp"
 #include "../encoder-backend.hpp"
 #include "../encoder-selection.hpp"
+#include "../input-policy.hpp"
 #include "../net-pipes.hpp"
 #include "../stream-profile.hpp"
 #include "../video-codec.hpp"
@@ -97,6 +98,11 @@ bool post_button(int button, bool down);
 // A normalised point (0..1) on the capture display, or the primary display without one.
 bool post_move(double x, double y, const std::optional<CaptureDisplay> &display);
 bool post_wheel(double delta);
+// A virtual gamepad per viewer pad index: the first post plugs it in, each post sets its whole
+// state, and unplug_pad removes it again. False when this system cannot host one (macOS, or
+// Windows without the inputInjectionBrokered capability).
+bool post_pad(const PadState &pad);
+void unplug_pad(int index);
 
 // ---- media-net.
 

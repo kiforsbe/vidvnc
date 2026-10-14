@@ -3,6 +3,7 @@ import { StreamSubscriptions } from './stream-subscriptions.js';
 import { applyCodecPreferences, videoCodecPreferences } from './codec-preferences.js';
 import { bitrateText, profileTooltip, sizeText } from './profile-labels.js';
 import { needsImmersive, videoPoint } from './stage-geometry.js';
+import { POLL_INTERVAL_MS, PadSender } from './gamepad.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -72,6 +73,30 @@ export function createViewer({ onExit }) {
       enabled ? 'Release keyboard & mouse (Esc)' : 'Enable keyboard & mouse',
       'control',
     );
+    renderPads();
+  }
+  // Gamepads: while this device holds control and the host's owner allows them, each pad's state
+  // goes to the host (gamepad.js), which plugs in a virtual controller for it. Browsers show a
+  // pad to the page only after one of its buttons is pressed while the page is in front.
+  const pads = new PadSender(send);
+  let padFrame = 0;
+  let lastPadPoll = 0;
+  const padsActive = () =>
+    enabled && subscriptions?.gamepads === true && typeof navigator.getGamepads === 'function';
+  function pollPads(time) {
+    padFrame = 0;
+    if (!padsActive()) {
+      pads.reset();
+      return;
+    }
+    if (time - lastPadPoll >= POLL_INTERVAL_MS) {
+      lastPadPoll = time;
+      pads.poll(navigator.getGamepads());
+    }
+    padFrame = requestAnimationFrame(pollPads);
+  }
+  function renderPads() {
+    if (padsActive() && !padFrame) padFrame = requestAnimationFrame(pollPads);
   }
   function renderPictureInPicture() {
     const video = $('video');
@@ -177,6 +202,8 @@ export function createViewer({ onExit }) {
   }
   function release() {
     send({ type: 'release' });
+    // The host unplugs this device's virtual controllers when control ends.
+    pads.reset();
     // Control this device took itself goes back, so another device can ask for it.
     if (enabled) subscriptions?.releaseControl();
     enabled = false;
@@ -944,6 +971,14 @@ export function createViewer({ onExit }) {
     { signal: events.signal },
   );
   window.addEventListener('blur', release, { signal: events.signal });
+  window.addEventListener(
+    'gamepadconnected',
+    () => {
+      if (padsActive()) status('Gamepad connected · it controls this PC as an Xbox controller');
+      renderPads();
+    },
+    { signal: events.signal },
+  );
   document.addEventListener(
     'visibilitychange',
     () => {

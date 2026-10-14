@@ -170,4 +170,9 @@ bool post_wheel(double delta) {
         CGEventCreateScrollWheelEvent2(state().source, kCGScrollEventUnitPixel, 1, pixels, 0, 0));
 }
 
+// A system-wide virtual gamepad needs Apple's restricted virtual HID entitlement, which
+// VidVNC does not have, so viewers' gamepads are not passed on here.
+bool post_pad(const PadState &) { return false; }
+void unplug_pad(int) {}
+
 } // namespace platform

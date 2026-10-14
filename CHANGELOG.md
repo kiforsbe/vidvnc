@@ -5,6 +5,22 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- Gamepads on Windows hosts: with Access → Gamepads (or `gamepads on` in the command line)
+  turned on, the device in control can use its gamepads as Xbox controllers on the PC. Off by
+  default ([how it works](README.md#build-and-run-windows)).
+
+### Known limitations
+
+- Turning Gamepads off stops gamepad input at once, but Windows keeps its virtual controller
+  device until the server is restarted.
+- Gamepads have not yet been checked against real games: whether XInput-only games see the
+  virtual controller is still to be tested. Some anti-cheat software may refuse or flag it.
+- Mac hosts do not support gamepads.
+
 ## [0.11.1] - 2026-10-13
 
 ### Added

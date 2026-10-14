@@ -7,6 +7,8 @@ namespace VidVnc.Host;
 public sealed partial class HostWindow
 {
     string defaultControl = "approval";
+    // Gamepads for the device in control (server access-settings.mjs). Off unless the server says on.
+    bool gamepads;
     string connectionMode = "session-key";
     string publicName = "VidVNC host";
     string? publicNameDraft;
@@ -28,6 +30,7 @@ public sealed partial class HostWindow
     void UpdateAccess(JsonElement value)
     {
         defaultControl = value.GetProperty("defaultControl").GetString()!;
+        gamepads = value.TryGetProperty("gamepads", out var pads) && pads.ValueKind == JsonValueKind.True;
         connectionMode = value.TryGetProperty("connectionMode", out var mode) ? mode.GetString() ?? "session-key" : "session-key";
         publicName = value.TryGetProperty("publicName", out var name) ? name.GetString() ?? "VidVNC host" : "VidVNC host";
         oneTimeConnectionKey = null; oneTimeConnectionExpiresAt = null;
@@ -98,6 +101,34 @@ public sealed partial class HostWindow
         content.Children.Add(DisplaySeparator());
         content.Children.Add(Secondary("One device can control at a time. Manage access in Sessions."));
         page.Children.Add(Card(content));
+
+        var padsContent = new StackPanel { Spacing = HostSpacing.Card };
+        var padsRow = new Grid { ColumnSpacing = HostSpacing.Card };
+        padsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        padsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        padsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        padsRow.Children.Add(new FontIcon { Glyph = "", FontSize = 24, VerticalAlignment = VerticalAlignment.Center });
+        var padsLabels = new StackPanel { Spacing = HostSpacing.Small, VerticalAlignment = VerticalAlignment.Center };
+        padsLabels.Children.Add(Label("Gamepads", 16));
+        padsLabels.Children.Add(Secondary("Let the device in control use its gamepads as Xbox controllers on this PC"));
+        Grid.SetColumn(padsLabels, 1); padsRow.Children.Add(padsLabels);
+        var padsSwitch = new ToggleSwitch { Tag = "gamepads", IsOn = gamepads, OnContent = "On", OffContent = "Off", MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = accessReady && server is not null && !accessSaving };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(padsSwitch, "Gamepads");
+        padsSwitch.Toggled += async (_, _) =>
+        {
+            if (padsSwitch.IsOn != gamepads && !accessSaving)
+                await SendAccessChanges(new Dictionary<string, object?> { ["gamepads"] = padsSwitch.IsOn });
+        };
+        Grid.SetColumn(padsSwitch, 2); padsRow.Children.Add(padsSwitch);
+        padsContent.Children.Add(padsRow);
+        padsContent.Children.Add(DisplaySeparator());
+        padsContent.Children.Add(Secondary("Off by default. Some games with anti-cheat software refuse or flag a virtual controller."));
+        padsContent.Children.Add(Secondary(gamepads
+            ? "Turning this off stops gamepad input at once, but Windows keeps the virtual controller until you stop sharing and start it again."
+            : "Windows adds a virtual Xbox controller the first time the device in control uses a gamepad."));
+        page.Children.Add(Card(padsContent));
 
         var devicesRow = new Grid { ColumnSpacing = HostSpacing.Card };
         devicesRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

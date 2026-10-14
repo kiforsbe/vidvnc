@@ -21,6 +21,7 @@ const script = [
   'options add framerate 60',
   'options add bitrate 8000',
   'access available',
+  'gamepads on',
   'connection-mode one-time-keys',
   'max-devices 3',
   'code-ttl 60',
