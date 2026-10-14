@@ -46,8 +46,9 @@ export function createViewer({ onExit }) {
   // Immersive mode: the stage fills the screen in either orientation while staying in the
   // page, so touches still reach the desktop. iPhone Safari's only full
   // screen is its native video player, which takes input away.
-  let immersive = false,
-    immersiveFollowsControl = false;
+  // Only Full screen enters or leaves it: with keyboard & mouse on, Full screen on such a phone
+  // is immersive mode; with them off, the native player. Releasing control keeps it.
+  let immersive = false;
   function setImmersive(on) {
     immersive = on;
     $('stage').classList.toggle('immersive', on);
@@ -60,11 +61,6 @@ export function createViewer({ onExit }) {
     }
   }
   function renderControl() {
-    // Enabling keyboard & mouse on such a phone enters immersive mode; releasing leaves it.
-    if (enabled !== immersiveFollowsControl) {
-      immersiveFollowsControl = enabled;
-      if (needsImmersive() && immersive !== enabled) setImmersive(enabled);
-    }
     $('control').disabled =
       !(controlAllowed || controlRequestable) || document.pictureInPictureElement === $('video');
     $('control').setAttribute('aria-pressed', String(enabled));

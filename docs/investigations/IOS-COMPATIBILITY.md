@@ -16,9 +16,12 @@
   receiver's decoded frame size, because Safari can report `videoWidth` as 0 for a WebRTC
   track and skip its `resize` event.
 - **Full screen:** iPhone Safari has no element full screen, only its native video player,
-  which takes input away. With keyboard and mouse on, the viewer's immersive mode fills the
-  screen inside the page instead
-  ([stage-geometry.js](../../apps/web-client/src/viewer/stage-geometry.js) maps touches). A
+  which takes input away. With keyboard and mouse on, the viewer's **Full screen** button
+  uses immersive mode instead, which fills the screen inside the page; with them off, it opens
+  the native player. Turning keyboard and mouse on or off doesn't change the layout, and
+  immersive mode lasts until **Full screen** is tapped again
+  ([app.js](../../apps/web-client/src/viewer/app.js);
+  [stage-geometry.js](../../apps/web-client/src/viewer/stage-geometry.js) maps touches). A
   page can't hide Safari's bars; added to the Home Screen, VidVNC opens without them. iOS
   keeps the Home Screen app's storage, including the approved device key, separate from
   Safari's. Validated by hand on the owner's iPhone: it works, with rough edges left.

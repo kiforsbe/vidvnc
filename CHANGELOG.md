@@ -21,6 +21,10 @@ may include breaking changes.
 - VidVNC no longer fails to start when its access settings contain a setting it doesn't know,
   for example one saved by a newer version; it logs a warning in `server.log` and ignores it
   ([At rest](docs/ARCHITECTURE.md#data-protection-asvs-v8-v9)).
+- On an iPhone, turning on keyboard & mouse no longer jumps into full screen. **Full screen**
+  with keyboard & mouse on fills the screen and keeps touch input; with them off it opens
+  Safari's video player
+  ([iOS notes](docs/investigations/IOS-COMPATIBILITY.md)).
 
 ## [0.11.1] - 2026-10-13
 
