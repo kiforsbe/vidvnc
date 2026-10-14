@@ -168,6 +168,68 @@ code {
     font-size: 24px;
   }
 }
+/* Latency measurement (latency-report.js). */
+.latency-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.latency button {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: #1a2d45;
+  border: 1px solid #36557a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.latency button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.latency table {
+  width: 100%;
+  max-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.latency th,
+.latency td {
+  padding: 5px 10px 5px 0;
+  text-align: right;
+  border-bottom: 1px solid #25384e;
+}
+.latency th:first-child,
+.latency td:first-child {
+  text-align: left;
+}
+.latency h3 {
+  margin: 14px 0 4px;
+  font-size: 13px;
+  color: #99afc9;
+}
+.latency ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+.latency li {
+  padding: 3px 0;
+}
+.latency li button {
+  margin-left: 10px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+#latencyDetails dd {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
 /* Compact section spacing; summary cards and graph dimensions stay unchanged. */
 .charts {
   margin-top: 10px;

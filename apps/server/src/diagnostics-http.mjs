@@ -9,6 +9,7 @@ const ASSETS = new Set([
   '/diagnostics.css',
   '/codec-preferences.js',
   '/profile-labels.js',
+  '/latency-report.js',
 ]);
 
 function send(response, status, body) {

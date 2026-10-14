@@ -22,6 +22,33 @@
         <p id="encoder">Encoder: waiting for a worker…</p>
         <p id="source-display">Source display: waiting for a session…</p>
       </header>
+      <section id="latency" class="details latency" aria-labelledby="latencyHeading" hidden>
+        <h2 id="latencyHeading">Latency</h2>
+        <p>
+          Show <code>tools/debug/latency-probe.html</code> full screen on the shared display and
+          give the viewer keyboard and mouse control, then measure. The viewer shows a banner while
+          it runs.
+        </p>
+        <div class="latency-actions">
+          <button id="measureLatency" type="button">Measure latency</button
+          ><span id="latencyState" role="status">No measurement yet.</span>
+        </div>
+        <table id="latencyTable" hidden>
+          <thead>
+            <tr>
+              <th scope="col">Milliseconds</th>
+              <th scope="col">Median</th>
+              <th scope="col">p95</th>
+              <th scope="col">Range</th>
+              <th scope="col">Count</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <dl id="latencyDetails"></dl>
+        <h3 id="latencyHistoryHeading" hidden>Last runs</h3>
+        <ol id="latencyHistory" aria-labelledby="latencyHistoryHeading"></ol>
+      </section>
       <section class="metrics">
         <article>
           <label>Capture → encode → decode</label><strong id="rates">— → — → —</strong

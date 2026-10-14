@@ -24,6 +24,7 @@ test('private diagnostics listener is loopback-only and bearer-gates live data',
     '/diagnostics.css',
     '/codec-preferences.js',
     '/profile-labels.js',
+    '/latency-report.js',
   ])
     assert.equal((await fetch(base + asset)).status, 200, asset);
   assert.equal((await fetch(base + '/')).status, 404);

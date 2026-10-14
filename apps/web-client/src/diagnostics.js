@@ -1,6 +1,7 @@
 import { CODEC_LABELS } from './codec-preferences.js';
 import { profileTooltip, targetBitrateText } from './profile-labels.js';
 import { fetchDiagnostics, takeDiagnosticsCapability } from './diagnostics-auth.js';
+import { describeState, detailRows, resultRows } from './latency-report.js';
 let capability = takeDiagnosticsCapability(location, history);
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 1) =>
@@ -9,6 +10,7 @@ const ns = 'http://www.w3.org/2000/svg';
 let selectedStream = new URL(location.href).searchParams.get('stream');
 $('diagnosticStream').addEventListener('change', (event) => {
   selectedStream = event.target.value;
+  latencyNotice = null;
   const url = new URL(location.href);
   url.searchParams.set('stream', selectedStream);
   history.replaceState(null, '', url);
@@ -66,6 +68,83 @@ function chart(id, history, now, series, minimum, unit) {
     );
   }
 }
+// Latency measurement: a sentence from the last click that the snapshot can't show (a busy
+// server, for example), kept until the next click or stream change.
+let latencyNotice = null;
+let latencyActive = false;
+function cells(tag, values) {
+  const row = document.createElement('tr');
+  for (const value of values) {
+    const cell = document.createElement(tag);
+    cell.textContent = value;
+    row.append(cell);
+  }
+  return row;
+}
+function renderLatency(probe) {
+  const active = probe?.active ?? null;
+  const history = probe?.history ?? [];
+  latencyActive = active !== null;
+  $('measureLatency').disabled = latencyActive || !selectedStream;
+  $('latencyState').textContent = latencyNotice ?? describeState(active ?? history[0] ?? null);
+  const signature = JSON.stringify(history);
+  if ($('latency').dataset.history === signature) return;
+  $('latency').dataset.history = signature;
+  const newest = history.find((run) => run.state === 'done');
+  $('latencyTable').hidden = !newest;
+  $('latencyTable').tBodies[0].replaceChildren(
+    ...(newest ? resultRows(newest.results).map((row) => cells('td', row)) : []),
+  );
+  $('latencyDetails').replaceChildren(
+    ...(newest
+      ? detailRows(newest.results).map(([label, value]) => {
+          const item = document.createElement('div');
+          const term = document.createElement('dt');
+          const detail = document.createElement('dd');
+          term.textContent = label;
+          detail.textContent = value;
+          item.append(term, detail);
+          return item;
+        })
+      : []),
+  );
+  $('latencyHistoryHeading').hidden = !history.length;
+  $('latencyHistory').replaceChildren(
+    ...history.map((run) => {
+      const item = document.createElement('li');
+      const when = new Date(run.endedAt ?? run.requestedAt).toLocaleTimeString();
+      item.textContent = `${when} · ${describeState(run)}`;
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.textContent = 'Copy as JSON';
+      copy.onclick = () =>
+        navigator.clipboard?.writeText(JSON.stringify(run, null, 2)).catch(() => {});
+      item.append(copy);
+      return item;
+    }),
+  );
+}
+$('measureLatency').addEventListener('click', async () => {
+  if (!capability || !selectedStream || latencyActive) return;
+  $('measureLatency').disabled = true;
+  latencyNotice = null;
+  try {
+    const response = await fetch('/api/diagnostics/latency-probe', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ streamId: selectedStream }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (response.status === 409) latencyNotice = 'A measurement is already running.';
+    else if (response.status === 404) latencyNotice = "That stream isn't live.";
+    else if (!response.ok) latencyNotice = "Couldn't start the measurement.";
+    else latencyActive = true;
+  } catch {
+    latencyNotice = "Couldn't start the measurement.";
+  }
+  $('latencyState').textContent = latencyNotice ?? 'Waiting for the viewer…';
+  $('measureLatency').disabled = latencyActive;
+});
 async function refresh() {
   if (!capability) {
     $('state').textContent = 'Reopen Diagnostics from the host';
@@ -104,6 +183,8 @@ async function refresh() {
         picker.dataset.options = signature;
       }
       picker.value = selectedStream ?? '';
+      $('latency').hidden = !('latencyProbe' in data);
+      renderLatency(data.latencyProbe);
     }
     const serverFresh = data.serverAgeMs !== null && data.serverAgeMs < 4000;
     const clientFresh = data.clientAgeMs !== null && data.clientAgeMs < 6000;
