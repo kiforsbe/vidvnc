@@ -124,12 +124,12 @@ public sealed partial class HostWindow
             leftDot.Fill = rightDot.Fill = lit; leftDot.Stroke = rightDot.Stroke = null;
             Canvas.SetLeft(leftDot, 26 + lx * StickTravel); Canvas.SetTop(leftDot, 40 + ly * StickTravel);
             Canvas.SetLeft(rightDot, 104 + rx * StickTravel); Canvas.SetTop(rightDot, 64 + ry * StickTravel);
-            var pressed = string.Join(", ", buttons.Where(entry => (mask & (1 << entry.Key)) != 0).Select(entry => Name(entry.Key)));
+            var pressed = string.Join(", ", buttons.Where(entry => (mask & (1 << entry.Key)) != 0).Select(entry => ButtonName(entry.Key)));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(this,
                 $"{title.Text} gamepad{(pressed.Length > 0 ? $", pressed: {pressed}" : "")}");
         }
 
-        static string Name(int bit) => bit switch
+        static string ButtonName(int bit) => bit switch
         {
             A => "A", B => "B", X => "X", Y => "Y", LeftShoulder => "left bumper", RightShoulder => "right bumper",
             View => "View", Menu => "Menu", LeftStick => "left stick", RightStick => "right stick",
