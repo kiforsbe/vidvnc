@@ -8,6 +8,7 @@ import {
   resultRows,
   stateLine,
 } from './latency-report.js';
+import { showProbe } from './latency-probe-page.js';
 let capability = takeDiagnosticsCapability(location, history);
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 1) =>
@@ -79,6 +80,10 @@ function chart(id, history, now, series, minimum, unit) {
 let latencyNotice = null;
 let latencyActive = false;
 let latencyProbe = null;
+// The probe page while it is shown full screen, and the measurement it is shown for once the
+// server has accepted it. It closes when the snapshot no longer shows that measurement active.
+let probePage = null;
+let probeId = null;
 function cells(tag, values) {
   const row = document.createElement('tr');
   for (const value of values) {
@@ -92,7 +97,7 @@ function renderLatency(probe) {
   const active = probe?.active ?? null;
   const history = probe?.history ?? [];
   latencyActive = active !== null;
-  $('measureLatency').disabled = latencyActive || !selectedStream;
+  $('measureLatency').disabled = latencyActive || probePage !== null || !selectedStream;
   latencyProbe = probe;
   $('latencyState').textContent = stateLine(probe, latencyNotice);
   const signature = JSON.stringify(history);
@@ -132,10 +137,39 @@ function renderLatency(probe) {
     }),
   );
 }
+function latencyFailed(text) {
+  latencyNotice = { text, seen: latencySignature(latencyProbe) };
+}
+function cancelLatency(id) {
+  return fetch('/api/diagnostics/latency-probe/cancel', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
 $('measureLatency').addEventListener('click', async () => {
-  if (!capability || !selectedStream || latencyActive) return;
+  if (!capability || !selectedStream || latencyActive || probePage) return;
   $('measureLatency').disabled = true;
   latencyNotice = null;
+  // Full screen first, while the click still allows it; the measurement starts only once the
+  // probe page is showing. Esc leaves full screen and cancels.
+  let id = null;
+  let left = false;
+  try {
+    probePage = await showProbe($('latencyProbe'), {
+      onExit: () => {
+        left = true;
+        probePage = probeId = null;
+        if (id) cancelLatency(id);
+      },
+    });
+  } catch {
+    latencyFailed("This browser can't show the probe page full screen.");
+    $('latencyState').textContent = latencyNotice.text;
+    $('measureLatency').disabled = false;
+    return;
+  }
   try {
     const response = await fetch('/api/diagnostics/latency-probe', {
       method: 'POST',
@@ -151,16 +185,21 @@ $('measureLatency').addEventListener('click', async () => {
           : response.ok
             ? null
             : "Couldn't start the measurement.";
-    if (text) latencyNotice = { text, seen: latencySignature(latencyProbe) };
-    else latencyActive = true;
+    if (text) latencyFailed(text);
+    else {
+      latencyActive = true;
+      id = (await response.json()).id;
+    }
   } catch {
-    latencyNotice = {
-      text: "Couldn't start the measurement.",
-      seen: latencySignature(latencyProbe),
-    };
+    latencyFailed("Couldn't start the measurement.");
   }
+  if (!id) {
+    probePage?.close();
+    probePage = null;
+  } else if (left) cancelLatency(id);
+  else probeId = id;
   $('latencyState').textContent = latencyNotice?.text ?? 'Waiting for the viewer…';
-  $('measureLatency').disabled = latencyActive;
+  $('measureLatency').disabled = latencyActive || probePage !== null;
 });
 async function refresh() {
   if (!capability) {
@@ -170,6 +209,7 @@ async function refresh() {
   }
   try {
     const requestedStream = selectedStream;
+    const watching = probeId;
     const response = await fetchDiagnostics(
       fetch,
       requestedStream,
@@ -201,6 +241,11 @@ async function refresh() {
       }
       picker.value = selectedStream ?? '';
       $('latency').hidden = !('latencyProbe' in data);
+      // The measurement ended (done, failed or expired): leave full screen and show it.
+      if (watching && watching === probeId && data.latencyProbe?.active?.id !== watching) {
+        probePage?.close();
+        probePage = probeId = null;
+      }
       renderLatency(data.latencyProbe);
     }
     const serverFresh = data.serverAgeMs !== null && data.serverAgeMs < 4000;

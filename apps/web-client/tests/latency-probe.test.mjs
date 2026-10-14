@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import vm from 'node:vm';
 import {
-  GRID,
   LAYOUT,
-  PROBE_KEY,
   buildResults,
   classify,
   decodeTimestamp,
@@ -17,8 +13,6 @@ import {
   summarize,
   unwrapTimestamp,
 } from '../src/viewer/latency-probe.js';
-
-const probePage = new URL('../../../tools/debug/latency-probe.html', import.meta.url);
 
 // A frame as the probe page paints it, read back as luma per cell.
 function paintedFrame({ time, key, move, black = 16, white = 235, grey = 128 }) {
@@ -114,17 +108,6 @@ test('summaries give count, min, median, p95 and max', () => {
   const values = Array.from({ length: 100 }, (_, index) => index + 1);
   assert.deepEqual(summarize(values), { count: 100, min: 1, median: 50, p95: 95, max: 100 });
   assert.deepEqual(summarize([null, Number.NaN]), { count: 0 });
-});
-
-test('the host probe page paints what the viewer reads', async () => {
-  const html = await readFile(probePage, 'utf8');
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const page = vm.runInNewContext(`${script}\n;({ GRID, LAYOUT, PROBE_KEY, encodeTimestamp })`, {});
-  assert.deepEqual(JSON.parse(JSON.stringify(page.GRID)), GRID);
-  assert.deepEqual(JSON.parse(JSON.stringify(page.LAYOUT)), LAYOUT);
-  assert.equal(page.PROBE_KEY, PROBE_KEY);
-  for (const ms of [0, 1_760_000_123_456, 2 ** 32 + 99])
-    assert.deepEqual([...page.encodeTimestamp(ms)], encodeTimestamp(ms));
 });
 
 test('results follow the server schema field by field', () => {

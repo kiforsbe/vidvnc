@@ -6,6 +6,7 @@ const REASONS = {
   'no-probe-page': "The probe page isn't visible on the shared display.",
   unsupported: "The viewer's browser can't measure.",
   cancelled: 'Cancelled on the viewer.',
+  'host-cancelled': 'Cancelled in Diagnostics.',
   'stream-changed': "The viewer isn't showing this stream.",
   'control-lost': 'The viewer lost control during the run.',
   expired: "The viewer didn't respond.",

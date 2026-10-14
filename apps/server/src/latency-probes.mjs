@@ -97,6 +97,15 @@ export class LatencyProbes {
     return true;
   }
 
+  // Diagnostics closed its probe page (Esc) before the end. The viewer's own report, when it
+  // stops, is then refused like any other late one.
+  cancel(id) {
+    this.#settle();
+    if (!this.#active || this.#active.id !== id) return false;
+    this.#finish('failed', 'host-cancelled');
+    return true;
+  }
+
   allowsAsset(sessionId) {
     this.#settle();
     return this.#active?.sessionId === sessionId;

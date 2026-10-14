@@ -1063,9 +1063,12 @@ only, never full paths. The offsets resolve against the build's symbols (`.pdb`)
 dbghelp. A crash can otherwise leave no trace: no stderr, and no Windows Error Reporting
 event.
 
-Latency is measured end to end, from the viewer, against a probe page on the host
-([latency probe](../tools/debug/README.md#latency-probe)). Only Diagnostics starts a
-measurement, for the stream selected there. The server holds at most one at a time, in memory
+Latency is measured end to end, from the viewer, against a probe page that Diagnostics shows
+full screen on the host ([latency-probe-page.js](../apps/web-client/src/latency-probe-page.js),
+[latency probe](../tools/debug/README.md#latency-probe)). Only Diagnostics starts a
+measurement, for the stream selected there, and only once its probe page is full screen: a
+page may enter full screen only from a click in that page, so the probe can't be a separate
+window. The server holds at most one at a time, in memory
 ([latency-probes.mjs](../apps/server/src/latency-probes.mjs)), and delivers it in the reply to
 that stream's next `stream-telemetry` post, so no push channel, worker or data-channel
 message is added. The viewer then imports the probe module, which the server serves only to a
@@ -1073,15 +1076,19 @@ session with a measurement requested or running, shows a banner with **Cancel**,
 frames on a canvas only during the run, sends input only through the normal input path while
 its device holds control, and posts the results to `POST /api/latency-result`, which validates
 them field by field ([latency-results.mjs](../apps/server/src/latency-results.mjs)).
-Diagnostics reads them from its snapshot.
+Diagnostics reads them from its snapshot, and leaves full screen when the measurement is no
+longer active. Leaving full screen early (Esc) posts
+`POST /api/diagnostics/latency-probe/cancel {id}`, which ends it as `host-cancelled`; the
+viewer, which no longer sees the probe page, stops within about 2 seconds and its report is
+refused.
 
 ```mermaid
 sequenceDiagram
     participant D as Diagnostics page (host)
     participant S as Node server
     participant V as Viewer
-    participant P as Probe page (host, full screen)
 
+    D->>D: Measure latency click, probe page full screen
     D->>S: POST /api/diagnostics/latency-probe {streamId}
     S-->>D: 202 {id, state: requested}
     V->>S: POST /api/stream-telemetry (every 2 s)
@@ -1090,18 +1097,20 @@ sequenceDiagram
     V->>V: banner, checks: control held, probe page readable
     V->>S: POST /api/latency-result {state: running}
     loop 40 moves and 40 presses of L
-        V->>P: input through the data channel, relay, media-net, broker
-        P-->>V: patch changes, seen in decoded frames
+        V->>D: input through the data channel, relay, media-net, broker
+        D-->>V: patch changes, seen in decoded frames
     end
     V->>S: POST /api/latency-result {state: done, results}
     D->>S: GET /api/diagnostics (polled every second)
     S-->>D: latencyProbe {active, history}
+    D->>D: no longer active, leave full screen, show results
 ```
 
 A measurement is `requested` until the viewer reports `running`, and ends `done` or `failed`
 with a reason: one of the viewer's (`no-control`, `no-probe-page`, `unsupported`,
 `cancelled`, `stream-changed`, `control-lost`), or the server's: `expired` (not picked up within
-15 s, or no result within 120 s), `ended` (the stream or session ended) and `invalid-report`.
+15 s, or no result within 120 s), `ended` (the stream or session ended), `invalid-report` and
+`host-cancelled` (Esc in Diagnostics).
 The server settles timeouts and ended streams whenever the registry is used, so no timer runs.
 A report for another id, session or stream, or after the end, is a `404` and changes nothing.
 
@@ -1310,7 +1319,7 @@ flowchart LR
 | `/api/latency-result`      | HTTPS                                 | Admitted sessions                            | None: session bearer, the active measurement's id, 8 KiB, strict schema ([latency-results.mjs](../apps/server/src/latency-results.mjs)) |
 | `/trust`, `/api/trust/*`   | HTTP `4382` and HTTPS                 | Local peers only                             | Public certificate and fingerprint                                                                                                      |
 | Media port                 | UDP `4384` (`mediaPort`), the relay   | Anyone who can reach it while sharing        | The relay's bounded STUN parser in JavaScript, budgeted before parsing; no reply to unauthenticated senders (finding R4)                |
-| Diagnostics                | HTTP on an ephemeral `127.0.0.1` port | Local processes                              | None: owner-issued bearer; its one POST, `/api/diagnostics/latency-probe` (1 KiB), also needs an `Origin` header                        |
+| Diagnostics                | HTTP on an ephemeral `127.0.0.1` port | Local processes                              | None: owner-issued bearer; its POSTs, `/api/diagnostics/latency-probe` and `…/cancel` (1 KiB), also need an `Origin` header             |
 | Owner pipe                 | stdin/stdout                          | The parent process only                      | Exact approval line before anything listens                                                                                             |
 
 There is no owner-management route on any HTTP listener. Everything that changes policy,
@@ -1549,9 +1558,9 @@ server; the receiving page strips it and refuses to replace a different stored s
   macOS under its own sandbox profile), from a bundle with no file access
   ([Media relay](#media-relay)).
 - Diagnostics run on a separate listener bound to `127.0.0.1`, not routed by the main
-  handler at all. Its one state-changing route, `POST /api/diagnostics/latency-probe`, asks
-  the viewer of a live stream to run a latency measurement; it needs the bearer and an
-  `Origin` header, and allows one measurement at a time
+  handler at all. Its state-changing routes, `POST /api/diagnostics/latency-probe`, which
+  asks the viewer of a live stream to run a latency measurement, and `…/cancel`, which ends
+  it, need the bearer and an `Origin` header; one measurement runs at a time
   ([diagnostics-http.mjs](../apps/server/src/diagnostics-http.mjs)).
 
 ### Logging and monitoring (ASVS V7)
@@ -1628,7 +1637,7 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T24 | Mac packages             | T, E   | Run other code with VidVNC's grants: inherited `NODE_OPTIONS`, a swapped library or plugin, or a manifest path out of the bundle | Every program is Developer ID signed with the hardened runtime and library validation; the `vidvnc` launcher and the host drop inherited `NODE_` variables; packaged manifest paths stay inside the bundle; **Install Command-Line Tool** writes only the `/usr/local/bin/vidvnc` link, after the owner confirms, through macOS's own administrator prompt | None                                                                                                         |
 | T25 | Project website          | T      | Publish misleading instructions or a harmful link on the project's site                                                          | Built only from `main` by the Website workflow; only its deploy job can publish; the page hosts no downloads and loads nothing from other sites                                                                                                                                                                                                            | —                                                                                                            |
 | T26 | Latency results (B1)     | T      | A viewer sends forged or hostile results for a latency measurement                                                               | Accepted only for the session's active measurement id, learned from the server; fixed fields, bounded numbers, 8 KiB, a 200-character browser string shown as text; memory only ([latency-probes.mjs](../apps/server/src/latency-probes.mjs))                                                                                                              | Misleading numbers in Diagnostics                                                                            |
-| T27 | Diagnostics bearer (B6)  | E      | A stolen diagnostics bearer makes a controlling viewer send probe input                                                          | The viewer runs only while it already holds keyboard and mouse control, through the normal input path (lease, allow-lists, rate limit); it shows a banner with Cancel; the bearer is short-lived, issued only by the host and the local CLI, and sent only to `127.0.0.1`                                                                                  | Up to about 100 seconds of pointer moves and L presses on the host (usually about 30), visible on the viewer |
+| T27 | Diagnostics bearer (B6)  | E      | A stolen diagnostics bearer makes a controlling viewer send probe input                                                          | The viewer runs only while it already holds keyboard and mouse control, through the normal input path (lease, allow-lists, rate limit); it shows a banner with Cancel, and stops within about 2 seconds of the probe page leaving the screen; the bearer is short-lived, issued only by the host and the local CLI, and sent only to `127.0.0.1`           | Up to about 100 seconds of pointer moves and L presses on the host (usually about 30), visible on the viewer |
 
 ### Residual risk and open items
 

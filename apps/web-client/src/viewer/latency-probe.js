@@ -1,5 +1,5 @@
-// Latency probe: measures hand-to-glass and glass-to-glass latency against the host probe
-// page (tools/debug/latency-probe.html) shown full screen on the shared display. The viewer
+// Latency probe: measures hand-to-glass and glass-to-glass latency against the probe page
+// that Diagnostics shows full screen on the shared display (latency-probe-page.js). The viewer
 // imports it only when the host starts a measurement from Diagnostics, and the server serves
 // it only then. It sends input only while this device holds keyboard and mouse control,
 // through the normal input path.

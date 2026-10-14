@@ -10,6 +10,8 @@ const ASSETS = new Set([
   '/codec-preferences.js',
   '/profile-labels.js',
   '/latency-report.js',
+  '/latency-probe-page.js',
+  '/viewer/latency-probe.js',
 ]);
 
 function send(response, status, body) {
@@ -21,6 +23,7 @@ function send(response, status, body) {
 }
 
 const LATENCY_PROBE_ROUTE = '/api/diagnostics/latency-probe';
+const LATENCY_CANCEL_ROUTE = '/api/diagnostics/latency-probe/cancel';
 const LATENCY_PROBE_LIMIT = 1024;
 
 async function readSmallJson(request, limit) {
@@ -68,9 +71,9 @@ export function createDiagnosticsHttp({
       )
         return send(response, 403, { error: 'Diagnostics are available on this PC only.' });
       const route = new URL(request.url, 'http://localhost').pathname;
-      if (route === LATENCY_PROBE_ROUTE && latencyProbes && runtime) {
+      if ([LATENCY_PROBE_ROUTE, LATENCY_CANCEL_ROUTE].includes(route) && latencyProbes && runtime) {
         if (request.method !== 'POST') return send(response, 405, { error: 'POST required' });
-        // The listener's only state-changing route: a same-origin page must say so.
+        // The listener's only state-changing routes: a same-origin page must say so.
         if (!request.headers.origin || !authorized(request)) {
           request.resume();
           return send(response, 403, { error: 'Diagnostics authorization required.' });
@@ -81,14 +84,19 @@ export function createDiagnosticsHttp({
         } catch (error) {
           return send(response, error.status, { error: error.message });
         }
+        const field = route === LATENCY_CANCEL_ROUTE ? 'id' : 'streamId';
         if (
           !body ||
           typeof body !== 'object' ||
           Array.isArray(body) ||
-          Object.keys(body).join() !== 'streamId' ||
-          typeof body.streamId !== 'string'
+          Object.keys(body).join() !== field ||
+          typeof body[field] !== 'string'
         )
-          return send(response, 400, { error: 'Expected {streamId}' });
+          return send(response, 400, { error: `Expected {${field}}` });
+        if (route === LATENCY_CANCEL_ROUTE)
+          return latencyProbes.cancel(body.id)
+            ? (response.writeHead(204, { 'cache-control': 'no-store' }), response.end())
+            : send(response, 404, { error: 'Unknown measurement' });
         const stream = runtime.registry.subscription(body.streamId);
         if (stream?.kind !== 'video' || stream.state !== 'live')
           return send(response, 404, { error: 'Unknown stream' });

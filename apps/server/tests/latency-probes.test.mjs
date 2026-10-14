@@ -127,6 +127,28 @@ test('a viewer can fail a measurement with one of its reasons, even before runni
   assert.equal(probes.snapshot('v1').history[0].reason, 'stream-changed');
 });
 
+test('Diagnostics can cancel the active measurement by id, requested or running', () => {
+  const { probes } = setup();
+  probes.request('v1', 's1');
+  assert.equal(probes.cancel('id-other'), false);
+  assert.equal(probes.cancel('id-1'), true);
+  assert.equal(probes.snapshot('v1').active, null);
+  assert.equal(probes.snapshot('v1').history[0].reason, 'host-cancelled');
+  assert.equal(probes.cancel('id-1'), false, 'already ended');
+  assert.equal(probes.pickup('s1', 'v1'), null);
+  probes.request('v1', 's1');
+  probes.pickup('s1', 'v1');
+  probes.report('s1', { streamId: 'v1', id: 'id-2', state: 'running' });
+  assert.equal(probes.cancel('id-2'), true);
+  assert.equal(probes.allowsAsset('s1'), false);
+  assert.equal(
+    probes.report('s1', { streamId: 'v1', id: 'id-2', state: 'failed', reason: 'no-probe-page' }),
+    false,
+    "the viewer's late report changes nothing",
+  );
+  assert.equal(probes.snapshot('v1').history[0].reason, 'host-cancelled');
+});
+
 test('reports for another id, session or stream, or after the end, are refused and change nothing', () => {
   const { probes, advance } = setup();
   probes.request('v1', 's1');

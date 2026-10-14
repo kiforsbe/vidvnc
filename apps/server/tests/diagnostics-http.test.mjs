@@ -25,6 +25,8 @@ test('private diagnostics listener is loopback-only and bearer-gates live data',
     '/codec-preferences.js',
     '/profile-labels.js',
     '/latency-report.js',
+    '/latency-probe-page.js',
+    '/viewer/latency-probe.js',
   ])
     assert.equal((await fetch(base + asset)).status, 200, asset);
   assert.equal((await fetch(base + '/')).status, 404);
@@ -136,4 +138,34 @@ test('Diagnostics starts a latency measurement for a live stream, one at a time'
     405,
     'the snapshot route stays GET-only',
   );
+
+  const cancel = (body, { bearer = true, origin = base } = {}) =>
+    fetch(base + '/api/diagnostics/latency-probe/cancel', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(bearer ? { authorization: `Bearer ${token}` } : {}),
+        ...(origin ? { origin } : {}),
+      },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+  assert.equal((await cancel({ id }, { bearer: false })).status, 403);
+  assert.equal((await cancel({ id }, { origin: null })).status, 403);
+  assert.equal((await cancel({ id }, { origin: 'http://evil.example' })).status, 403);
+  assert.equal((await cancel('not json')).status, 400);
+  assert.equal((await cancel({ id: 7 })).status, 400);
+  assert.equal((await cancel({ id, extra: 1 })).status, 400);
+  assert.equal((await cancel({ id, pad: 'x'.repeat(1024) })).status, 413);
+  assert.equal((await cancel({ id: 'not-this-one' })).status, 404);
+  assert.equal(latencyProbes.snapshot('live').active.id, id, 'still running so far');
+  assert.equal(
+    (await fetch(base + '/api/diagnostics/latency-probe/cancel')).status,
+    405,
+    'POST only',
+  );
+  assert.equal((await cancel({ id })).status, 204);
+  const cancelled = (await snapshot('live')).latencyProbe;
+  assert.equal(cancelled.active, null);
+  assert.equal(cancelled.history[0].reason, 'host-cancelled');
+  assert.equal((await cancel({ id })).status, 404, 'already ended');
 });

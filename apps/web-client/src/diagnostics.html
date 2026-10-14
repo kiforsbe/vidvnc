@@ -25,9 +25,9 @@
       <section id="latency" class="details latency" aria-labelledby="latencyHeading" hidden>
         <h2 id="latencyHeading">Latency</h2>
         <p>
-          Show <code>tools/debug/latency-probe.html</code> full screen on the shared display and
-          give the viewer keyboard and mouse control, then measure. The viewer shows a banner while
-          it runs.
+          Keep this window on the shared display and give the viewer keyboard and mouse control,
+          then measure. This page shows the probe full screen until the measurement ends; Esc
+          cancels it. The viewer shows a banner while it runs.
         </p>
         <div class="latency-actions">
           <button id="measureLatency" type="button">Measure latency</button
@@ -123,5 +123,9 @@
         </details>
       </footer>
     </main>
+    <div id="latencyProbe" class="latency-probe" hidden>
+      <canvas></canvas>
+      <p>Measuring latency. Keep your hands off the viewer. Esc cancels.</p>
+    </div>
   </body>
 </html>

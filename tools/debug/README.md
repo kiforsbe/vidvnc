@@ -62,9 +62,10 @@ group and is the only holder of its owner pipe.
 
 ## Latency probe
 
-[latency-probe.html](latency-probe.html) and the viewer's probe module
-([latency-probe.js](../../apps/web-client/src/viewer/latency-probe.js)) measure two
-latencies on a real session, on the stream the viewer is showing:
+The probe page Diagnostics shows
+([latency-probe-page.js](../../apps/web-client/src/latency-probe-page.js)) and the viewer's
+probe module ([latency-probe.js](../../apps/web-client/src/viewer/latency-probe.js), which owns
+the layout) measure two latencies on a real session, on the stream the viewer is showing:
 
 - **Hand-to-glass**: the viewer sends input, the probe page changes a patch, and the
   viewer times it from sending to the first decoded frame that shows the change
@@ -77,12 +78,17 @@ latencies on a real session, on the stream the viewer is showing:
 
 A measurement is started from the host, never from the viewer:
 
-1. On the host, open `tools/debug/latency-probe.html` in a browser on the shared display
-   and click **Full screen**. The layout is in fractions of the screen, so the page must
-   fill it.
+1. On the host, open Diagnostics (the host's Diagnostics action, or `diagnostics open` in the
+   CLI) and move its browser window to the shared display: full screen opens on the monitor
+   the window is on.
 2. On the viewer, turn on keyboard & mouse, and keep your hands off the screen.
-3. On the host, open Diagnostics (the host's Diagnostics action, or `diagnostics open` in the
-   CLI), pick the viewer's stream, and click **Measure latency** in the **Latency** section.
+3. In Diagnostics, pick the viewer's stream and click **Measure latency** in the **Latency**
+   section. The page goes full screen and shows the probe page (a grey screen with a barcode
+   at the top left and two patches at the top right) before it asks the viewer to start. The
+   layout is in fractions of the screen, which is why it must fill it.
+
+When the measurement ends, done or failed, Diagnostics leaves full screen and shows the
+outcome. Esc leaves early and cancels the measurement ("Cancelled in Diagnostics.").
 
 The viewer learns of the request in the reply to its next stream-telemetry post (every 2
 seconds), loads the probe module, which a normal session never fetches and the server serves
@@ -97,7 +103,7 @@ are listed with **Copy as JSON**. The viewer shows no results.
 A measurement fails, with the reason shown in Diagnostics, when the viewer doesn't hold
 keyboard and mouse control, can't read the probe page within 2 seconds, has no
 `requestVideoFrameCallback`, isn't showing that stream, loses control or switches stream
-during the run, or is cancelled. One that no viewer picks up within 15 seconds, or that
+during the run, or is cancelled on the viewer or in Diagnostics. One that no viewer picks up within 15 seconds, or that
 sends no result within 120 seconds, expires. The viewer starts no new trial after 100 seconds and
 reports what it has, and it stops before sending anything if the server has already ended the
 measurement. One measurement runs at a time.
@@ -110,12 +116,16 @@ input-to-paint time, as any app would, but not the viewer's mouse or display har
 **To last packet** is the same timing up to the arrival of the frame's last packet (Chrome
 only), so the rest is the viewer's jitter buffer, decode and render.
 
-Verified: the page's barcode decodes back to its own clock in a browser, and the shared
-layout and encoder, the run's checks, cancel and lost control are checked by
+Verified: the probe page paints what the viewer reads, at several screen sizes, by
+[latency-probe-page.test.mjs](../../apps/web-client/tests/latency-probe-page.test.mjs); the
+run's checks, cancel, lost control and a probe page that leaves the screen by
 [latency-probe.test.mjs](../../apps/web-client/tests/latency-probe.test.mjs); the request,
 banner and cancel in a real browser by
-[stream-browser-check.mjs](../../apps/web-client/tests/stream-browser-check.mjs). Not yet run
-against a live session or on an iPhone.
+[stream-browser-check.mjs](../../apps/web-client/tests/stream-browser-check.mjs). Diagnostics'
+full-screen probe page was checked once in headless Chromium (Playwright): a screenshot
+decoded to the PC's clock, L and the pointer flipped the patches, leaving full screen
+cancelled, and an ended or refused measurement left full screen. Not yet run against a live
+session or on an iPhone.
 
 ## Implementation contract
 
