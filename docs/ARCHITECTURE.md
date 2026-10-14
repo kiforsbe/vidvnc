@@ -1063,6 +1063,12 @@ only, never full paths. The offsets resolve against the build's symbols (`.pdb`)
 dbghelp. A crash can otherwise leave no trace: no stderr, and no Windows Error Reporting
 event.
 
+Latency is measured end to end, from the viewer, against a probe page on the host
+([latency probe](../tools/debug/README.md#latency-probe)). The viewer loads its panel only with
+`?latency-probe` in its address; the panel reads decoded frames on a canvas and sends input
+only through the normal input path while its device holds control, so it adds no route,
+message or privilege.
+
 ## Security architecture
 
 This section is the security view of the architecture. It follows the usual structure of

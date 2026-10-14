@@ -36,6 +36,7 @@ const VIEWER_ASSETS = new Map([
   ['/viewer/codec-preferences.js', 'codec-preferences.js'],
   ['/viewer/profile-labels.js', 'profile-labels.js'],
   ['/viewer/stage-geometry.js', 'viewer/stage-geometry.js'],
+  ['/viewer/latency-probe.js', 'viewer/latency-probe.js'],
 ]);
 
 function send(response, status, body) {

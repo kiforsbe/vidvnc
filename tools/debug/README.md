@@ -60,6 +60,45 @@ group and is the only holder of its owner pipe.
 | Node server                   | Node inspector, loopback only, explicit opt-in | Same           |
 | Native media worker/libraries | Visual Studio C++                              | Xcode/LLDB     |
 
+## Latency probe
+
+[latency-probe.html](latency-probe.html) and the viewer's `?latency-probe` panel
+([latency-probe.js](../../apps/web-client/src/viewer/latency-probe.js)) measure two
+latencies on a real session:
+
+- **Hand-to-glass**: the viewer sends input, the probe page changes a patch, and the
+  viewer times it from sending to the first decoded frame that shows the change
+  (`requestVideoFrameCallback`'s `expectedDisplayTime`), on its own clock. Pointer moves
+  (between the page's left and right halves) and key presses (L) are timed separately,
+  because they will travel differently.
+- **Glass-to-glass**: the page draws a barcode of the host's clock every frame, and the viewer
+  compares it with its own clock as each frame is shown. This is exact only when the viewer runs
+  on the host itself; on another device it includes the difference between the two clocks.
+
+To measure:
+
+1. On the host, open `tools/debug/latency-probe.html` in a browser on the shared display
+   and click **Full screen**. The layout is in fractions of the screen, so the page must
+   fill it.
+2. Connect a viewer with `?latency-probe` in its address (for example
+   `https://<host>:<port>/?latency-probe`), sign in, and enable keyboard & mouse.
+3. Click **Measure** in the panel and keep your hands off the mouse. It runs 40 moves and 40
+   key presses with random pauses, then shows the median, p95 and range of each, the
+   glass-to-glass figures, and the receiver's jitter-buffer delay, decode time, round trip
+   and losses over the run. **Copy results** copies the JSON.
+
+The panel sends input only while this device holds control, through the normal input path
+and its checks, and stops if the first key press doesn't flip the patch, so it doesn't
+keep typing into another window. Hand-to-glass includes the probe page's own input-to-paint
+time, as any app would, but not the viewer's mouse or display hardware. `handToReceive` is
+the same timing up to the arrival of the frame's last packet (Chrome only), so the rest is
+the viewer's jitter buffer, decode and render. Single-stream sessions only.
+
+Verified: the page's barcode decodes back to its own clock in a browser, and the shared
+layout and encoder are checked by
+[latency-probe.test.mjs](../../apps/web-client/tests/latency-probe.test.mjs). Not yet run
+against a live session.
+
 ## Implementation contract
 
 - Separate Debug and Release outputs. Propagate selected configuration to the worker

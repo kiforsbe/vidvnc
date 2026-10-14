@@ -477,3 +477,33 @@ html.viewer-immersive body {
     width: 100%;
   }
 }
+
+/* Development only: the ?latency-probe panel (latency-probe.js). */
+.latency-probe {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px #0003;
+}
+.latency-probe strong {
+  flex: 1 0 100%;
+}
+.latency-probe pre {
+  flex: 1 0 100%;
+  max-height: 40vh;
+  margin: 0;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
