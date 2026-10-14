@@ -216,12 +216,17 @@ function fakeHost({ barcode = true, keyWorks = true, frameMs = 2, inputMs = 6 } 
     state,
     sent,
     stop: () => clearInterval(timer),
+    // The probe page leaves the screen: frames no longer carry the barcode or the patches.
+    hide: () => (barcode = false),
     video: {
       videoWidth: 1280,
       videoHeight: 720,
       requestVideoFrameCallback: (callback) => callbacks.push(callback),
     },
-    readFrameFrom: () => ({ hostTime: barcode ? Date.now() % 2 ** 32 : null, ...state }),
+    readFrameFrom: () =>
+      barcode
+        ? { hostTime: Date.now() % 2 ** 32, ...state }
+        : { hostTime: null, key: null, move: null },
     send(message) {
       sent.push(message);
       setTimeout(() => {
@@ -349,6 +354,18 @@ test('a run whose running report is refused stops at once and sends nothing', as
   });
   assert.deepEqual(outcome, { state: 'failed', reason: 'refused' });
   assert.equal(host.sent.length, 0);
+});
+
+test('a probe page that leaves the screen mid-run stops the run as no-probe-page', async (t) => {
+  const host = fakeHost();
+  t.after(host.stop);
+  const send = (message) => {
+    host.send(message);
+    if (host.sent.length === 4) host.hide();
+  };
+  const outcome = await run(host, { send, trials: 40, probeWaitMs: 100, trialTimeoutMs: 50 });
+  assert.deepEqual(outcome, { state: 'failed', reason: 'no-probe-page' });
+  assert.ok(host.sent.length <= 6, `sent ${host.sent.length} messages`);
 });
 
 test('a run that reaches its deadline ends with the samples it has', async (t) => {

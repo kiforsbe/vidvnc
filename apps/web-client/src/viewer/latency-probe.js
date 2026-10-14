@@ -292,6 +292,7 @@ export async function runLatencyProbe({
     latest = { hostTime: null, key: null, move: null },
     lastHostTime = null,
     lastPresented = null,
+    lastSeen = null,
     pending = null,
     waiters = [];
   const glass = reservoir();
@@ -316,7 +317,10 @@ export async function runLatencyProbe({
       const host = unwrapTimestamp(frame.hostTime, Date.now());
       glass.add(performance.timeOrigin + shown - host);
     }
-    if (frame.hostTime !== null) lastHostTime = frame.hostTime;
+    if (frame.hostTime !== null) {
+      lastHostTime = frame.hostTime;
+      lastSeen = performance.now();
+    }
     for (const wake of waiters.splice(0)) wake();
     if (pending && frame[pending.kind] === pending.expected) {
       const { resolve, sentAt } = pending;
@@ -387,6 +391,13 @@ export async function runLatencyProbe({
       if (signal.aborted) return failed('cancelled');
       if (!canControl()) return failed('control-lost');
       if (performance.now() - runStart > deadlineMs) break;
+      // The probe page left the screen (Esc in Diagnostics, another window): stop before
+      // sending input anywhere else. An unreadable frame or two is only compression.
+      while (latest.hostTime === null && !signal.aborted) {
+        if (performance.now() - lastSeen > probeWaitMs) return failed('no-probe-page');
+        await wait(probeWaitMs, { frames: true });
+      }
+      if (signal.aborted) return failed('cancelled');
       const kind = index % 2 ? 'key' : 'move';
       const sample = await trial(kind);
       if (signal.aborted) return failed('cancelled');

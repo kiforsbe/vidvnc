@@ -103,8 +103,8 @@ reports what it has, and it stops before sending anything if the server has alre
 measurement. One measurement runs at a time.
 
 The probe sends input only while the device holds control, through the normal input path and
-its checks, and stops if the first key press doesn't flip the patch, so it doesn't keep
-typing into another window. Frames are read only during a run, on a GPU-backed canvas, so only
+its checks, and stops if the first key press doesn't flip the patch, or if the probe page
+leaves the screen for 2 seconds during the run, so it doesn't keep typing into another window. Frames are read only during a run, on a GPU-backed canvas, so only
 a 128 × 72 scaled copy is read back. Hand-to-glass includes the probe page's own
 input-to-paint time, as any app would, but not the viewer's mouse or display hardware.
 **To last packet** is the same timing up to the arrival of the frame's last packet (Chrome
