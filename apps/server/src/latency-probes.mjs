@@ -8,7 +8,7 @@ import { LATENCY_REASONS, validateLatencyResults } from './latency-results.mjs';
 const PICKUP_TIMEOUT_MS = 15_000;
 const RUN_TIMEOUT_MS = 120_000;
 const HISTORY = 5;
-const REPORT_FIELDS = ['streamId', 'id', 'state', 'reason', 'results'];
+const REPORT_FIELDS = ['streamId', 'id', 'state', 'reason', 'results', 'plannedMs'];
 
 function invalidReport() {
   return new Error('Invalid latency report');
@@ -39,6 +39,7 @@ export class LatencyProbes {
       reason: null,
       requestedAt: this.#now(),
       runningAt: null,
+      plannedMs: null,
       endedAt: null,
       results: null,
       pickedUp: false,
@@ -62,7 +63,7 @@ export class LatencyProbes {
   }
 
   report(sessionId, report = {}) {
-    const { streamId, id, state, reason, results } = report;
+    const { streamId, id, state, reason, results, plannedMs } = report;
     this.#settle();
     const active = this.#active;
     if (
@@ -79,13 +80,26 @@ export class LatencyProbes {
         state === 'running' &&
         active.state === 'requested' &&
         reason === undefined &&
-        results === undefined
+        results === undefined &&
+        (plannedMs === undefined ||
+          (Number.isInteger(plannedMs) && plannedMs >= 0 && plannedMs <= RUN_TIMEOUT_MS))
       ) {
         active.state = 'running';
         active.runningAt = this.#now();
-      } else if (state === 'failed' && LATENCY_REASONS.includes(reason) && results === undefined) {
+        active.plannedMs = plannedMs ?? null;
+      } else if (
+        state === 'failed' &&
+        LATENCY_REASONS.includes(reason) &&
+        results === undefined &&
+        plannedMs === undefined
+      ) {
         this.#finish('failed', reason);
-      } else if (state === 'done' && active.state === 'running' && reason === undefined) {
+      } else if (
+        state === 'done' &&
+        active.state === 'running' &&
+        reason === undefined &&
+        plannedMs === undefined
+      ) {
         this.#finish('done', null, validateLatencyResults(results));
       } else {
         throw invalidReport();
@@ -95,6 +109,16 @@ export class LatencyProbes {
       throw invalidReport();
     }
     return true;
+  }
+
+  // Whether `id` is the active measurement of this session and stream: the viewer's clock check
+  // is answered only then.
+  current(sessionId, streamId, id) {
+    this.#settle();
+    const active = this.#active;
+    return Boolean(
+      active && active.id === id && active.sessionId === sessionId && active.streamId === streamId,
+    );
   }
 
   // Diagnostics closed its probe page (Esc) before the end. The viewer's own report, when it
@@ -139,6 +163,6 @@ export class LatencyProbes {
   }
 }
 
-function view({ id, state, reason, requestedAt, endedAt, results }) {
-  return { id, state, reason, requestedAt, endedAt, results };
+function view({ id, state, reason, requestedAt, runningAt, plannedMs, endedAt, results }) {
+  return { id, state, reason, requestedAt, runningAt, plannedMs, endedAt, results };
 }

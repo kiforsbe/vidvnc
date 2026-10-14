@@ -2,6 +2,7 @@ import { CODEC_LABELS } from './codec-preferences.js';
 import { profileTooltip, targetBitrateText } from './profile-labels.js';
 import { fetchDiagnostics, takeDiagnosticsCapability } from './diagnostics-auth.js';
 import {
+  countdown,
   describeState,
   detailRows,
   latencySignature,
@@ -156,6 +157,7 @@ $('measureLatency').addEventListener('click', async () => {
   // probe page is showing. Esc leaves full screen and cancels.
   let id = null;
   let left = false;
+  $('latencyCountdown').textContent = countdown(null);
   try {
     probePage = await showProbe($('latencyProbe'), {
       onExit: () => {
@@ -197,7 +199,10 @@ $('measureLatency').addEventListener('click', async () => {
     probePage?.close();
     probePage = null;
   } else if (left) cancelLatency(id);
-  else probeId = id;
+  else {
+    probeId = id;
+    $('latencyCountdown').textContent = countdown({ state: 'requested' });
+  }
   $('latencyState').textContent = latencyNotice?.text ?? 'Waiting for the viewer…';
   $('measureLatency').disabled = latencyActive || probePage !== null;
 });
@@ -247,6 +252,8 @@ async function refresh() {
         probePage = probeId = null;
       }
       renderLatency(data.latencyProbe);
+      if (probePage && watching === probeId)
+        $('latencyCountdown').textContent = countdown(data.latencyProbe?.active ?? null);
     }
     const serverFresh = data.serverAgeMs !== null && data.serverAgeMs < 4000;
     const clientFresh = data.clientAgeMs !== null && data.clientAgeMs < 6000;

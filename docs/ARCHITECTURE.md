@@ -1073,11 +1073,15 @@ window. The server holds at most one at a time, in memory
 that stream's next `stream-telemetry` post, so no push channel, worker or data-channel
 message is added. The viewer then imports the probe module, which the server serves only to a
 session with a measurement requested or running, shows a banner with **Cancel**, reads decoded
-frames on a canvas only during the run, sends input only through the normal input path while
-its device holds control, and posts the results to `POST /api/latency-result`, which validates
-them field by field ([latency-results.mjs](../apps/server/src/latency-results.mjs)).
-Diagnostics reads them from its snapshot, and leaves full screen when the measurement is no
-longer active. Leaving full screen early (Esc) posts
+frames on a canvas only during the run, and sends input only through the normal input path
+while its device holds control; its drag strokes go through the same throttled path as a
+user's pointer moves. It reports `running` with the run's planned length, which Diagnostics
+counts down on the probe page, checks its clock against the server's with
+`POST /api/latency-clock` (answered only for its own active measurement, so glass-to-glass
+can be corrected for the offset between the clocks), and posts the results to
+`POST /api/latency-result`, which validates them field by field
+([latency-results.mjs](../apps/server/src/latency-results.mjs)). Diagnostics reads them from
+its snapshot, and leaves full screen when the measurement is no longer active. Leaving full screen early (Esc) posts
 `POST /api/diagnostics/latency-probe/cancel {id}`, which ends it as `host-cancelled`; the
 viewer, which no longer sees the probe page, stops within about 2 seconds and its report is
 refused.
@@ -1095,11 +1099,14 @@ sequenceDiagram
     S-->>V: 200 {latencyProbe: {id}}, once
     V->>S: GET /viewer/latency-probe.js (served only now)
     V->>V: banner, checks: control held, probe page readable
-    V->>S: POST /api/latency-result {state: running}
-    loop 40 moves and 40 presses of L
+    V->>S: POST /api/latency-result {state: running, plannedMs}
+    V->>S: POST /api/latency-clock {streamId, id}, six times
+    S-->>V: 200 {now}, the host's clock
+    loop 40 moves, 40 presses of L, then 8 drag strokes
         V->>D: input through the data channel, relay, media-net, broker
-        D-->>V: patch changes, seen in decoded frames
+        D-->>V: patches and pointer position, seen in decoded frames
     end
+    V->>S: POST /api/latency-clock, six more times
     V->>S: POST /api/latency-result {state: done, results}
     D->>S: GET /api/diagnostics (polled every second)
     S-->>D: latencyProbe {active, history}
@@ -1317,6 +1324,7 @@ flowchart LR
 | Session and signaling APIs | HTTPS                                 | Admitted sessions                            | None: bearer bound to the socket address                                                                                                |
 | Viewer assets `/viewer/*`  | HTTPS                                 | Admitted sessions                            | None: session- and peer-bound grant cookie; `latency-probe.js` only while that session has a latency measurement                        |
 | `/api/latency-result`      | HTTPS                                 | Admitted sessions                            | None: session bearer, the active measurement's id, 8 KiB, strict schema ([latency-results.mjs](../apps/server/src/latency-results.mjs)) |
+| `/api/latency-clock`       | HTTPS                                 | Admitted sessions                            | None: session bearer, the active measurement's id for its stream, 1 KiB; answers only the PC's time                                     |
 | `/trust`, `/api/trust/*`   | HTTP `4382` and HTTPS                 | Local peers only                             | Public certificate and fingerprint                                                                                                      |
 | Media port                 | UDP `4384` (`mediaPort`), the relay   | Anyone who can reach it while sharing        | The relay's bounded STUN parser in JavaScript, budgeted before parsing; no reply to unauthenticated senders (finding R4)                |
 | Diagnostics                | HTTP on an ephemeral `127.0.0.1` port | Local processes                              | None: owner-issued bearer; its POSTs, `/api/diagnostics/latency-probe` and `…/cancel` (1 KiB), also need an `Origin` header             |

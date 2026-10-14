@@ -16,6 +16,7 @@ const MAX_MS = 60_000;
 const MAX_COUNT = 1_000;
 const MAX_VIDEO_SIDE = 16_384;
 const MAX_BROWSER = 200;
+const MAX_CLOCK_OFFSET = 86_400_000;
 const RECEIVER_FIELDS = [
   'decodeFps',
   'jitterBufferMs',
@@ -61,6 +62,21 @@ function timing(value, minimum = 0) {
   return result;
 }
 
+// The viewer's clock against the server's (the host PC's), or null when it couldn't check:
+// `offsetMs` is the host's time minus the viewer's, so positive means the viewer is behind.
+function clock(value) {
+  if (value === null) return null;
+  object(value, ['offsetMs', 'uncertaintyMs']);
+  const { offsetMs, uncertaintyMs } = value;
+  if (
+    typeof offsetMs !== 'number' ||
+    !Number.isFinite(offsetMs) ||
+    Math.abs(offsetMs) > MAX_CLOCK_OFFSET
+  )
+    throw invalid();
+  return { offsetMs, uncertaintyMs: milliseconds(uncertaintyMs, 0) };
+}
+
 function moveAndKey(value) {
   object(value, ['move', 'key']);
   return { move: timing(value.move), key: timing(value.key) };
@@ -72,13 +88,16 @@ export function validateLatencyResults(value) {
     'handToGlassMs',
     'handToReceiveMs',
     'glassToGlassMs',
+    'dragMs',
     'timeouts',
+    'clock',
     'overhead',
     'receiver',
     'video',
     'browser',
   ]);
-  object(value.timeouts, ['move', 'key']);
+  object(value.dragMs, ['follow', 'settle']);
+  object(value.timeouts, ['move', 'key', 'drag']);
   object(value.overhead, ['callbackMs', 'skippedFrames']);
   object(value.receiver, RECEIVER_FIELDS);
   object(value.video, ['width', 'height']);
@@ -92,12 +111,15 @@ export function validateLatencyResults(value) {
   return {
     handToGlassMs: moveAndKey(value.handToGlassMs),
     handToReceiveMs: moveAndKey(value.handToReceiveMs),
-    // From another device it includes the offset between the two clocks.
+    // Corrected by the clock offset, so within its uncertainty of zero it may be negative.
     glassToGlassMs: timing(value.glassToGlassMs, -MAX_MS),
+    dragMs: { follow: timing(value.dragMs.follow), settle: timing(value.dragMs.settle) },
     timeouts: {
       move: integer(value.timeouts.move, MAX_COUNT),
       key: integer(value.timeouts.key, MAX_COUNT),
+      drag: integer(value.timeouts.drag, MAX_COUNT),
     },
+    clock: clock(value.clock),
     overhead: {
       callbackMs: timing(value.overhead.callbackMs),
       skippedFrames: integer(value.overhead.skippedFrames, Number.MAX_SAFE_INTEGER),

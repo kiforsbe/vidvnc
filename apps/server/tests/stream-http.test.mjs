@@ -261,7 +261,25 @@ test('a latency measurement reaches its viewer once, and only then is the probe 
     (await result({ streamId: stream.streamId, id, state: 'running' }, null)).status,
     401,
   );
-  assert.equal((await result({ streamId: stream.streamId, id, state: 'running' })).status, 204);
+  // The viewer's clock check: the server's time, only for its own active measurement.
+  const clockCheck = (body, token = a.sessionId) => post('latency-clock', body, token);
+  assert.equal((await clockCheck({ streamId: stream.streamId, id: 'wrong' })).status, 404);
+  assert.equal((await clockCheck({ streamId: stream.streamId, id }, b.sessionId)).status, 404);
+  assert.equal((await clockCheck({ streamId: stream.streamId, id }, null)).status, 401);
+  assert.equal((await clockCheck({ streamId: stream.streamId, id, extra: 1 })).status, 400);
+  assert.equal(
+    (await clockCheck({ streamId: stream.streamId, id, pad: 'x'.repeat(2 * 1024) })).status,
+    413,
+  );
+  const answer = await clockCheck({ streamId: stream.streamId, id });
+  assert.equal(answer.status, 200);
+  assert.equal(answer.headers.get('cache-control'), 'no-store');
+  const { now: serverNow } = await answer.json();
+  assert.ok(Math.abs(serverNow - Date.now()) < 1_000, 'the PC clock, which the probe page uses');
+  assert.equal(
+    (await result({ streamId: stream.streamId, id, state: 'running', plannedMs: 40_000 })).status,
+    204,
+  );
   const tooLarge = await result({
     streamId: stream.streamId,
     id,
@@ -275,7 +293,9 @@ test('a latency measurement reaches its viewer once, and only then is the probe 
     handToGlassMs: { move: timing, key: timing },
     handToReceiveMs: { move: timing, key: timing },
     glassToGlassMs: timing,
-    timeouts: { move: 0, key: 0 },
+    dragMs: { follow: timing, settle: timing },
+    timeouts: { move: 0, key: 0, drag: 0 },
+    clock: null,
     overhead: { callbackMs: timing, skippedFrames: 0 },
     receiver: {
       decodeFps: 30,
@@ -294,6 +314,11 @@ test('a latency measurement reaches its viewer once, and only then is the probe 
   );
   assert.equal(latencyProbes.snapshot(stream.streamId).history[0].state, 'done');
   assert.equal((await probeModule(a.cookie)).status, 404, 'the module goes with the measurement');
+  assert.equal(
+    (await post('latency-clock', { streamId: stream.streamId, id }, a.sessionId)).status,
+    404,
+    'and so does the clock',
+  );
   assert.equal(
     (await result({ streamId: stream.streamId, id, state: 'failed', reason: 'cancelled' })).status,
     404,

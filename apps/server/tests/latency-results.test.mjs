@@ -8,7 +8,9 @@ function valid() {
     handToGlassMs: { move: timing(70), key: timing(75) },
     handToReceiveMs: { move: timing(50), key: { count: 0 } },
     glassToGlassMs: { count: 300, min: -12.5, median: 30, p95: 45, max: 90 },
-    timeouts: { move: 0, key: 1 },
+    dragMs: { follow: timing(55), settle: { count: 0 } },
+    timeouts: { move: 0, key: 1, drag: 2 },
+    clock: { offsetMs: -553.25, uncertaintyMs: 4.5 },
     overhead: { callbackMs: timing(1.5), skippedFrames: 2 },
     receiver: {
       decodeFps: 59.9,
@@ -40,6 +42,8 @@ test('every timing rejects values that are not finite milliseconds in range', ()
     ['handToReceiveMs', 'move'],
     ['handToReceiveMs', 'key'],
     ['glassToGlassMs'],
+    ['dragMs', 'follow'],
+    ['dragMs', 'settle'],
     ['overhead', 'callbackMs'],
   ];
   for (const path of paths)
@@ -58,6 +62,29 @@ test('glass-to-glass may be negative, down to -60,000, because of the clock offs
   assert.equal(validateLatencyResults(value).glassToGlassMs.min, -59_999);
   value.glassToGlassMs.min = -60_001;
   rejects(value);
+});
+
+test('the clock offset is a finite number within a day, with an uncertainty, or null', () => {
+  const value = valid();
+  value.clock = null;
+  assert.equal(validateLatencyResults(value).clock, null);
+  for (const bad of [
+    { offsetMs: 86_400_001, uncertaintyMs: 1 },
+    { offsetMs: Number.NaN, uncertaintyMs: 1 },
+    { offsetMs: 0, uncertaintyMs: -1 },
+    { offsetMs: 0, uncertaintyMs: 60_001 },
+    { offsetMs: 0 },
+    { offsetMs: 0, uncertaintyMs: 1, samples: 3 },
+    7,
+  ]) {
+    value.clock = bad;
+    rejects(value, JSON.stringify(bad));
+  }
+  value.clock = { offsetMs: -86_400_000, uncertaintyMs: 0 };
+  assert.deepEqual(validateLatencyResults(value).clock, {
+    offsetMs: -86_400_000,
+    uncertaintyMs: 0,
+  });
 });
 
 test('counts are whole numbers up to 1,000, and an empty timing is just a zero count', () => {
@@ -108,6 +135,9 @@ test('the browser string, video size, timeouts and skipped frames are bounded', 
   const timeouts = valid();
   timeouts.timeouts.key = 1_001;
   rejects(timeouts);
+  const drag = valid();
+  drag.timeouts.drag = 1.5;
+  rejects(drag);
   const skipped = valid();
   skipped.overhead.skippedFrames = 1.5;
   rejects(skipped);

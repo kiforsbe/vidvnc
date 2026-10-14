@@ -155,6 +155,7 @@ async function readJson(request, limit = 128 * 1024) {
 // admission is approved-device sign-in only. Device setup therefore happens on the local
 // network, like certificate enrolment (already local-only through TRUST_ONLY_PATHS).
 const LATENCY_PROBE_ASSET = '/viewer/latency-probe.js';
+const LATENCY_CLOCK_LIMIT = 1024;
 const LATENCY_RESULT_LIMIT = 8 * 1024;
 export const INTERNET_REFUSED_PATHS = Object.freeze(['/api/key-start']);
 const HSTS_MAX_AGE_SECONDS = 180 * 24 * 60 * 60;
@@ -536,6 +537,7 @@ export function createHttpApp({
           '/api/stream-select',
           '/api/stream-telemetry',
           '/api/latency-result',
+          '/api/latency-clock',
           '/api/control-request',
           '/api/control-release',
         ].includes(route)
@@ -561,7 +563,12 @@ export function createHttpApp({
         return send(response, 429, { error: 'Try again later or request a new host code.' });
       if (!request.headers['content-type']?.startsWith('application/json'))
         return (keyAttempt?.finish(null, false), send(response, 415, { error: 'JSON required' }));
-      const bodyLimit = route === '/api/latency-result' ? LATENCY_RESULT_LIMIT : 128 * 1024;
+      const bodyLimit =
+        route === '/api/latency-result'
+          ? LATENCY_RESULT_LIMIT
+          : route === '/api/latency-clock'
+            ? LATENCY_CLOCK_LIMIT
+            : 128 * 1024;
       if (Number(request.headers['content-length']) > bodyLimit) {
         request.resume();
         keyAttempt?.finish(null, false);
@@ -770,6 +777,19 @@ export function createHttpApp({
           // A latency measurement asked for in Diagnostics rides on the reply, once.
           const latencyProbe = latencyProbes?.pickup(token, body.streamId);
           return latencyProbe ? send(response, 200, { latencyProbe }) : send(response, 204);
+        }
+        // The viewer's clock check during a measurement: this PC's time, which the probe page
+        // paints, so the viewer can correct glass-to-glass for the offset between the clocks.
+        if (route === '/api/latency-clock') {
+          if (
+            Object.keys(body).some((key) => key !== 'streamId' && key !== 'id') ||
+            typeof body.streamId !== 'string' ||
+            typeof body.id !== 'string'
+          )
+            return send(response, 400, { error: 'Expected {streamId, id}' });
+          return latencyProbes?.current(token, body.streamId, body.id)
+            ? send(response, 200, { now: Date.now() })
+            : send(response, 404, { error: 'Unknown measurement' });
         }
         if (route === '/api/latency-result') {
           if (!latencyProbes) return send(response, 404, { error: 'Not found' });

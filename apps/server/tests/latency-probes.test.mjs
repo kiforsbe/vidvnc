@@ -7,7 +7,9 @@ const RESULTS = {
   handToGlassMs: { move: timing, key: timing },
   handToReceiveMs: { move: timing, key: timing },
   glassToGlassMs: timing,
-  timeouts: { move: 0, key: 0 },
+  dragMs: { follow: timing, settle: timing },
+  timeouts: { move: 0, key: 0, drag: 0 },
+  clock: { offsetMs: 2, uncertaintyMs: 1 },
   overhead: { callbackMs: timing, skippedFrames: 0 },
   receiver: {
     decodeFps: 60,
@@ -114,6 +116,53 @@ test('a run reports running, then done with validated results', () => {
   assert.equal(done.requestedAt, 1_000);
   assert.deepEqual(done.results, RESULTS);
   assert.equal(probes.snapshot('v1').active, null);
+});
+
+test('running carries the planned length, which the snapshot shows with the start', () => {
+  const { probes, advance } = setup();
+  probes.request('v1', 's1');
+  probes.pickup('s1', 'v1');
+  assert.equal(probes.snapshot('v1').active.runningAt, null);
+  advance(2_000);
+  assert.equal(
+    probes.report('s1', { streamId: 'v1', id: 'id-1', state: 'running', plannedMs: 42_000 }),
+    true,
+  );
+  const { active } = probes.snapshot('v1');
+  assert.equal(active.runningAt, 3_000);
+  assert.equal(active.plannedMs, 42_000);
+  assert.throws(() =>
+    probes.report('s1', {
+      streamId: 'v1',
+      id: 'id-1',
+      state: 'done',
+      results: RESULTS,
+      plannedMs: 1,
+    }),
+  );
+  assert.equal(
+    probes.snapshot('v1').history[0].reason,
+    'invalid-report',
+    'plannedMs only with running',
+  );
+  for (const plannedMs of [-1, 1.5, 120_001, '42000']) {
+    probes.request('v2', 's1');
+    const id = probes.pickup('s1', 'v2').id;
+    assert.throws(() => probes.report('s1', { streamId: 'v2', id, state: 'running', plannedMs }));
+    assert.equal(probes.snapshot('v2').history[0].reason, 'invalid-report', String(plannedMs));
+  }
+});
+
+test('the clock is answered only for the active measurement of that session and stream', () => {
+  const { probes } = setup();
+  assert.equal(probes.current('s1', 'v1', 'id-1'), false);
+  probes.request('v1', 's1');
+  assert.equal(probes.current('s1', 'v1', 'id-1'), true);
+  assert.equal(probes.current('s2', 'v1', 'id-1'), false);
+  assert.equal(probes.current('s1', 'v2', 'id-1'), false);
+  assert.equal(probes.current('s1', 'v1', 'id-2'), false);
+  probes.cancel('id-1');
+  assert.equal(probes.current('s1', 'v1', 'id-1'), false);
 });
 
 test('a viewer can fail a measurement with one of its reasons, even before running', () => {

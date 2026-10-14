@@ -827,8 +827,12 @@ export function createViewer({ onExit }) {
             getStats: () => (pc ? pc.getStats() : Promise.resolve(null)),
             summarizeReceiver,
             signal: controller.signal,
+            userMove,
+            // The server runs on the host's clock, which the probe page paints.
+            clock: async () => (await api('latency-clock', { streamId, id })).now,
             // A refusal (the server already ended it) stops the run before any input.
-            onRunning: () => api('latency-result', { streamId, id, state: 'running' }),
+            onRunning: (plannedMs) =>
+              api('latency-result', { streamId, id, state: 'running', plannedMs }),
           });
     } catch {
       outcome = { state: 'failed', reason: 'unsupported' };
@@ -849,14 +853,18 @@ export function createViewer({ onExit }) {
       stretched ? null : catalog?.display,
     );
   }
+  // A user's pointer moves: at most one every 8 ms. The latency probe's drag strokes use this
+  // path too, so they measure what a hand gets.
   let lastMove = 0;
+  function userMove(point) {
+    if (performance.now() - lastMove < 8) return;
+    lastMove = performance.now();
+    send({ type: 'move', ...point });
+  }
   $('video').onpointermove = (event) => {
     if (!enabled || performance.now() - lastMove < 8) return;
     const point = position(event);
-    if (point) {
-      lastMove = performance.now();
-      send({ type: 'move', ...point });
-    }
+    if (point) userMove(point);
   };
   // Touch: dragging only moves the cursor and a quick tap clicks. To drag and
   // drop, either tap then touch again and drag (like a touchpad), or hold still

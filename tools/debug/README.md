@@ -65,16 +65,27 @@ group and is the only holder of its owner pipe.
 The probe page Diagnostics shows
 ([latency-probe-page.js](../../apps/web-client/src/latency-probe-page.js)) and the viewer's
 probe module ([latency-probe.js](../../apps/web-client/src/viewer/latency-probe.js), which owns
-the layout) measure two latencies on a real session, on the stream the viewer is showing:
+the layout) measure latency on a real session, on the stream the viewer is showing:
 
 - **Hand-to-glass**: the viewer sends input, the probe page changes a patch, and the
   viewer times it from sending to the first decoded frame that shows the change
   (`requestVideoFrameCallback`'s `expectedDisplayTime`), on its own clock. Pointer moves
   (between the page's left and right halves) and key presses (L) are timed separately,
   because they will travel differently.
+- **Drags**: the viewer moves the pointer in strokes as a hand does, easing in and out over
+  0.4 to 0.9 seconds, one point per display frame through the same path and 8 ms throttle as
+  a user's pointer moves. The probe page paints the pointer's position, so for each frame
+  the viewer knows when the hand was where the screen shows the cursor: **cursor behind the
+  hand** is that lag, from the middle of each stroke, and **hand stops to cursor there** is
+  the time from the hand reaching a stroke's end to a frame showing the cursor there. No
+  button is held, so a stroke can't drag anything if the probe page goes away; a move takes
+  the same path either way.
 - **Glass-to-glass**: the page draws a barcode of the host's clock every frame, and the viewer
-  compares it with its own clock as each frame is shown. This is exact only when the viewer runs
-  on the host itself; on another device it includes the difference between the two clocks.
+  compares it with its own clock as each frame is shown, corrected by the offset between the
+  two clocks. The viewer measures that offset against the server, which runs on the host's
+  clock: six `POST /api/latency-clock` checks before the run and six after, keeping the one
+  with the shortest round trip, whose half is the uncertainty Diagnostics shows. Without a
+  clock check there are no glass-to-glass figures, rather than figures off by the offset.
 
 A measurement is started from the host, never from the viewer:
 
@@ -84,18 +95,22 @@ A measurement is started from the host, never from the viewer:
 2. On the viewer, turn on keyboard & mouse, and keep your hands off the screen.
 3. In Diagnostics, pick the viewer's stream and click **Measure latency** in the **Latency**
    section. The page goes full screen and shows the probe page (a grey screen with a barcode
-   at the top left and two patches at the top right) before it asks the viewer to start. The
-   layout is in fractions of the screen, which is why it must fill it.
+   at the top left, two patches at the top right and a row of cells below the barcode)
+   before it asks the viewer to start. The layout is in fractions of the screen, which is
+   why it must fill it.
 
-When the measurement ends, done or failed, Diagnostics leaves full screen and shows the
-outcome. Esc leaves early and cancels the measurement ("Cancelled in Diagnostics.").
+The probe page counts down the time left ("About 30 s left") from the length the viewer
+plans when it starts. When the measurement ends, done or failed, Diagnostics leaves full
+screen and shows the outcome. Esc leaves early and cancels the measurement ("Cancelled in
+Diagnostics.").
 
 The viewer learns of the request in the reply to its next stream-telemetry post (every 2
 seconds), loads the probe module, which a normal session never fetches and the server serves
 only while that session has a measurement, and shows "Measuring latency for the host. Keep
 your hands off the screen." with **Cancel**. It then runs 40 moves and 40 key presses with
-random pauses of 150 to 400 ms, and posts the results. Diagnostics shows the median, p95,
-range and count of each, the glass-to-glass figures, the receiver's decode rate,
+random pauses of 150 to 400 ms, then 8 drag strokes with pauses of 300 to 600 ms, about 40
+seconds in all, and posts the results. Diagnostics shows the median, p95, range and count of
+each, the glass-to-glass figures and the viewer's clock offset, the receiver's decode rate,
 jitter-buffer delay, decode time, round trip and losses over the run, and the run's own
 overhead: the time each frame read took, and the frames the probe missed. The last five runs
 are listed with **Copy as JSON**. The viewer shows no results.
@@ -103,29 +118,36 @@ are listed with **Copy as JSON**. The viewer shows no results.
 A measurement fails, with the reason shown in Diagnostics, when the viewer doesn't hold
 keyboard and mouse control, can't read the probe page within 2 seconds, has no
 `requestVideoFrameCallback`, isn't showing that stream, loses control or switches stream
-during the run, or is cancelled on the viewer or in Diagnostics. One that no viewer picks up within 15 seconds, or that
-sends no result within 120 seconds, expires. The viewer starts no new trial after 100 seconds and
-reports what it has, and it stops before sending anything if the server has already ended the
-measurement. One measurement runs at a time.
+during the run, or is cancelled on the viewer or in Diagnostics. One that no viewer picks up
+within 15 seconds, or that sends no result within 120 seconds, expires. The viewer starts no
+new trial or stroke after 100 seconds and reports what it has, and it stops before sending
+anything if the server has already ended the measurement. A stroke whose end doesn't reach
+the screen within 2 seconds counts as a drag without a change. One measurement runs at a
+time.
 
 The probe sends input only while the device holds control, through the normal input path and
 its checks, and stops if the first key press doesn't flip the patch, or if the probe page
-leaves the screen for 2 seconds during the run, so it doesn't keep typing into another window. Frames are read only during a run, on a GPU-backed canvas, so only
-a 128 × 72 scaled copy is read back. Hand-to-glass includes the probe page's own
-input-to-paint time, as any app would, but not the viewer's mouse or display hardware.
-**To last packet** is the same timing up to the arrival of the frame's last packet (Chrome
-only), so the rest is the viewer's jitter buffer, decode and render.
+leaves the screen for 2 seconds during the run, so it doesn't keep typing into another
+window. Frames are read only during a run, on a GPU-backed canvas, so only a 128 × 72 scaled
+copy is read back. Hand-to-glass includes the probe page's own input-to-paint time, as any
+app would, but not the viewer's mouse or display hardware. **To last packet** is the same
+timing up to the arrival of the frame's last packet (Chrome only), so the rest is the
+viewer's jitter buffer, decode and render.
 
-Verified: the probe page paints what the viewer reads, at several screen sizes, by
+Verified: the probe page paints what the viewer reads, including the pointer's position, at
+several screen sizes, by
 [latency-probe-page.test.mjs](../../apps/web-client/tests/latency-probe-page.test.mjs); the
-run's checks, cancel, lost control and a probe page that leaves the screen by
+run's checks, cancel, lost control, a probe page that leaves the screen, drag strokes, a
+stroke whose end is dropped, the clock correction and the planned length by
 [latency-probe.test.mjs](../../apps/web-client/tests/latency-probe.test.mjs); the request,
 banner and cancel in a real browser by
 [stream-browser-check.mjs](../../apps/web-client/tests/stream-browser-check.mjs). Diagnostics'
-full-screen probe page was checked once in headless Chromium (Playwright): a screenshot
-decoded to the PC's clock, L and the pointer flipped the patches, leaving full screen
-cancelled, and an ended or refused measurement left full screen. Not yet run against a live
-session or on an iPhone.
+full-screen probe page was checked in headless Chromium (Playwright): a screenshot decoded to
+the PC's clock and the pointer's position, L and the pointer flipped the patches, the
+countdown followed the planned length, leaving full screen cancelled, and an ended or refused
+measurement left full screen. A live session from an iPhone (Safari, iOS 18.7, 1080p at 30
+fps) measured hand-to-glass at a median of 78 ms for moves and 82 ms for key presses, before
+drags and the clock check were added; those are not yet run against a live session.
 
 ## Implementation contract
 

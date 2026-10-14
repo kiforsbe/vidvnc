@@ -1,12 +1,18 @@
 // The latency probe page, shown full screen inside Diagnostics while a measurement runs: a
-// barcode of this PC's clock, a patch that flips on each press of L, and one that follows the
-// half of the screen the pointer is in. The viewer reads them from the stream
+// barcode of this PC's clock, a patch that flips on each press of L, one that follows the
+// half of the screen the pointer is in, and a row of cells with the pointer's x. The viewer reads them from the stream
 // (viewer/latency-probe.js, which owns the layout). See tools/debug/README.md#latency-probe.
 
-import { GRID, LAYOUT, PROBE_KEY, encodeTimestamp } from './viewer/latency-probe.js';
+import {
+  GRID,
+  LAYOUT,
+  PROBE_KEY,
+  encodePosition,
+  encodeTimestamp,
+} from './viewer/latency-probe.js';
 
 // Paints one frame on a `width` × `height` canvas.
-export function paintProbe(context, width, height, { time, key, move }) {
+export function paintProbe(context, width, height, { time, key, move, x }) {
   const cell = (column, row, white) => {
     // Whole pixels, so neighbouring cells never blend.
     const x = Math.round((column * width) / GRID.columns),
@@ -33,6 +39,9 @@ export function paintProbe(context, width, height, { time, key, move }) {
   encodeTimestamp(time).forEach((bit, index) =>
     cell(column + 2 + (index % perRow), row + Math.floor(index / perRow), bit === 1),
   );
+  encodePosition(x).forEach((bit, index) =>
+    cell(LAYOUT.position.column + index, LAYOUT.position.row, bit === 1),
+  );
   patch(LAYOUT.keyPatch, key === 1);
   patch(LAYOUT.movePatch, move === 1);
 }
@@ -51,6 +60,7 @@ export async function showProbe(layer, { onExit = () => {} } = {}) {
   const context = canvas.getContext('2d');
   let key = 0,
     move = 0,
+    x = 0.5,
     frame = 0,
     closed = false;
   layer.hidden = false;
@@ -68,7 +78,7 @@ export async function showProbe(layer, { onExit = () => {} } = {}) {
       canvas.width = width;
       canvas.height = height;
     }
-    paintProbe(context, width, height, { time: Date.now(), key, move });
+    paintProbe(context, width, height, { time: Date.now(), key, move, x });
   };
   const loop = () => {
     draw();
@@ -82,9 +92,8 @@ export async function showProbe(layer, { onExit = () => {} } = {}) {
     draw();
   };
   const onMove = (event) => {
-    const next = moveHalf(event.clientX, window.innerWidth);
-    if (next === move) return;
-    move = next;
+    x = event.clientX / window.innerWidth;
+    move = moveHalf(event.clientX, window.innerWidth);
     draw();
   };
   const onChange = () => {

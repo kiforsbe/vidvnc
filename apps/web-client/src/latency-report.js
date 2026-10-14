@@ -19,10 +19,20 @@ const number = (value, digits = 1) =>
 const withUnit = (value, unit, digits = 1) =>
   typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(digits)} ${unit}` : '—';
 
-export function describeState(measurement) {
+// Whole seconds left of a running measurement's planned length, or null when it has none.
+function secondsLeft(measurement, now) {
+  if (!Number.isFinite(measurement.plannedMs) || !Number.isFinite(measurement.runningAt))
+    return null;
+  return Math.max(0, Math.ceil((measurement.runningAt + measurement.plannedMs - now) / 1000));
+}
+
+export function describeState(measurement, now = Date.now()) {
   if (!measurement) return 'No measurement yet.';
   if (measurement.state === 'requested') return 'Waiting for the viewer…';
-  if (measurement.state === 'running') return 'Measuring…';
+  if (measurement.state === 'running') {
+    const left = secondsLeft(measurement, now);
+    return left ? `Measuring… about ${left} s left` : 'Measuring…';
+  }
   if (measurement.state === 'done') return 'Done';
   return REASONS[measurement.reason] ?? 'Failed.';
 }
@@ -38,28 +48,44 @@ function timingRow(label, timing) {
   ];
 }
 
+// The line on the full-screen probe page while it is shown: `measurement` is the active one,
+// or null before the server has it.
+export function countdown(measurement, now = Date.now()) {
+  if (!measurement) return 'Starting…';
+  if (measurement.state === 'requested') return 'Waiting for the viewer…';
+  const left = secondsLeft(measurement, now);
+  if (left === null) return 'Measuring…';
+  return left ? `About ${left} s left` : 'Finishing…';
+}
+
 // [label, median, p95, range, count], in milliseconds.
 export function resultRows(results) {
   return [
     timingRow('Moves · hand to glass', results.handToGlassMs.move),
     timingRow('Key presses · hand to glass', results.handToGlassMs.key),
+    timingRow('Drags · cursor behind the hand', results.dragMs.follow),
+    timingRow('Drags · hand stops to cursor there', results.dragMs.settle),
     timingRow('Moves · hand to last packet', results.handToReceiveMs.move),
     timingRow('Key presses · hand to last packet', results.handToReceiveMs.key),
-    timingRow(
-      'Glass to glass (exact only when the viewer runs on this PC)',
-      results.glassToGlassMs,
-    ),
+    timingRow('Glass to glass', results.glassToGlassMs),
     timingRow('Time per frame read', results.overhead.callbackMs),
   ];
 }
 
 // [label, value] for the figures that are not timings.
 export function detailRows(results) {
-  const { receiver } = results;
+  const { receiver, clock } = results;
+  const drags = results.timeouts.drag;
   return [
     [
       'Trials without a change',
-      `${results.timeouts.move} moves, ${results.timeouts.key} key presses`,
+      `${results.timeouts.move} moves, ${results.timeouts.key} key presses, ${drags} ${drags === 1 ? 'drag' : 'drags'}`,
+    ],
+    [
+      'Viewer clock',
+      clock
+        ? `${Math.abs(clock.offsetMs).toFixed(1)} ms ${clock.offsetMs > 0 ? 'behind' : 'ahead of'} this PC, ± ${clock.uncertaintyMs.toFixed(1)} ms (glass to glass is corrected)`
+        : 'Not checked, so no glass to glass',
     ],
     ['Frames the probe missed', String(results.overhead.skippedFrames)],
     ['Decode rate', withUnit(receiver.decodeFps, 'fps')],
