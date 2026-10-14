@@ -151,6 +151,7 @@ test('an invalid report fails the measurement as invalid-report', () => {
     { state: 'failed', reason: 'bored' },
     { state: 'finished' },
     { state: 'running', reason: 'cancelled' },
+    { state: 'running', extra: 1 },
   ]) {
     const { probes } = setup();
     probes.request('v1', 's1');

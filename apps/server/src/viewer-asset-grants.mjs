@@ -46,17 +46,22 @@ export class ViewerAssetGrants {
   }
 
   allows(cookieHeader, peer, sessionStore) {
+    return this.sessionFor(cookieHeader, peer, sessionStore) !== null;
+  }
+
+  // The session a valid grant belongs to, or null.
+  sessionFor(cookieHeader, peer, sessionStore) {
     const value = readViewerCookie(cookieHeader);
     const normalized = normalizePeer(peer);
-    if (!value || !normalized) return false;
+    if (!value || !normalized) return null;
     const grant = this.#byToken.get(value);
-    if (!grant || grant.peer !== normalized) return false;
+    if (!grant || grant.peer !== normalized) return null;
     const session = sessionStore.peek(grant.sessionId);
     if (!session) {
       this.revoke(grant.sessionId);
-      return false;
+      return null;
     }
-    return normalizePeer(session.clientKey) === normalized;
+    return normalizePeer(session.clientKey) === normalized ? grant.sessionId : null;
   }
 
   revoke(sessionId) {

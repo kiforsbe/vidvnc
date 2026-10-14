@@ -8,6 +8,7 @@ import { LATENCY_REASONS, validateLatencyResults } from './latency-results.mjs';
 const PICKUP_TIMEOUT_MS = 15_000;
 const RUN_TIMEOUT_MS = 120_000;
 const HISTORY = 5;
+const REPORT_FIELDS = ['streamId', 'id', 'state', 'reason', 'results'];
 
 function invalidReport() {
   return new Error('Invalid latency report');
@@ -60,7 +61,8 @@ export class LatencyProbes {
     return { id: active.id };
   }
 
-  report(sessionId, { streamId, id, state, reason, results } = {}) {
+  report(sessionId, report = {}) {
+    const { streamId, id, state, reason, results } = report;
     this.#settle();
     const active = this.#active;
     if (
@@ -71,7 +73,9 @@ export class LatencyProbes {
     )
       return false;
     try {
-      if (
+      if (Object.keys(report).some((key) => !REPORT_FIELDS.includes(key))) {
+        throw invalidReport();
+      } else if (
         state === 'running' &&
         active.state === 'requested' &&
         reason === undefined &&

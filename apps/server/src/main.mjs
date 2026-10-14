@@ -17,6 +17,7 @@ import {
 import { waitForOwner } from './owner-start.mjs';
 import { applySharingMode } from './sharing-mode.mjs';
 import { StreamRuntime } from './stream-runtime.mjs';
+import { LatencyProbes } from './latency-probes.mjs';
 import { AccessSettings, mediaPortOf } from './access-settings.mjs';
 import { MediaRelay, relayLaunch } from './media-relay.mjs';
 import { watchParent } from './parent-watch.mjs';
@@ -177,6 +178,10 @@ async function serve() {
       videoBackends: info.backends,
     });
     const ownerSecurity = createOwnerSecurityCommands({ store, approvedClients, runtime });
+    // Latency measurements started from Diagnostics; one ends when its stream does.
+    const latencyProbes = new LatencyProbes({
+      isLive: (sessionId, streamId) => runtime.registry.get(sessionId, streamId)?.state === 'live',
+    });
     const port = Number(process.env.VIDVNC_PORT || 4382);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid VIDVNC_PORT');
     const tlsSettings = await loadTlsSettings(files.tls, {
@@ -206,6 +211,7 @@ async function serve() {
       hostPreference,
       appOptions: {
         runtime,
+        latencyProbes,
         serverName: hostname(),
         sessionStore: store,
         media,

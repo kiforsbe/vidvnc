@@ -10,6 +10,7 @@ import { DisplayInventory } from '../src/displays.mjs';
 import { defaultStreamPolicy } from '../src/stream-policy.mjs';
 import { DiagnosticsCapabilities } from '../src/diagnostics-capabilities.mjs';
 import { createDiagnosticsHttp } from '../src/diagnostics-http.mjs';
+import { LatencyProbes } from '../src/latency-probes.mjs';
 
 const videoSdp = [
   'v=0',
@@ -22,7 +23,7 @@ const videoSdp = [
   'a=rtpmap:111 opus/48000/2',
 ].join('\r\n');
 
-test('authenticated stream routes isolate owners and cannot bypass the stream runtime', async (t) => {
+async function startStreamServer(t, { clock = Date.now } = {}) {
   const sessions = new SessionStore({ maxSessions: 2 });
   const media = new NativeMedia({
     maxWorkers: 6,
@@ -59,9 +60,13 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
       minimums: { h264: { width: 64, height: 64 } },
     },
   ];
-  const runtime = new StreamRuntime({ sessions, media, inventory, policy, videoBackends });
+  const runtime = new StreamRuntime({ sessions, media, inventory, policy, videoBackends, clock });
   const diagnosticsCapabilities = new DiagnosticsCapabilities();
   const diagnosticsToken = diagnosticsCapabilities.issue().token;
+  const latencyProbes = new LatencyProbes({
+    isLive: (sessionId, streamId) => runtime.registry.get(sessionId, streamId)?.state === 'live',
+    now: clock,
+  });
   const server = createHttpApp({
     sessionStore: sessions,
     media,
@@ -69,6 +74,7 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
     policy,
     runtime,
     diagnosticsCapabilities,
+    latencyProbes,
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const diagnosticsServer = createDiagnosticsHttp({ runtime, diagnosticsCapabilities });
@@ -87,6 +93,23 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
       },
       body: JSON.stringify(body),
     });
+  const url = `http://127.0.0.1:${server.address().port}`;
+  return {
+    sessions,
+    media,
+    runtime,
+    server,
+    diagnosticsServer,
+    diagnosticsToken,
+    latencyProbes,
+    post,
+    url,
+  };
+}
+
+test('authenticated stream routes isolate owners and cannot bypass the stream runtime', async (t) => {
+  const { sessions, media, runtime, diagnosticsServer, diagnosticsToken, post } =
+    await startStreamServer(t);
   assert.equal((await post('streams')).status, 401);
   const a = await (await post('key-start', { key: sessions.password })).json();
   const b = await (await post('key-start', { key: sessions.password })).json();
@@ -191,4 +214,107 @@ test('authenticated stream routes isolate owners and cannot bypass the stream ru
   assert.equal((await post('heartbeat', {}, a.sessionId)).status, 200);
   assert.equal((await post('disconnect', {}, a.sessionId)).status, 204);
   assert.equal(media.workers.size, 0);
+});
+
+test('a latency measurement reaches its viewer once, and only then is the probe module served', async (t) => {
+  let now = 1_000_000;
+  const clock = () => now;
+  const { sessions, latencyProbes, post, url } = await startStreamServer(t, { clock });
+  const admit = async () => {
+    const response = await post('key-start', { key: sessions.password });
+    return {
+      ...(await response.json()),
+      cookie: response.headers.get('set-cookie').split(';', 1)[0],
+    };
+  };
+  const a = await admit();
+  const b = await admit();
+  const stream = await (
+    await post('stream-offer', { sdp: videoSdp, profile: 'mobile' }, a.sessionId)
+  ).json();
+  const probeModule = (cookie) => fetch(url + '/viewer/latency-probe.js', { headers: { cookie } });
+  const telemetry = async () => {
+    now += 1_000;
+    return post('stream-telemetry', { streamId: stream.streamId, decodeFps: 30 }, a.sessionId);
+  };
+  const result = (body, token = a.sessionId) => post('latency-result', body, token);
+
+  assert.equal((await telemetry()).status, 204);
+  assert.equal((await probeModule(a.cookie)).status, 404, 'no measurement, no module');
+  const { id } = latencyProbes.request(stream.streamId, a.sessionId);
+  assert.equal((await probeModule(a.cookie)).status, 200);
+  assert.equal((await probeModule(b.cookie)).status, 404, "another session's grant");
+  const pickup = await telemetry();
+  assert.equal(pickup.status, 200);
+  assert.deepEqual(await pickup.json(), { latencyProbe: { id } });
+  assert.equal((await telemetry()).status, 204, 'the request is delivered once');
+
+  assert.equal(
+    (await result({ streamId: stream.streamId, id: 'wrong', state: 'running' })).status,
+    404,
+  );
+  assert.equal(
+    (await result({ streamId: stream.streamId, id, state: 'running' }, b.sessionId)).status,
+    404,
+  );
+  assert.equal(
+    (await result({ streamId: stream.streamId, id, state: 'running' }, null)).status,
+    401,
+  );
+  assert.equal((await result({ streamId: stream.streamId, id, state: 'running' })).status, 204);
+  const tooLarge = await result({
+    streamId: stream.streamId,
+    id,
+    state: 'done',
+    pad: 'x'.repeat(9 * 1024),
+  });
+  assert.equal(tooLarge.status, 413);
+  assert.equal(latencyProbes.snapshot(stream.streamId).active.state, 'running');
+  const timing = { count: 1, min: 5, median: 5, p95: 5, max: 5 };
+  const results = {
+    handToGlassMs: { move: timing, key: timing },
+    handToReceiveMs: { move: timing, key: timing },
+    glassToGlassMs: timing,
+    timeouts: { move: 0, key: 0 },
+    overhead: { callbackMs: timing, skippedFrames: 0 },
+    receiver: {
+      decodeFps: 30,
+      jitterBufferMs: null,
+      decodeMs: null,
+      rttMs: null,
+      lostInterval: null,
+      framesDropped: null,
+    },
+    video: { width: 1280, height: 720 },
+    browser: 'test',
+  };
+  assert.equal(
+    (await result({ streamId: stream.streamId, id, state: 'done', results })).status,
+    204,
+  );
+  assert.equal(latencyProbes.snapshot(stream.streamId).history[0].state, 'done');
+  assert.equal((await probeModule(a.cookie)).status, 404, 'the module goes with the measurement');
+  assert.equal(
+    (await result({ streamId: stream.streamId, id, state: 'failed', reason: 'cancelled' })).status,
+    404,
+    'a late report changes nothing',
+  );
+
+  // An invalid body is a 400 and fails the measurement.
+  const second = latencyProbes.request(stream.streamId, a.sessionId);
+  const invalid = await result({
+    streamId: stream.streamId,
+    id: second.id,
+    state: 'running',
+    extra: 1,
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal(latencyProbes.snapshot(stream.streamId).history[0].reason, 'invalid-report');
+
+  // A stream that ends ends its measurement, and the module is gone (Review focus 1).
+  latencyProbes.request(stream.streamId, a.sessionId);
+  assert.equal((await probeModule(a.cookie)).status, 200);
+  assert.equal((await post('stream-stop', { streamId: stream.streamId }, a.sessionId)).status, 204);
+  assert.equal((await probeModule(a.cookie)).status, 404);
+  assert.equal(latencyProbes.snapshot(stream.streamId).history[0].reason, 'ended');
 });

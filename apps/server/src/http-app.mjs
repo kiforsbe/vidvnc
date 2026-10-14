@@ -132,12 +132,12 @@ function trustOffer(report) {
   };
 }
 
-async function readJson(request) {
+async function readJson(request, limit = 128 * 1024) {
   let size = 0,
     text = '';
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 128 * 1024) throw Object.assign(new Error('Request too large'), { status: 413 });
+    if (size > limit) throw Object.assign(new Error('Request too large'), { status: 413 });
     text += chunk;
   }
   let value;
@@ -154,6 +154,8 @@ async function readJson(request) {
 // takes a short code (the standing password, a one-time code or a setup code), so internet
 // admission is approved-device sign-in only. Device setup therefore happens on the local
 // network, like certificate enrolment (already local-only through TRUST_ONLY_PATHS).
+const LATENCY_PROBE_ASSET = '/viewer/latency-probe.js';
+const LATENCY_RESULT_LIMIT = 8 * 1024;
 export const INTERNET_REFUSED_PATHS = Object.freeze(['/api/key-start']);
 const HSTS_MAX_AGE_SECONDS = 180 * 24 * 60 * 60;
 
@@ -188,6 +190,9 @@ export function createHttpApp({
   peerNetwork = createPeerNetwork({ interfaces }),
   // Injectable for tests; production resolves the public names with DNS.
   resolvePublicIpv4 = null,
+  // Latency measurements started from Diagnostics (latency-probes.mjs). Omitted, the probe
+  // module is never served and no measurement reaches a viewer.
+  latencyProbes = null,
 } = {}) {
   if (!['local', 'public'].includes(listenerScope)) throw new Error('Invalid listener scope');
   if (!['lan-http', 'https-required'].includes(plaintextMode))
@@ -389,8 +394,16 @@ export function createHttpApp({
       if (request.method === 'GET' && viewerFile) {
         const peer = request.socket.remoteAddress;
         const cookie = request.headers.cookie;
-        if (!viewerGrants.allows(cookie, peer, sessionStore))
-          return send(response, 404, { error: 'Not found' });
+        // The latency probe is served only to a session with a measurement requested or
+        // running; to everyone else it does not exist.
+        const allowed = () => {
+          const sessionId = viewerGrants.sessionFor(cookie, peer, sessionStore);
+          return (
+            sessionId !== null &&
+            (route !== LATENCY_PROBE_ASSET || latencyProbes?.allowsAsset(sessionId) === true)
+          );
+        };
+        if (!allowed()) return send(response, 404, { error: 'Not found' });
         let body;
         try {
           body = await assetReader(
@@ -400,8 +413,7 @@ export function createHttpApp({
           if (error.code === 'ENOENT') return send(response, 404, { error: 'Not found' });
           throw error;
         }
-        if (!viewerGrants.allows(cookie, peer, sessionStore))
-          return send(response, 404, { error: 'Not found' });
+        if (!allowed()) return send(response, 404, { error: 'Not found' });
         response.writeHead(200, {
           'content-type': viewerFile.endsWith('.js')
             ? 'text/javascript'
@@ -523,6 +535,7 @@ export function createHttpApp({
           '/api/stream-stop',
           '/api/stream-select',
           '/api/stream-telemetry',
+          '/api/latency-result',
           '/api/control-request',
           '/api/control-release',
         ].includes(route)
@@ -548,14 +561,15 @@ export function createHttpApp({
         return send(response, 429, { error: 'Try again later or request a new host code.' });
       if (!request.headers['content-type']?.startsWith('application/json'))
         return (keyAttempt?.finish(null, false), send(response, 415, { error: 'JSON required' }));
-      if (Number(request.headers['content-length']) > 128 * 1024) {
+      const bodyLimit = route === '/api/latency-result' ? LATENCY_RESULT_LIMIT : 128 * 1024;
+      if (Number(request.headers['content-length']) > bodyLimit) {
         request.resume();
         keyAttempt?.finish(null, false);
         return send(response, 413, { error: 'Request too large' });
       }
       let body;
       try {
-        body = await readJson(request);
+        body = await readJson(request, bodyLimit);
       } catch (error) {
         keyAttempt?.finish(null, false);
         throw error;
@@ -751,9 +765,23 @@ export function createHttpApp({
             await runtime.stopStream(token, body.streamId);
             return sendIfLive(204);
           }
-          return runtime.record(token, body.streamId, body)
+          if (!runtime.record(token, body.streamId, body))
+            return send(response, 429, { error: 'Sample rate exceeded or stream inactive' });
+          // A latency measurement asked for in Diagnostics rides on the reply, once.
+          const latencyProbe = latencyProbes?.pickup(token, body.streamId);
+          return latencyProbe ? send(response, 200, { latencyProbe }) : send(response, 204);
+        }
+        if (route === '/api/latency-result') {
+          if (!latencyProbes) return send(response, 404, { error: 'Not found' });
+          let accepted;
+          try {
+            accepted = latencyProbes.report(token, body);
+          } catch {
+            return send(response, 400, { error: 'Invalid latency report' });
+          }
+          return accepted
             ? send(response, 204)
-            : send(response, 429, { error: 'Sample rate exceeded or stream inactive' });
+            : send(response, 404, { error: 'Unknown measurement' });
         }
         if (route === '/api/heartbeat')
           return send(response, 200, {

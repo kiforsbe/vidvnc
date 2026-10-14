@@ -100,7 +100,6 @@ test('viewer assets require a live session grant while cookies cannot authorize 
       '/viewer/codec-preferences.js',
       '/viewer/profile-labels.js',
       '/viewer/stage-geometry.js',
-      '/viewer/latency-probe.js',
     ];
     for (const asset of assets) assert.equal((await fetch(url + asset)).status, 404, asset);
     const admission = await post(url + '/api/key-start', { key: server.sessionStore.password });
@@ -124,6 +123,11 @@ test('viewer assets require a live session grant while cookies cannot authorize 
       404,
     );
     assert.equal((await fetch(url + '/viewer/unknown.js', { headers: { cookie } })).status, 404);
+    // Served only during a latency measurement (stream-http.test.mjs).
+    assert.equal(
+      (await fetch(url + '/viewer/latency-probe.js', { headers: { cookie } })).status,
+      404,
+    );
     assert.equal((await post(url + '/api/profiles', {}, null, { cookie })).status, 401);
     server.sessionStore.disconnect((await admission.json()).sessionId);
     for (const asset of assets)

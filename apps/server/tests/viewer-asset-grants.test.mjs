@@ -72,3 +72,20 @@ test('viewer cookie is host-only, path-limited, HTTP-only and secure only on HTT
     'vidvnc-viewer=; Path=/viewer; HttpOnly; SameSite=Strict; Max-Age=0; Secure',
   );
 });
+
+test('sessionFor names the session a valid grant belongs to, and null whenever allows refuses', () => {
+  const sessions = new SessionStore();
+  const id = sessions.connectApproved({ id: 'client-1', generation: 0 }, '127.0.0.1').sessionId;
+  const grants = new ViewerAssetGrants();
+  const header = 'vidvnc-viewer=' + grants.issue(id, '127.0.0.1');
+  assert.equal(grants.sessionFor(header, '::ffff:127.0.0.1', sessions), id);
+  for (const [cookie, peer] of [
+    [undefined, '127.0.0.1'],
+    [header + '; ' + header, '127.0.0.1'],
+    [header, '192.168.1.1'],
+    [header, null],
+  ])
+    assert.equal(grants.sessionFor(cookie, peer, sessions), null);
+  sessions.disconnect(id);
+  assert.equal(grants.sessionFor(header, '127.0.0.1', sessions), null);
+});
