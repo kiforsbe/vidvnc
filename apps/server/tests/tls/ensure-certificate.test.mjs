@@ -18,6 +18,9 @@ const fixture = (relativePath) =>
 function autoSettings(overrides) {
   return { ...defaultTlsSettings(), mode: 'auto', ...overrides };
 }
+function mkcertSettings(overrides) {
+  return { ...defaultTlsSettings(), mode: 'mkcert', ...overrides };
+}
 function providedSettings(overrides) {
   return { ...defaultTlsSettings(), mode: 'provided', ...overrides };
 }
@@ -86,11 +89,11 @@ test('the default strategy order is provided, then mkcert, then the platform sel
   );
 });
 
-test('in auto mode, strategies are consulted in order: provided, then mkcert, then self-signed', () => {
+test('in auto mode, strategies are consulted in order: provided, then self-signed, and never mkcert', () => {
   const log = [];
   const strategies = [
     fakeStrategy('provided', { available: false, log }),
-    fakeStrategy('mkcert', { available: true, result: failResult('mkcert not installed'), log }),
+    neverCalledStrategy('mkcert'),
     fakeStrategy('windows-self-signed', {
       available: true,
       result: okResult('windows-self-signed'),
@@ -104,8 +107,50 @@ test('in auto mode, strategies are consulted in order: provided, then mkcert, th
   assert.equal(result.strategy, 'windows-self-signed');
   assert.deepEqual(
     log.map((entry) => entry.strategy),
-    ['provided', 'mkcert', 'mkcert', 'windows-self-signed', 'windows-self-signed'],
+    ['provided', 'windows-self-signed', 'windows-self-signed'],
   );
+});
+
+// mkcert's anchor is a certificate authority that can sign for any website, so it is used
+// only when the operator asks for it by name, never because mkcert happens to be installed.
+test('"mkcert" mode consults only mkcert, found by identity, and wins on it', () => {
+  const strategies = [
+    neverCalledStrategy('provided'),
+    neverCalledStrategy('windows-self-signed'), // deliberately first — position must not matter
+    fakeStrategy('mkcert', { available: true, result: okResult('mkcert') }),
+  ];
+
+  const result = ensureCertificate(mkcertSettings(), { strategies });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.strategy, 'mkcert');
+});
+
+test('"mkcert" mode reports a failing mkcert and never falls back to a self-signed certificate', () => {
+  const strategies = [
+    neverCalledStrategy('provided'),
+    fakeStrategy('mkcert', { available: true, result: failResult('mkcert -CAROOT exited 1') }),
+    neverCalledStrategy('windows-self-signed'),
+  ];
+
+  const result = ensureCertificate(mkcertSettings(), { strategies });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.credential, null);
+  assert.deepEqual(result.reasons, [{ strategy: 'mkcert', reason: 'mkcert -CAROOT exited 1' }]);
+  assert.match(result.reason, /mkcert -CAROOT exited 1/);
+});
+
+test('"mkcert" mode with mkcert not installed reports it as unavailable', () => {
+  const strategies = [
+    fakeStrategy('mkcert', { available: false }),
+    neverCalledStrategy('windows-self-signed'),
+  ];
+
+  const result = ensureCertificate(mkcertSettings(), { strategies });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.reasons, [{ strategy: 'mkcert', reason: 'mkcert is not available' }]);
 });
 
 test('"provided" short-circuits: its failure is reported and nothing else is ever consulted', () => {
@@ -169,15 +214,13 @@ test('"provided" mode ignores an unrelated strategy inserted before "provided" i
   assert.equal(result.strategy, 'provided');
 });
 
-test('a failing mkcert falls through to self-signed and records why', () => {
-  const log = [];
+test('a strategy that fails in auto mode falls through to the next and records why', () => {
   const strategies = [
-    fakeStrategy('provided', { available: false, log }),
-    fakeStrategy('mkcert', { available: true, result: failResult('mkcert -CAROOT exited 1'), log }),
+    fakeStrategy('provided', { available: false }),
+    fakeStrategy('some-future-strategy', { available: true, result: failResult('it failed') }),
     fakeStrategy('windows-self-signed', {
       available: true,
       result: okResult('windows-self-signed'),
-      log,
     }),
   ];
 
@@ -191,14 +234,14 @@ test('a failing mkcert falls through to self-signed and records why', () => {
   });
   assert.deepEqual(result.reasons, [
     { strategy: 'provided', reason: 'provided is not available' },
-    { strategy: 'mkcert', reason: 'mkcert -CAROOT exited 1' },
+    { strategy: 'some-future-strategy', reason: 'it failed' },
   ]);
 });
 
 test('total failure returns no credential and a reason, rather than throwing', () => {
   const strategies = [
     fakeStrategy('provided', { available: false }),
-    fakeStrategy('mkcert', { available: true, result: failResult('mkcert not installed') }),
+    neverCalledStrategy('mkcert'),
     fakeStrategy('windows-self-signed', {
       available: true,
       result: failResult('PowerShell unavailable'),
@@ -214,9 +257,9 @@ test('total failure returns no credential and a reason, rather than throwing', (
   assert.equal(result.credential, null);
   assert.equal(result.anchor, null);
   assert.equal(typeof result.reason, 'string');
-  assert.match(result.reason, /mkcert not installed/);
+  assert.match(result.reason, /provided is not available/);
   assert.match(result.reason, /PowerShell unavailable/);
-  assert.equal(result.reasons.length, 3);
+  assert.equal(result.reasons.length, 2);
 });
 
 test('mode "off" produces no credential without consulting any strategy at all', () => {
@@ -244,21 +287,21 @@ test('the returned report names the winning strategy and, via anchorReport, carr
   const anchor = new X509Certificate(readFileSync(fixture('valid/cert.pem')));
   const strategies = [
     fakeStrategy('provided', { available: false }),
-    fakeStrategy('mkcert', {
+    neverCalledStrategy('mkcert'),
+    fakeStrategy('windows-self-signed', {
       available: true,
       result: { ok: true, credential: { cert: 'c', key: 'k' }, anchor, warnings: [] },
     }),
-    neverCalledStrategy('windows-self-signed'),
   ];
 
   const result = ensureCertificate(autoSettings(), { strategies });
   assert.equal(result.ok, true);
-  assert.equal(result.strategy, 'mkcert');
+  assert.equal(result.strategy, 'windows-self-signed');
   assert.equal(result.anchor, anchor);
 
   const report = anchorReport(result);
   assert.equal(report.active, true);
-  assert.equal(report.strategy, 'mkcert');
+  assert.equal(report.strategy, 'windows-self-signed');
   assert.equal(report.anchor, anchor);
   assert.equal(report.fingerprint, certificateFingerprint(anchor));
 });
@@ -313,8 +356,8 @@ function reissueScenario(triggerState) {
     // returns false, matching its real behaviour outside "provided" mode) — only its
     // `provision` must never run, since it never becomes available here.
     fakeStrategy('provided', { available: false }),
-    reuseAwareStrategy('mkcert', state),
-    neverCalledStrategy('windows-self-signed'),
+    neverCalledStrategy('mkcert'),
+    reuseAwareStrategy('windows-self-signed', state),
   ];
   const result = ensureCertificate(autoSettings(), { strategies });
   return { result, state };
@@ -361,7 +404,7 @@ test('every strategy is called uniformly with the same settings and deps object,
   const receivedDeps = [];
   const settings = autoSettings();
   const deps = { readFile: () => {}, now: () => new Date() };
-  const strategies = ['provided', 'mkcert', 'windows-self-signed'].map((name) => ({
+  const strategies = ['provided', 'some-future-strategy', 'windows-self-signed'].map((name) => ({
     name,
     isAvailable(s, d) {
       receivedSettings.push(s);
@@ -412,12 +455,16 @@ test('force is forwarded to the strategy that provisions, and defaults to false'
     const seen = [];
     const strategies = [
       forceRecordingStrategy('provided', { available: false, seen }),
-      forceRecordingStrategy('mkcert', { result: okResult('mkcert'), seen }),
+      forceRecordingStrategy('windows-self-signed', {
+        result: okResult('windows-self-signed'),
+        seen,
+      }),
     ];
     const result = ensureCertificate(autoSettings(), { ...deps, strategies });
     assert.equal(result.ok, true);
     assert.equal(
-      seen.find((entry) => entry.strategy === 'mkcert' && entry.call === 'provision').force,
+      seen.find((entry) => entry.strategy === 'windows-self-signed' && entry.call === 'provision')
+        .force,
       expected,
     );
   }
@@ -429,7 +476,10 @@ test('force is never forwarded to the provided strategy, even when the caller as
   // never told to regenerate. An operator-supplied certificate is loaded, not generated.
   const strategies = [
     forceRecordingStrategy('provided', { result: okResult('provided'), seen }),
-    forceRecordingStrategy('mkcert', { result: okResult('mkcert'), seen }),
+    forceRecordingStrategy('windows-self-signed', {
+      result: okResult('windows-self-signed'),
+      seen,
+    }),
   ];
   const result = ensureCertificate(autoSettings(), { force: true, strategies });
   assert.equal(result.strategy, 'provided');
@@ -471,11 +521,11 @@ test('every other dep is still forwarded unchanged alongside force', () => {
   let received;
   const strategies = [
     {
-      name: 'mkcert',
+      name: 'windows-self-signed',
       isAvailable: () => true,
       provision(settings, deps) {
         received = deps;
-        return okResult('mkcert');
+        return okResult('windows-self-signed');
       },
     },
   ];
@@ -483,4 +533,12 @@ test('every other dep is still forwarded unchanged alongside force', () => {
   assert.equal(received.readFile, readFile);
   assert.equal(received.now, now);
   assert.equal(received.force, true);
+});
+
+test('force in mkcert mode reaches mkcert, so its leaf is reissued from the same CA', () => {
+  const seen = [];
+  const strategies = [forceRecordingStrategy('mkcert', { result: okResult('mkcert'), seen })];
+  const result = ensureCertificate(mkcertSettings(), { force: true, strategies });
+  assert.equal(result.strategy, 'mkcert');
+  assert.equal(seen.find((entry) => entry.call === 'provision').force, true);
 });

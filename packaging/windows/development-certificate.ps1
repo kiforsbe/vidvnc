@@ -6,13 +6,22 @@
     Local Machine > Trusted People. "install" adds the certificate there and "uninstall"
     removes it. VidVNC packages that are already installed keep working either way.
     Run from PowerShell opened as administrator.
+
+    Anyone can make a certificate with the same name, so "install" shows the certificate's
+    thumbprint and trusts it only once you confirm that it matches the thumbprint published
+    with the VidVNC release, or once -Thumbprint matches it.
 .PARAMETER Action
     install or uninstall.
+.PARAMETER Thumbprint
+    The published thumbprint to check the certificate against, instead of being asked.
+    Spaces and colons are ignored.
 .PARAMETER Certificate
     The public .cer file. Defaults to VidVNC-Development.cer next to this script (where the
     build puts both, beside the MSIX), otherwise the one "npm run package:prepare" creates.
 .EXAMPLE
     .\packaging\windows\development-certificate.ps1 install
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\VidVNC-Development-Certificate.ps1 install -Thumbprint <published thumbprint>
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\VidVNC-Development-Certificate.ps1 uninstall
 #>
@@ -21,7 +30,8 @@ param(
     [Parameter(Mandatory, Position = 0)]
     [ValidateSet('install', 'uninstall')]
     [string] $Action,
-    [string] $Certificate
+    [string] $Certificate,
+    [string] $Thumbprint
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +60,20 @@ if ($Action -eq 'install') {
     if ($trusted.Count) {
         Write-Host "Already trusted: $name"
         return
+    }
+    Write-Host "Certificate: $($file.Subject)"
+    Write-Host "Thumbprint:  $($file.Thumbprint)"
+    if ($Thumbprint) {
+        if (($Thumbprint -replace '[\s:]', '').ToUpperInvariant() -ne $file.Thumbprint) {
+            throw "This certificate's thumbprint is not $Thumbprint. Don't trust it: it was not made by whoever published that thumbprint."
+        }
+    }
+    else {
+        $answer = Read-Host 'Compare the thumbprint above with the one published with this VidVNC release. Type yes if they match'
+        if ($answer -ne 'yes') {
+            Write-Host 'Nothing was changed.'
+            return
+        }
     }
     Import-Certificate -FilePath $Certificate -CertStoreLocation $store | Out-Null
     Write-Host "Trusted $name until $($file.NotAfter.ToString('yyyy-MM-dd')). You can now open the VidVNC .msix to install it."

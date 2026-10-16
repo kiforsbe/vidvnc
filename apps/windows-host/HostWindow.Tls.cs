@@ -132,6 +132,7 @@ public sealed partial class HostWindow
     static string TlsModeLabel(string mode) => mode switch
     {
         "auto" => "Automatic",
+        "mkcert" => "Your mkcert local CA",
         "provided" => "Certificate you supplied",
         _ => "Off",
     };

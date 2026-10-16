@@ -29,8 +29,14 @@
 // walked with the exact same two calls, `isAvailable(settings, deps)` then
 // `provision(settings, deps)` — no strategy gets special-cased inside that walk.
 //
-// The one piece of mode-driven gating that happens *before* the walk: in `provided`
-// mode, only the strategy named `provided` is ever a candidate. `mkcert.mjs` and
+// `mkcert` is a candidate only in `mkcert` mode, never in `auto`. Its anchor is mkcert's
+// root CA, and a device that trusts that root accepts any certificate the root's key signs,
+// for any website; its subject also names the operator's account and computer. So a device
+// is never handed a CA just because mkcert happens to be installed: `auto` issues the
+// platform's self-signed leaf, which can only identify this host.
+//
+// The mode-driven gating happens *before* the walk: in `provided` mode, only the strategy
+// named `provided` is a candidate, and in `mkcert` mode only `mkcert`. `mkcert.mjs` and
 // `windows-self-signed.mjs` both decide their own availability purely by probing the
 // environment (does the binary resolve, is this Windows), not by consulting
 // `settings.mode` at all — that boundary was set deliberately in Task 5
@@ -148,13 +154,16 @@ export function ensureCertificate(settings, deps = {}) {
     return report({ ok: false, attempted: false });
   }
 
-  // Mode `provided`: only the strategy named `provided` is ever a candidate, found by
-  // identity rather than position — see the module-level comment above for why. In every
-  // other mode every strategy is a candidate; `provided` naturally excludes itself
-  // outside `provided` mode via its own `isAvailable(settings)`, so no restriction is
-  // needed on that side.
+  // Modes `provided` and `mkcert`: only the strategy of that name is a candidate, found by
+  // identity rather than position — see the module-level comment above for why. A failure
+  // in either is reported, never replaced by a generated certificate. Mode `auto` walks
+  // every strategy but `mkcert`; `provided` excludes itself outside `provided` mode via its
+  // own `isAvailable(settings)`, so no restriction is needed on that side.
+  const mode = settings?.mode;
   const candidates =
-    settings?.mode === 'provided' ? strategies.filter((s) => s.name === 'provided') : strategies;
+    mode === 'provided' || mode === 'mkcert'
+      ? strategies.filter((s) => s.name === mode)
+      : strategies.filter((s) => s.name !== 'mkcert');
 
   const reasons = [];
   for (const strategy of candidates) {

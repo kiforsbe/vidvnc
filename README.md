@@ -92,7 +92,10 @@ includes Node.js does not need Node.js installed.
    powershell -ExecutionPolicy Bypass -File .\VidVNC-Development-Certificate.ps1 install
    ```
 
-   Run it with `uninstall` to stop trusting the certificate.
+   It shows the certificate's thumbprint and asks you to confirm it: compare it with the
+   thumbprint published with the release, and trust it only if they match (or pass the
+   published one with `-Thumbprint`). Run it with `uninstall` to stop trusting the
+   certificate.
 
 2. Open the `.msix` file and choose **Install**. It installs for your account only.
 3. Open **VidVNC** from the Start menu.
@@ -280,7 +283,7 @@ server print above the prompt. Type `help` for the full list:
   `connection-mode [session-key|one-time-keys|approved-only]`, `max-devices [1-8]`
 - Sign-in codes and passwords: `code-alphabet`, `code-ttl`, `code-attempts`,
   `code-source-attempts`, `session-password-attempts`, `local-session-networks`
-- HTTPS: `tls`, `tls-mode [auto|provided|off]`, `tls-port`, `tls-cert <cert> <key>`,
+- HTTPS: `tls`, `tls-mode [auto|mkcert|provided|off]`, `tls-port`, `tls-cert <cert> <key>`,
   `tls-pfx <pfx> [passphrase]`
 - Public login label: `public-name [name]`
 - Remote access (off by default; see [remote access](docs/security/remote-access.md)):
@@ -331,6 +334,11 @@ HTTPS login page can read it. Keep personal names, internal hostnames, and
 location details out of this label. The login page and `/api/info` show only
 this label; display details, profiles, and the viewer load after admission.
 The TLS certificate can still list the machine hostname and interface IPs.
+`tls-mode auto` (the default) makes a self-signed certificate for this host only.
+`tls-mode mkcert` uses [mkcert](https://github.com/FiloSottile/mkcert)'s local CA instead,
+so a reissued certificate needs no new enrolment, but every device then trusts a CA that can
+sign for any website, and its name includes your account and computer name. Choose it only
+if you accept that ([strategies](docs/ARCHITECTURE.md#strategy-order-and-reissue)).
 Read commands accept `--json`, and `config show --json` prints all saved settings. For
 scripts, use `npm run -s config -- …` or `node apps/server/src/main.mjs config …`;
 plain `npm run` prints its own banner first, which breaks JSON output.
@@ -409,27 +417,48 @@ Plugin allowlist, license mapping, prerequisites and MSIX identity live in
 
 #### Development certificate
 
-`npm run package:prepare` creates `.deps/signing/vidvnc-development.pfx` and `.cer` if
-either is missing ([prepare.mjs](packaging/windows/prepare.mjs)). It builds the
-certificate with .NET's `CertificateRequest` in Windows PowerShell and writes only
-these files; no certificate store is changed.
+`npm run package:prepare` creates the certificate if it is missing
+([prepare.mjs](packaging/windows/prepare.mjs)). It builds it with .NET's
+`CertificateRequest` in Windows PowerShell, keeps the private key in your own certificate
+store, `Cert:\CurrentUser\My`, and writes only the public
+`.deps/signing/vidvnc-development.cer`. It prints the certificate's thumbprint.
 
 - Subject `CN=VidVNC Development`, which must match `msix.publisher` in
   `packaging/windows/inputs.json`
 - RSA 3072-bit key, SHA-256, code signing only, not a certificate authority
 - Valid for two years from when it is created
 
-The `.pfx` holds the private key without a password. `.deps/` is git-ignored; never
-commit or share the `.pfx`. `package:app` signs the MSIX with it
-(`signtool sign /fd SHA256`, no timestamp) and copies the `.cer` beside the package.
-To trust it on a PC, run `packaging\windows\development-certificate.ps1 install` from
-an administrator PowerShell; it imports the `.cer` into **Local Machine > Trusted
-People**. `uninstall` removes it again.
+`package:app` signs the MSIX with the key in the store whose thumbprint matches the `.cer`
+(`signtool sign /fd SHA256 /sha1 <thumbprint> /s My`, no timestamp) and copies the `.cer`
+beside the package. An older checkout kept the key in a passwordless
+`.deps/signing/vidvnc-development.pfx`; `package:prepare` moves that key into the store and
+deletes the file, so the certificate and its thumbprint stay the same.
 
-To replace the certificate, for example before it expires, first run `uninstall` on
-each PC that trusts it. Then delete both files in `.deps/signing`, run
-`npm run package:prepare` and rebuild the MSIX. Because the MSIX is not timestamped,
-packages signed with an expired certificate cannot be installed.
+The name in the certificate proves nothing, since anyone can make one with the same name.
+Publish the thumbprint with each release (for example in its notes) and give it to the
+people who install the package. `development-certificate.ps1 install` shows the thumbprint
+and trusts the certificate only after it is confirmed, or with
+`-Thumbprint <published thumbprint>` once it matches. It imports the `.cer` into **Local
+Machine > Trusted People**, from an administrator PowerShell; `uninstall` removes it again.
+
+The key is exportable, so you can back it up or move it to another PC. Export it with a
+password and keep the file somewhere safe, never in the repository:
+
+```powershell
+Export-PfxCertificate -Cert Cert:\CurrentUser\My\<thumbprint> -FilePath vidvnc-signing.pfx -Password (Read-Host -AsSecureString)
+```
+
+On the other PC, import it and copy the `.cer` into `.deps/signing`:
+
+```powershell
+Import-PfxCertificate -FilePath vidvnc-signing.pfx -CertStoreLocation Cert:\CurrentUser\My -Exportable -Password (Read-Host -AsSecureString)
+```
+
+To replace the certificate, for example before it expires, first run `uninstall` on each
+PC that trusts it. Then delete `.deps/signing/vidvnc-development.cer`, remove the old
+certificate from `Cert:\CurrentUser\My`, run `npm run package:prepare`, rebuild the MSIX
+and publish the new thumbprint. Because the MSIX is not timestamped, packages signed with
+an expired certificate cannot be installed.
 
 ### Mac packages
 

@@ -1163,20 +1163,21 @@ compromised browser or phone) is out of scope.
 
 ### Assets
 
-| Asset                           | Where it lives                                                                             | Sensitivity                                                                                                   |
-| ------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Desktop video and system audio  | GPU memory in the worker, then DTLS-SRTP to the viewer                                     | High: anything on screen, including other secrets                                                             |
-| Input injection capability      | `SendInput` in the worker, gated by the control lease                                      | Critical: equivalent to the user's own keyboard and mouse                                                     |
-| Standing session password       | Server memory only; regenerated on every server start; shown in the host UI                | High: admits LAN clients in `session-key` mode                                                                |
-| One-time and setup codes        | Server memory as SHA-256 digests; the plaintext is shown once to the owner                 | High until used or expired (300 s default)                                                                    |
-| Approved-device credential      | Client: device secret in IndexedDB plus the user's password. Host: `approved-clients.json` | High: long-lived remote identity                                                                              |
-| Session bearer token            | Client page memory; server memory                                                          | High for its lifetime (seconds after the last request)                                                        |
-| Viewer grant cookie             | Client cookie jar (`HttpOnly`); server memory                                              | Medium: loads viewer assets only, not the API                                                                 |
-| TLS private key                 | Per-user state directory (PFX and passphrase sidecar, or mkcert/provided files)            | High: impersonating the host to enrolled devices                                                              |
-| Trust anchor certificate        | Served at `/trust` to local peers; installed on client devices                             | Public, but its integrity matters                                                                             |
-| Diagnostics bearer              | Owner's browser; server memory as a SHA-256 digest                                         | Medium: local diagnostics for 15 minutes, and asking a viewer that holds control to run a latency measurement |
-| Host policy and access settings | `%LOCALAPPDATA%\VidVNC\*.json`                                                             | Medium: decide who may connect and how                                                                        |
-| Server log                      | `%LOCALAPPDATA%\VidVNC\...\server.log` (desktop host only)                                 | Low: lifecycle messages, no secrets by design                                                                 |
+| Asset                           | Where it lives                                                                                  | Sensitivity                                                                                                   |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Desktop video and system audio  | GPU memory in the worker, then DTLS-SRTP to the viewer                                          | High: anything on screen, including other secrets                                                             |
+| Input injection capability      | `SendInput` in the worker, gated by the control lease                                           | Critical: equivalent to the user's own keyboard and mouse                                                     |
+| Standing session password       | Server memory only; regenerated on every server start; shown in the host UI                     | High: admits LAN clients in `session-key` mode                                                                |
+| One-time and setup codes        | Server memory as SHA-256 digests; the plaintext is shown once to the owner                      | High until used or expired (300 s default)                                                                    |
+| Approved-device credential      | Client: device secret in IndexedDB plus the user's password. Host: `approved-clients.json`      | High: long-lived remote identity                                                                              |
+| Session bearer token            | Client page memory; server memory                                                               | High for its lifetime (seconds after the last request)                                                        |
+| Viewer grant cookie             | Client cookie jar (`HttpOnly`); server memory                                                   | Medium: loads viewer assets only, not the API                                                                 |
+| TLS private key                 | Per-user state directory (PFX and passphrase sidecar, or mkcert/provided files)                 | High: impersonating the host to enrolled devices                                                              |
+| MSIX development signing key    | The packager's `Cert:\CurrentUser\My` (exportable, for backups); never a file in the repository | High: signing packages that PCs which trust the certificate install                                           |
+| Trust anchor certificate        | Served at `/trust` to local peers; installed on client devices                                  | Public, but its integrity matters                                                                             |
+| Diagnostics bearer              | Owner's browser; server memory as a SHA-256 digest                                              | Medium: local diagnostics for 15 minutes, and asking a viewer that holds control to run a latency measurement |
+| Host policy and access settings | `%LOCALAPPDATA%\VidVNC\*.json`                                                                  | Medium: decide who may connect and how                                                                        |
+| Server log                      | `%LOCALAPPDATA%\VidVNC\...\server.log` (desktop host only)                                      | Low: lifecycle messages, no secrets by design                                                                 |
 
 ### Actors and trust levels
 
@@ -1646,6 +1647,8 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T25 | Project website          | T      | Publish misleading instructions or a harmful link on the project's site                                                          | Built only from `main` by the Website workflow; only its deploy job can publish; the page hosts no downloads and loads nothing from other sites                                                                                                                                                                                                            | —                                                                                                            |
 | T26 | Latency results (B1)     | T      | A viewer sends forged or hostile results for a latency measurement                                                               | Accepted only for the session's active measurement id, learned from the server; fixed fields, bounded numbers, 8 KiB, a 200-character browser string shown as text; memory only ([latency-probes.mjs](../apps/server/src/latency-probes.mjs))                                                                                                              | Misleading numbers in Diagnostics                                                                            |
 | T27 | Diagnostics bearer (B6)  | E      | A stolen diagnostics bearer makes a controlling viewer send probe input                                                          | The viewer runs only while it already holds keyboard and mouse control, through the normal input path (lease, allow-lists, rate limit); it shows a banner with Cancel, and stops within about 2 seconds of the probe page leaving the screen; the bearer is short-lived, issued only by the host and the local CLI, and sent only to `127.0.0.1`           | Up to about 100 seconds of pointer moves and L presses on the host (usually about 30), visible on the viewer |
+| T28 | Trust anchor (B3)        | S, I   | Use a certificate a device installed to impersonate other websites to it                                                         | `auto` never hands out a CA: the self-signed leaf has critical `CA:FALSE` and no certificate-signing key usage; mkcert's CA is used only after `tls-mode mkcert`, and its warning says it can sign for any site                                                                                                                                            | A device that trusts mkcert's CA trusts whoever holds that CA's key                                          |
+| T29 | Windows packages         | S, T   | Pass off a modified MSIX as VidVNC with a look-alike certificate of the same name                                                | The trust script shows the certificate's thumbprint and trusts it only after it is confirmed against the published one; the signing key stays in the owner's certificate store, not a file                                                                                                                                                                 | A user who trusts an unverified certificate can install anything signed with it                              |
 
 ### Residual risk and open items
 
@@ -1723,20 +1726,27 @@ exists to authenticate, so those routes remain reachable locally in the clear
 
 #### Strategy order and reissue
 
-Provisioning tries strategies in a fixed order — `provided`, then `mkcert`, then the
-platform's self-signed strategy, `windows-self-signed` on Windows and `self-signed`
-elsewhere — and uses the first one that is available and succeeds
+The TLS mode picks the strategies
 ([ensure-certificate.mjs](../apps/server/src/tls/ensure-certificate.mjs),
-`defaultStrategies`). In `provided` mode only the `provided` strategy is ever a
-candidate, so a failure there is reported rather than silently replaced by a generated
-certificate. In every other mode all three are tried in that order:
+`defaultStrategies`). `auto` (the default) uses the platform's self-signed strategy,
+`windows-self-signed` on Windows and `self-signed` elsewhere. `provided` and `mkcert` each
+use only the strategy of that name, so a failure there is reported rather than silently
+replaced by a generated certificate:
 
-| Strategy              | Condition                                          | Anchor a device must trust         |
-| --------------------- | -------------------------------------------------- | ---------------------------------- |
-| `provided`            | Operator configured a certificate and key (or PFX) | Whatever their CA chain already is |
-| `mkcert`              | `mkcert` resolves on `PATH`                        | The mkcert local root CA           |
-| `windows-self-signed` | Always available on Windows                        | The leaf certificate itself        |
-| `self-signed`         | Every platform but Windows (macOS)                 | The leaf certificate itself        |
+| Strategy              | Mode       | Condition                                          | Anchor a device must trust         |
+| --------------------- | ---------- | -------------------------------------------------- | ---------------------------------- |
+| `provided`            | `provided` | Operator configured a certificate and key (or PFX) | Whatever their CA chain already is |
+| `mkcert`              | `mkcert`   | `mkcert` resolves on `PATH` and has a local CA     | The mkcert local root CA           |
+| `windows-self-signed` | `auto`     | Always available on Windows                        | The leaf certificate itself        |
+| `self-signed`         | `auto`     | Every platform but Windows (macOS)                 | The leaf certificate itself        |
+
+`mkcert` is never chosen automatically. Its anchor is a certificate authority, so a device
+that trusts it accepts a certificate for any website signed with the CA's key, which mkcert
+keeps unencrypted in the operator's profile. Its subjects also carry the operator's account,
+computer and full name, and the leaf is shown to every TLS client. In `auto` a device only
+ever installs a leaf that can identify this host and nothing else. Before this change `auto`
+tried `mkcert` second; a host that was using it reissues a self-signed leaf on its next start
+under `auto`, and its devices must enrol again.
 
 A credential is reissued — at startup, and again on a periodic re-check — whenever any
 of these holds: it is absent or unreadable; its expiry falls inside the renewal window
@@ -1749,7 +1759,11 @@ type; `ensure-certificate.mjs` only selects a strategy and forwards the result u
 
 The two self-signed strategies make the same certificate as far as a device can tell:
 subject `CN=VidVNC`, every hostname and IP address as a subject alternative name (IPs as
-IP entries), two years' validity, server authentication only. `windows-self-signed`
+IP entries), two years' validity, server authentication only, and a critical
+`basicConstraints` of `CA:FALSE`, so it can never act as a certificate authority even
+though devices install it among their trusted roots (its key usage also leaves out
+certificate signing). A certificate issued before that extension was added keeps working
+and gains it at its next reissue. `windows-self-signed`
 issues it through PowerShell and keeps a PFX with a passphrase sidecar. `self-signed`
 ([self-signed.mjs](../apps/server/src/tls/strategies/self-signed.mjs)) needs no tool: it
 makes a P-256 key with `node:crypto` and writes the certificate with a minimal DER writer
@@ -1813,8 +1827,8 @@ sequenceDiagram
   not.** Under `windows-self-signed` and `self-signed` the certificate is its own trust anchor, so
   reissuing it — which happens automatically near expiry or when an address changes, or
   manually via "regenerate" in the host UI — means every device that enrolled must enrol
-  again. Under `mkcert` the anchor is the stable local CA, so a reissued leaf is still
-  trusted without re-enrolling.
+  again. Under `mkcert` (only when chosen with `tls-mode mkcert`) the anchor is the stable
+  local CA, so a reissued leaf is still trusted without re-enrolling.
 - **Provisioning can freeze the server briefly.** Certificate provisioning shells out to
   external tools (mkcert, Windows PowerShell certificate cmdlets) synchronously, which
   can block the server's event loop for up to roughly 150 seconds in the worst case (each

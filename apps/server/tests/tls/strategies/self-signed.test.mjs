@@ -67,6 +67,9 @@ test('the certificate is a P-256, self-signed, two-year server certificate for e
   assert.equal(certificate.subject, 'CN=VidVNC');
   assert.equal(certificate.issuer, 'CN=VidVNC');
   assert.equal(certificate.ca, false);
+  // basicConstraints is present, critical and CA:FALSE: OID 2.5.29.19, critical TRUE, and an
+  // OCTET STRING holding an empty SEQUENCE.
+  assert.ok(certificate.raw.includes(Buffer.from('0603551d130101ff04023000', 'hex')));
   assert.ok(certificate.verify(certificate.publicKey), 'signed by its own key');
   assert.equal(certificate.publicKey.asymmetricKeyType, 'ec');
   assert.equal(certificate.publicKey.asymmetricKeyDetails.namedCurve, 'prime256v1');

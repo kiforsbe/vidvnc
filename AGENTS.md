@@ -175,7 +175,9 @@ Only cut a release when the owner asks for one. The owner decides the version nu
    pre-release while the version is below 1.0.0. Attach packages only if they were built
    from the tagged commit, and say in the notes that the Windows ones are unsigned development
    builds (the MSIX is signed with a self-signed development certificate); the Mac packages
-   are signed with a Developer ID and notarized.
+   are signed with a Developer ID and notarized. When an MSIX is attached, give the
+   development certificate's thumbprint in the notes (`npm run package:prepare` prints it),
+   so people can check the certificate before they trust it.
 
 9. **Open the next cycle** by adding an empty `## [Unreleased]` heading above the new
    version in the changelog, in the next change that adds an entry.

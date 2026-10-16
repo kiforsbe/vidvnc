@@ -100,6 +100,7 @@ export const formatMaxSessions = (access) =>
 // endpoint (http-app.mjs) already applies to the same underlying settings.
 const TLS_MODE_LABELS = {
   auto: 'Automatic',
+  mkcert: 'mkcert local CA',
   provided: 'Your own certificate',
   off: 'Off (plaintext only)',
 };

@@ -169,6 +169,12 @@ test('the SAN request includes every discovered hostname and IP, with IPs expres
   });
 
   assert.ok(createScript, 'expected New-SelfSignedCertificate to be invoked');
+  // Critical basicConstraints CA:FALSE, in the syntax a real New-SelfSignedCertificate call
+  // turns into "Subject Type=End Entity" (checked against the tool by hand).
+  assert.ok(
+    createScript.includes('"2.5.29.19={critical}{text}ca=0"'),
+    'expected a critical CA:FALSE basicConstraints extension',
+  );
   for (const hostname of discovered.hostnames) {
     assert.ok(
       createScript.includes(`DNS=${hostname}`),

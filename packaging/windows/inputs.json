@@ -156,7 +156,7 @@
     "publisher": "CN=VidVNC Development",
     "publisherDisplayName": "VidVNC (development build)",
     "minimumOSVersion": "10.0.26200.0",
-    "certificate": ".deps/signing/vidvnc-development.pfx"
+    "certificate": ".deps/signing/vidvnc-development.cer"
   },
   "prerequisites": {
     "nodejs": {

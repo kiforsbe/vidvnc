@@ -57,6 +57,7 @@ const OIDS = {
   ecdsaWithSha256: '1.2.840.10045.4.3.2',
   commonName: '2.5.4.3',
   subjectKeyIdentifier: '2.5.29.14',
+  basicConstraints: '2.5.29.19',
   keyUsage: '2.5.29.15',
   subjectAltName: '2.5.29.17',
   authorityKeyIdentifier: '2.5.29.35',
@@ -141,6 +142,9 @@ export function issueCertificate(
     der.explicit(
       3,
       der.sequence(
+        // CA:FALSE, critical: an empty sequence, since DER leaves out the default value.
+        // Devices install this leaf among their trusted roots; it must never act as a CA.
+        extension(OIDS.basicConstraints, der.sequence(), true),
         extension(OIDS.keyUsage, der.namedBits([0]), true),
         extension(OIDS.extKeyUsage, der.sequence(der.oid(OIDS.serverAuth))),
         extension(OIDS.subjectAltName, der.sequence(...names)),

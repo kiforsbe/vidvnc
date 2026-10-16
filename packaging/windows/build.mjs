@@ -9,7 +9,7 @@
 // writes a ZIP holding the MSIX, its certificate and the installers. --include-node bundles
 // the pinned Node.js, used only by the host.
 import { spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { X509Certificate, createHash, randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -201,7 +201,7 @@ const thirdParty = Object.entries(gstreamer.components).map(([id, component]) =>
 // Host: every published file must belong to the project or a NuGet package with a license.
 const hostFiles = [];
 let windowsAppRuntime;
-let tools;
+let tools, signingThumbprint;
 if (server) {
   const name = path.parse(host.executable).name;
   const { runtimeOptions } = readJson(path.join(hostPublish, `${name}.runtimeconfig.json`));
@@ -306,9 +306,26 @@ if (server) {
     return found[0];
   };
   tools = { makeappx: tool('makeappx.exe'), signtool: tool('signtool.exe') };
-  for (const file of [msix.certificate, msix.certificate.replace(/\.pfx$/i, '.cer')])
-    if (!existsSync(fromRoot(file)))
-      throw new Error(`Missing ${file}; run npm run package:prepare`);
+  if (!existsSync(fromRoot(msix.certificate)))
+    throw new Error(`Missing ${msix.certificate}; run npm run package:prepare`);
+  // signtool signs with the key in Cert:\CurrentUser\My that belongs to this certificate.
+  signingThumbprint = new X509Certificate(readFileSync(fromRoot(msix.certificate))).fingerprint
+    .replaceAll(':', '')
+    .toUpperCase();
+  const check = spawnSync(
+    path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'if (-not (Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.Thumbprint -eq $env:VIDVNC_THUMBPRINT -and $_.HasPrivateKey })) { exit 1 }',
+    ],
+    { windowsHide: true, env: { ...process.env, VIDVNC_THUMBPRINT: signingThumbprint } },
+  );
+  if (check.status !== 0)
+    throw new Error(
+      `The signing key for ${msix.certificate} (thumbprint ${signingThumbprint}) is not in Cert:\\CurrentUser\\My; run npm run package:prepare`,
+    );
 }
 
 let nodeBundle;
@@ -573,17 +590,20 @@ if (!server) {
     run(tools.makeappx, ['pack', '/o', '/h', 'SHA256', '/d', stage, '/p', temporary], {
       quiet: true,
     });
-    run(tools.signtool, ['sign', '/fd', 'SHA256', '/f', fromRoot(msix.certificate), temporary], {
-      quiet: true,
-    });
+    run(
+      tools.signtool,
+      ['sign', '/fd', 'SHA256', '/sha1', signingThumbprint, '/s', 'My', temporary],
+      { quiet: true },
+    );
   });
   const certificateFile = path.join(installers, 'VidVNC-Development.cer');
-  copyFileSync(fromRoot(msix.certificate.replace(/\.pfx$/i, '.cer')), certificateFile);
+  copyFileSync(fromRoot(msix.certificate), certificateFile);
   // Trusts or removes the certificate beside it.
   const certificateScript = path.join(installers, 'VidVNC-Development-Certificate.ps1');
   copyFileSync(fromRoot('packaging/windows/development-certificate.ps1'), certificateScript);
   console.log(`Self-signed development MSIX: ${msixFile}\nSHA-256: ${sha256(msixFile)}`);
   console.log(`Development certificate: ${certificateFile} (trust it with ${certificateScript})`);
+  console.log(`Certificate thumbprint: ${signingThumbprint} (publish it with the release)`);
   if (includeInstallers) {
     const bundle = scratchDirectory();
     for (const file of [msixFile, certificateFile, certificateScript])
@@ -613,6 +633,8 @@ function installText(msixName) {
     '1. Once per PC, trust the development certificate. In an administrator PowerShell',
     '   opened in this folder:',
     '   powershell -ExecutionPolicy Bypass -File .\\VidVNC-Development-Certificate.ps1 install',
+    '   It shows the certificate thumbprint. Trust it only if it matches the thumbprint',
+    '   published with this VidVNC release (where you got this file is not proof enough).',
     '2. Install what this PC does not have yet:',
     ...steps,
     `3. Open ${msixName} to install VidVNC, then open VidVNC from the Start menu.`,

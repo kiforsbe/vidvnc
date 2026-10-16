@@ -45,7 +45,7 @@ const msixFile = path.resolve(
       `out/installers/windows-server/${version}/VidVNC-${version}-windows-x64-selfsigned.msix`,
     ),
 );
-const certificate = path.join(root, inputs.msix.certificate.replace(/\.pfx$/i, '.cer'));
+const certificate = path.join(root, inputs.msix.certificate);
 const system = process.env.SystemRoot;
 const powershell = path.join(system, 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');

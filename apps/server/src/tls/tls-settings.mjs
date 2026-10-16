@@ -12,7 +12,7 @@
 // of this validator is what lets "malformed configuration rejected at edit time" (the
 // design goal) stay a cheap, portable check; certificate loading is Task 4's job.
 
-const MODES = Object.freeze(['auto', 'provided', 'off']);
+const MODES = Object.freeze(['auto', 'mkcert', 'provided', 'off']);
 
 // One above the plaintext listener's own default (4382, apps/server/src/main.mjs:93), so
 // the two listeners never collide out of the box and the pair is easy to remember together.
@@ -65,7 +65,7 @@ export function validateTlsSettings(value, { plaintextPort = PLAINTEXT_PORT_DEFA
   );
   const next = { ...DEFAULTS, ...value };
 
-  requireValue(MODES.includes(next.mode), 'TLS mode must be auto, provided or off');
+  requireValue(MODES.includes(next.mode), 'TLS mode must be auto, mkcert, provided or off');
   requireValue(
     Number.isSafeInteger(next.port) && next.port >= 1 && next.port <= 65535,
     'TLS port must be an integer from 1 to 65535',

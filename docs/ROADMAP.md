@@ -216,8 +216,8 @@ default for input access on new connections. These are the basis for control
 permissions, not remembered-device trust or host approval of a device's connection.
 
 **HTTPS and trust provisioning are done.** VidVNC now provisions its own certificate
-automatically (preferring an operator-supplied certificate, then mkcert's local CA, then
-a Windows self-signed certificate), serves a device-aware enrolment page and fingerprint
+automatically (a self-signed certificate for the host; an operator-supplied certificate or
+mkcert's local CA only when chosen with `tls-mode`), serves a device-aware enrolment page and fingerprint
 check at `/trust`, and shows TLS status in both the host UI and the CLI. See
 [ARCHITECTURE.md](ARCHITECTURE.md#tls-and-trust-provisioning) for the detail. `off` mode
 still restores today's plain-HTTP behaviour for anyone who wants it unchanged. This

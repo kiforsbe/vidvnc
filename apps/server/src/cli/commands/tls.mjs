@@ -16,7 +16,7 @@ import {
   tlsSummary,
 } from '../format.mjs';
 
-const TLS_MODES = ['auto', 'provided', 'off'];
+const TLS_MODES = ['auto', 'mkcert', 'provided', 'off'];
 
 // Switching to `provided` leaves whatever certificate settings are already saved (tls-cert
 // or tls-pfx sets them separately); switching away from it clears all three credential
@@ -30,14 +30,14 @@ const modeChanges = (mode) =>
 export const tlsCommands = [
   {
     name: 'tls-mode',
-    usage: 'tls-mode [auto|provided|off]',
+    usage: 'tls-mode [auto|mkcert|provided|off]',
     summary: 'Show or set how TLS certificates are provisioned.',
     where: 'offline',
     json: true,
     run: async (context, { positionals }) => {
       expectArguments(positionals, 0, 1);
       if (positionals.length && !TLS_MODES.includes(positionals[0]))
-        throw new UsageError('Use auto, provided, or off.');
+        throw new UsageError('Use auto, mkcert, provided, or off.');
       const settings = positionals.length
         ? await context.saveTls(modeChanges(positionals[0]))
         : await context.tlsSettings();

@@ -65,8 +65,9 @@ For an internet client:
 
 ## Setup
 
-1. **Keep HTTPS on.** `tls-mode` must be `auto` (the default) or `provided`. With HTTPS
-   off, internet devices can't connect, and the server log says so.
+1. **Keep HTTPS on.** `tls-mode` must be `auto` (the default) or `provided`. Don't use
+   `mkcert` here: its certificate names your account and computer to anyone who connects.
+   With HTTPS off, internet devices can't connect, and the server log says so.
 2. **Set approved-devices-only mode:**
    ```
    connection-mode approved-only

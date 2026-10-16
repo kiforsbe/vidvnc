@@ -605,8 +605,9 @@ test('tls-mode shows and sets the TLS provisioning mode, persisting to tls-setti
     JSON.parse(await readFile(join(directory, 'tls-settings.json'), 'utf8')).mode,
     'off',
   );
+  assert.equal((await run('tls-mode mkcert')).text, 'TLS mode: mkcert local CA');
   assert.equal((await run('tls-mode auto')).text, 'TLS mode: Automatic');
-  await assert.rejects(run('tls-mode bogus'), usage(/^Use auto, provided, or off\./));
+  await assert.rejects(run('tls-mode bogus'), usage(/^Use auto, mkcert, provided, or off\./));
 });
 
 test('tls-mode provided with no certificate configured surfaces the validator message unchanged', async (t) => {
@@ -715,7 +716,10 @@ test('tls status reports a corrupt or invalid on-disk file as invalid, not as Of
   // Valid JSON, but a shape validateTlsSettings rejects.
   await writeFile(file, JSON.stringify({ mode: 'nonsense' }));
   text = (await run('tls')).text;
-  assert.match(text, /^TLS settings file is invalid: TLS mode must be auto, provided or off$/m);
+  assert.match(
+    text,
+    /^TLS settings file is invalid: TLS mode must be auto, mkcert, provided or off$/m,
+  );
   assert.equal(text.includes('TLS mode: Off'), false);
 
   // Valid shape, but the configured port collides with the live plaintext port.

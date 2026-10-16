@@ -20,8 +20,13 @@ test('defaults are auto mode on a sensible, non-colliding port with no certifica
   assert.deepEqual(validateTlsSettings(defaults), defaults);
 });
 
-test('auto and off modes validate as-is and reject any certificate settings', () => {
+test('auto, mkcert and off modes validate as-is and reject any certificate settings', () => {
   assert.deepEqual(validateTlsSettings({ mode: 'auto', port: 4400 }).mode, 'auto');
+  assert.deepEqual(validateTlsSettings({ mode: 'mkcert', port: 4400 }).mode, 'mkcert');
+  assert.throws(
+    () => validateTlsSettings({ mode: 'mkcert', port: 4400, pfxPath: 'a.pfx' }),
+    /provided mode/i,
+  );
   assert.deepEqual(validateTlsSettings({ mode: 'off', port: 4400 }).mode, 'off');
   assert.throws(
     () => validateTlsSettings({ mode: 'off', port: 4400, certificatePath: 'a', keyPath: 'b' }),

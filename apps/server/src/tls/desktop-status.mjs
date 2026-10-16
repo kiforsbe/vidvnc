@@ -60,7 +60,7 @@ const REASONS = {
 //
 // Every field is always present, so the host never has to check which ones exist:
 //
-//   mode            — the configured mode (`auto`/`provided`/`off`). Not part of the
+//   mode            — the configured mode (`auto`/`mkcert`/`provided`/`off`). Not part of the
 //                      listener's own reports, but the host section shows it and decides
 //                      from it whether regenerating is even meaningful.
 //   active, port    — from `status()`: true only while a listener is really bound.

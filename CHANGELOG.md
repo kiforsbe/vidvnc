@@ -17,6 +17,17 @@ may include breaking changes.
   continuous drags, and glass-to-glass latency corrected for the viewer's clock, on the
   selected stream's viewer, which shows a banner with Cancel while it runs, then shows the
   results ([Latency probe](tools/debug/README.md#latency-probe)).
+- `tls-mode mkcert` uses mkcert's local CA for HTTPS, which the automatic mode no longer does
+  ([strategies](docs/ARCHITECTURE.md#strategy-order-and-reissue)).
+
+### Changed
+
+- `npm run package:prepare` keeps the Windows development signing key in your certificate
+  store (`Cert:\CurrentUser\My`, exportable for backups) instead of a `.pfx` file, and moves
+  an existing `.pfx` there; the certificate stays the same
+  ([Development certificate](README.md#development-certificate)).
+- `VidVNC-Development-Certificate.ps1 install` shows the certificate's thumbprint and trusts
+  it only after you confirm it matches the published one, or with `-Thumbprint`.
 
 ### Fixed
 
@@ -27,6 +38,14 @@ may include breaking changes.
   with keyboard & mouse on fills the screen and keeps touch input; with them off it opens
   Safari's video player
   ([iOS notes](docs/investigations/IOS-COMPATIBILITY.md)).
+
+### Security
+
+- With mkcert installed, automatic HTTPS used to give devices mkcert's root CA, which can
+  sign for any website. It now always makes a self-signed certificate for the host, so
+  devices must install the new one from `/trust`; remove mkcert's CA from them.
+- Generated HTTPS certificates now say they are not a certificate authority (critical
+  `CA:FALSE`), from their next reissue.
 
 ## [0.11.1] - 2026-10-13
 

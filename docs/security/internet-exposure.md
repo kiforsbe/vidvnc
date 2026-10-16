@@ -261,29 +261,33 @@ unknown address fails closed as internet.
 ## Findings register
 
 Severity reflects an internet-exposed server under the assumptions above. The **F** findings
-come from the 2026-09-23 and 2026-09-24 reviews; the **R** findings come from the 2026-09-25
-review of the remote access mode.
+come from the 2026-09-23 and 2026-09-24 reviews, F9 to F11 from the 2026-10-16 review of
+certificates and signing; the **R** findings come from the 2026-09-25 review of the remote
+access mode.
 
-| ID  | Finding                                                                       | Severity (at discovery) | Status                                                                   |
-| --- | ----------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------ |
-| R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)     | Fixed; an internet flood can still block _remote_ sign-in while it lasts |
-| R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)    | Contained (`approved-only` required, source check); residual below       |
-| R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                  | Fixed                                                                    |
-| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)       | Mitigated (relay, sandboxed media-net); residual below                   |
-| R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)       | Fixed                                                                    |
-| R6  | Turning remote access off left internet sessions running up to 20 s           | Low                     | Fixed                                                                    |
-| R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)        | Partly fixed (hostname omitted); local IPs remain                        |
-| R8  | The media path is not fully validated on a real network                       | Assurance gap           | **Open**; real-router runs pass, relay included; capture and IPv6 needed |
-| F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                    | Mitigated; the 8-character code trade-off remains (LAN and private only) |
-| F2  | `view-only` changes didn't revoke captured automatic control                  | High                    | Mitigated; a short asynchronous native window remains                    |
-| F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                    | Fixed; LAN enrolment still needs a fingerprint check                     |
-| F4  | A loopback proxy could expose diagnostics                                     | Medium                  | Fixed                                                                    |
-| F5  | An approved-device credential is copyable                                     | Medium                  | Accepted model with mitigations; not device binding                      |
-| F6  | Direct WebRTC had no remote network policy                                    | Medium                  | Implemented (media relay, candidate policy); capture and IPv6 open (R8)  |
-| F7  | Limits could be exhausted; some state had no lifetime                         | Medium                  | Fixed in process; volumetric floods remain                               |
-| F8  | A remote registration was labelled "Local network"                            | Medium (misleading cue) | Fixed                                                                    |
-| —   | Public DNS names and routers' public ports were refused (`403`/`421`)         | Compatibility           | Fixed (`public-hosts`, `public-port`)                                    |
-| —   | No opt-in remote mode                                                         | Design gap              | Fixed (`remote-access`, off by default)                                  |
+| ID  | Finding                                                                       | Severity (at discovery)  | Status                                                                                    |
+| --- | ----------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------- |
+| R1  | One global sign-in budget let anyone lock all approved devices out            | High (availability)      | Fixed; an internet flood can still block _remote_ sign-in while it lasts                  |
+| R2  | Source-NAT on forwarded connections makes internet clients local              | Medium (conditional)     | Contained (`approved-only` required, source check); residual below                        |
+| R3  | Client-supplied ICE candidates reached the worker unfiltered                  | Medium                   | Fixed                                                                                     |
+| R4  | Native ICE/STUN parsing is reachable before authentication on the media ports | Medium (residual)        | Mitigated (relay, sandboxed media-net); residual below                                    |
+| R5  | 100.64.0.0/10 was treated as private                                          | Low (conditional)        | Fixed                                                                                     |
+| R6  | Turning remote access off left internet sessions running up to 20 s           | Low                      | Fixed                                                                                     |
+| R7  | The generated certificate listed the PC's name and local IPs                  | Low (disclosure)         | Partly fixed (hostname omitted); local IPs remain                                         |
+| R8  | The media path is not fully validated on a real network                       | Assurance gap            | **Open**; real-router runs pass, relay included; capture and IPv6 needed                  |
+| F1  | Connection-key guessing and a key-validity oracle bypassed the rate limit     | High                     | Mitigated; the 8-character code trade-off remains (LAN and private only)                  |
+| F2  | `view-only` changes didn't revoke captured automatic control                  | High                     | Mitigated; a short asynchronous native window remains                                     |
+| F3  | HTTPS could degrade to HTTP; enrolment was plaintext                          | High                     | Fixed; LAN enrolment still needs a fingerprint check                                      |
+| F4  | A loopback proxy could expose diagnostics                                     | Medium                   | Fixed                                                                                     |
+| F5  | An approved-device credential is copyable                                     | Medium                   | Accepted model with mitigations; not device binding                                       |
+| F6  | Direct WebRTC had no remote network policy                                    | Medium                   | Implemented (media relay, candidate policy); capture and IPv6 open (R8)                   |
+| F7  | Limits could be exhausted; some state had no lifetime                         | Medium                   | Fixed in process; volumetric floods remain                                                |
+| F8  | A remote registration was labelled "Local network"                            | Medium (misleading cue)  | Fixed                                                                                     |
+| F9  | `auto` TLS mode handed devices mkcert's root CA when mkcert was installed     | High (device-wide trust) | Fixed: mkcert only with `tls-mode mkcert`; devices that installed its CA should remove it |
+| F10 | The MSIX signing key was a passwordless `.pfx` file in the checkout           | Medium                   | Fixed: key in `Cert:\CurrentUser\My`, signed by thumbprint                                |
+| F11 | Nothing checked that a trusted development certificate was the author's       | Medium (impersonation)   | Fixed: thumbprint confirmed before trust; depends on a published thumbprint               |
+| —   | Public DNS names and routers' public ports were refused (`403`/`421`)         | Compatibility            | Fixed (`public-hosts`, `public-port`)                                                     |
+| —   | No opt-in remote mode                                                         | Design gap               | Fixed (`remote-access`, off by default)                                                   |
 
 ## Open and residual findings
 
@@ -454,6 +458,24 @@ the public host avoids the rest.
    VPN. An external penetration test is advisable before advertising internet use.
 
 ## Verification record
+
+- **2026-10-16, `main`, certificates and signing (F9 to F11), owner's Windows 11 PC:**
+  - Portable tests: `npm test` 1079 passed, 0 failed (4 skipped), including the new strategy
+    selection tests (`auto` never consults mkcert; `mkcert` mode never falls back) and the
+    `CA:FALSE` checks for both self-signed strategies.
+  - By hand on Windows: `New-SelfSignedCertificate` with the strategy's `basicConstraints`
+    text extension gives a critical "End Entity" extension; the throwaway certificate was
+    removed from the store.
+  - By hand, `prepare.mjs` in a scratch copy with a throwaway publisher: creating a
+    certificate, finding it again, moving an old passwordless `.pfx` into the store
+    (same thumbprint, file deleted), and reporting a missing key all behaved as intended;
+    both a created and a moved key exported with `Export-PfxCertificate`, and
+    `signtool sign /sha1 <thumbprint> /s My` signed a test binary with it. Every test
+    certificate was removed from the store afterwards.
+  - **Not yet run:** `npm run package:prepare` and `npm run package:app` on the real
+    checkout (this moves the owner's key into the store), the trust script's `install`
+    from an administrator PowerShell, `npm run test:host`, and the Windows host build with
+    its new mode label. No device has enrolled under the new `auto` certificate yet.
 
 - **2026-10-11, `claude/macos-phase-4`, media-net and relay sandbox on macOS, owner's Mac
   (macOS 27, Apple Silicon), development build:**

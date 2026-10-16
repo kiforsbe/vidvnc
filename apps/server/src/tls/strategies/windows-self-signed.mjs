@@ -69,6 +69,12 @@ const STORE_LOCATION = 'Cert:\\CurrentUser\\My';
 // (`IPAddress=...`) rather than DNS names that merely look like one.
 const SUBJECT_ALT_NAME_OID = '2.5.29.17';
 
+// A critical "basic constraints: end entity" (CA:FALSE) extension, so no verifier can take
+// this certificate for a certificate authority, even though devices install it in their
+// store of trusted roots. Its key usage already leaves out certificate signing; this says
+// the same thing in the extension every verifier checks first.
+const BASIC_CONSTRAINTS_EXTENSION = '2.5.29.19={critical}{text}ca=0';
+
 const SUBJECT = 'CN=VidVNC';
 const VALIDITY_YEARS = 2;
 
@@ -178,7 +184,7 @@ function createSelfSignedCertificate({ spawnSync, sanExtensionText }) {
     `$cert = New-SelfSignedCertificate ` +
     `-CertStoreLocation ${powerShellSingleQuoted(STORE_LOCATION)} ` +
     `-Subject ${powerShellSingleQuoted(SUBJECT)} ` +
-    `-TextExtension @(${powerShellDoubleQuoted(sanExtensionText)}) ` +
+    `-TextExtension @(${powerShellDoubleQuoted(sanExtensionText)}, ${powerShellDoubleQuoted(BASIC_CONSTRAINTS_EXTENSION)}) ` +
     `-KeyExportPolicy Exportable ` +
     `-KeyUsage DigitalSignature,KeyEncipherment ` +
     `-Type SSLServerAuthentication ` +
