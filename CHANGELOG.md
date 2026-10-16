@@ -5,6 +5,13 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Fixed
+
+- `npm run package` no longer stops with "The signing key … is not in Cert:\CurrentUser\My"
+  when run from PowerShell 7 while the key is there.
+
 ## [0.12.0] - 2026-10-16
 
 ### Added

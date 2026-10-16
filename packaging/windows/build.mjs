@@ -312,13 +312,15 @@ if (server) {
   signingThumbprint = new X509Certificate(readFileSync(fromRoot(msix.certificate))).fingerprint
     .replaceAll(':', '')
     .toUpperCase();
+  // Through .NET's X509Store, not the Cert: drive: run from PowerShell 7, the inherited
+  // PSModulePath stops Windows PowerShell loading the module that provides that drive.
   const check = spawnSync(
     path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
     [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      'if (-not (Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.Thumbprint -eq $env:VIDVNC_THUMBPRINT -and $_.HasPrivateKey })) { exit 1 }',
+      "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store 'My', 'CurrentUser'; $store.Open('ReadOnly'); $found = @($store.Certificates.Find('FindByThumbprint', $env:VIDVNC_THUMBPRINT, $false) | Where-Object HasPrivateKey).Count; $store.Close(); if (-not $found) { exit 1 }",
     ],
     { windowsHide: true, env: { ...process.env, VIDVNC_THUMBPRINT: signingThumbprint } },
   );
