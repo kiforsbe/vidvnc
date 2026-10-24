@@ -5,7 +5,7 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
-## [Unreleased]
+## [0.12.2] - 2026-10-24
 
 ### Changed
 
@@ -15,8 +15,9 @@ may include breaking changes.
   ([scope and deployment](packaging/windows/README.md#msi-identity-and-installation)).
 - Windows packaging defaults to one unsigned MSI and one CLI ZIP, both including Node.js;
   `npm run package:msix` builds an unsigned MSIX explicitly ([Windows packages](README.md#windows-packages)).
-- Windows builds use pinned winbuildtools v0.5.0-beta.1 (prerelease), adding native setup,
-  repair/remove and installation Details pages without creating signing keys or prerequisite-installer variants ([packaging](packaging/windows/README.md)).
+- Windows builds use pinned winbuildtools v0.5.0-beta.1 (prerelease), adding native setup
+  and repair/remove pages with the app logo and an optional Run VidVNC checkbox;
+  destination editing and completion Details are disabled ([packaging](packaging/windows/README.md)).
 
 ### Fixed
 
