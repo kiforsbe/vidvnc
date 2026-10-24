@@ -540,31 +540,29 @@ for (const [label, credential] of [
   ['a certificate and key that do not belong together', MISMATCHED],
   ['unparseable garbage', { cert: 'not a certificate', key: 'not a key' }],
 ]) {
-  test(
-    `${label} on the very first bind leaves the process alive but HTTP viewer unavailable`,
-    { timeout: 5000 },
-    async (t) => {
-      // The real createServer, exactly as main.mjs uses it: this is the call that throws
-      // synchronously for such a credential, and that used to reject the whole attempt
-      // and, through a fire-and-forget caller, crash the server.
-      const { listener, log, created } = makeListener(t, {
-        ensureCertificate: fakeEnsure(ok(credential)),
-      });
-      await assert.doesNotReject(listener.attempt());
+  test(`${label} on the very first bind leaves the process alive but HTTP viewer unavailable`, {
+    timeout: 5000,
+  }, async (t) => {
+    // The real createServer, exactly as main.mjs uses it: this is the call that throws
+    // synchronously for such a credential, and that used to reject the whole attempt
+    // and, through a fire-and-forget caller, crash the server.
+    const { listener, log, created } = makeListener(t, {
+      ensureCertificate: fakeEnsure(ok(credential)),
+    });
+    await assert.doesNotReject(listener.attempt());
 
-      assert.deepEqual(listener.status(), { active: false, port: null });
-      assert.equal(created.length, 0, 'no server was left behind');
-      const text = log.lines.join('\n');
-      assert.match(text, /TLS configuration error \(/);
-      assert.match(text, /HTTP viewer.*disabled/);
+    assert.deepEqual(listener.status(), { active: false, port: null });
+    assert.equal(created.length, 0, 'no server was left behind');
+    const text = log.lines.join('\n');
+    assert.match(text, /TLS configuration error \(/);
+    assert.match(text, /HTTP viewer.*disabled/);
 
-      // Trust remains available, but the viewer cannot fall back to plaintext.
-      const plaintext = await startPlaintext(t, listener);
-      const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
-      assert.equal(response.status, 503);
-      assert.equal((await fetch(plaintext.url + '/trust')).status, 200);
-    },
-  );
+    // Trust remains available, but the viewer cannot fall back to plaintext.
+    const plaintext = await startPlaintext(t, listener);
+    const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
+    assert.equal(response.status, 503);
+    assert.equal((await fetch(plaintext.url + '/trust')).status, 200);
+  });
 }
 
 test('a mismatched pair names the OpenSSL cause, so the operator can act on the log line', async (t) => {
@@ -573,66 +571,60 @@ test('a mismatched pair names the OpenSSL cause, so the operator can act on the 
   assert.match(log.lines.join('\n'), /key values mismatch/i);
 });
 
-test(
-  'an unbindable port (listen throws synchronously) is survived and logged, not thrown',
-  { timeout: 5000 },
-  async (t) => {
-    const { listener, log } = makeListener(t, {
-      settings: settingsFor({ port: 70000 }), // out of range: listen() throws, not an 'error' event
-      ensureCertificate: fakeEnsure(ok(VALID)),
-    });
-    await assert.doesNotReject(listener.attempt());
-    assert.equal(listener.status().active, false);
-    assert.match(log.lines.join('\n'), /TLS listener error on port 70000/);
-  },
-);
+test('an unbindable port (listen throws synchronously) is survived and logged, not thrown', {
+  timeout: 5000,
+}, async (t) => {
+  const { listener, log } = makeListener(t, {
+    settings: settingsFor({ port: 70000 }), // out of range: listen() throws, not an 'error' event
+    ensureCertificate: fakeEnsure(ok(VALID)),
+  });
+  await assert.doesNotReject(listener.attempt());
+  assert.equal(listener.status().active, false);
+  assert.match(log.lines.join('\n'), /TLS listener error on port 70000/);
+});
 
 // --- failure table: TLS port already in use --------------------------------------------
 
-test(
-  'a TLS port already in use leaves the process alive but not the HTTP viewer',
-  { timeout: 5000 },
-  async (t) => {
-    const { port } = await occupyPort(t);
-    const { listener, log } = makeListener(t, {
-      settings: settingsFor({ port }),
-      ensureCertificate: fakeEnsure(ok(VALID)),
-    });
-    // If the bind failure became an unhandled 'error' event this would take the whole test
-    // process down rather than resolve.
-    await assert.doesNotReject(listener.attempt());
+test('a TLS port already in use leaves the process alive but not the HTTP viewer', {
+  timeout: 5000,
+}, async (t) => {
+  const { port } = await occupyPort(t);
+  const { listener, log } = makeListener(t, {
+    settings: settingsFor({ port }),
+    ensureCertificate: fakeEnsure(ok(VALID)),
+  });
+  // If the bind failure became an unhandled 'error' event this would take the whole test
+  // process down rather than resolve.
+  await assert.doesNotReject(listener.attempt());
 
-    assert.equal(listener.status().active, false);
-    const text = log.lines.join('\n');
-    assert.match(text, new RegExp(`TLS port ${port} is already in use`));
-    assert.match(text, /HTTP viewer.*disabled/);
+  assert.equal(listener.status().active, false);
+  const text = log.lines.join('\n');
+  assert.match(text, new RegExp(`TLS port ${port} is already in use`));
+  assert.match(text, /HTTP viewer.*disabled/);
 
-    // Because TLS is not actually up, plaintext must neither redirect nor admit a viewer.
-    const plaintext = await startPlaintext(t, listener);
-    const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
-    assert.equal(response.status, 503);
-  },
-);
+  // Because TLS is not actually up, plaintext must neither redirect nor admit a viewer.
+  const plaintext = await startPlaintext(t, listener);
+  const response = await fetch(plaintext.url + '/api/info', { redirect: 'manual' });
+  assert.equal(response.status, 503);
+});
 
-test(
-  'once the port is freed, the periodic re-check brings TLS up without a restart',
-  { timeout: 5000 },
-  async (t) => {
-    const { port, release } = await occupyPort(t);
-    const { listener } = makeListener(t, {
-      settings: settingsFor({ port }),
-      ensureCertificate: fakeEnsure(ok(VALID)),
-    });
-    await listener.attempt();
-    assert.equal(listener.status().active, false);
+test('once the port is freed, the periodic re-check brings TLS up without a restart', {
+  timeout: 5000,
+}, async (t) => {
+  const { port, release } = await occupyPort(t);
+  const { listener } = makeListener(t, {
+    settings: settingsFor({ port }),
+    ensureCertificate: fakeEnsure(ok(VALID)),
+  });
+  await listener.attempt();
+  assert.equal(listener.status().active, false);
 
-    await release();
-    await listener.attempt();
+  await release();
+  await listener.attempt();
 
-    assert.deepEqual(listener.status(), { active: true, port });
-    assert.equal((await connectTls(port)).fingerprint, validFingerprint);
-  },
-);
+  assert.deepEqual(listener.status(), { active: true, port });
+  assert.equal((await connectTls(port)).fingerprint, validFingerprint);
+});
 
 // --- hardening parity with the plaintext listener --------------------------------------
 

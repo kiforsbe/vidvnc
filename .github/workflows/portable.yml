@@ -11,9 +11,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.22.1
           cache: npm
       - run: npm ci
       - run: npm run format:check

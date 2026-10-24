@@ -39,19 +39,14 @@ User requirement revised 2026-09-15 (replaces the earlier "self-contained" rule)
   2 MB. Media Foundation also pulls in `gstwinrt-1.0-0.dll`. Which plugins load is a
   runtime decision on the user's PC, so a package built on an NVIDIA machine must
   still carry the Intel and AMD plugins or it will not encode there.
-- General-purpose runtimes are declared prerequisites the user installs. On macOS there
-  are none: both Mac packages bundle Node.js as plain files (design Q5), and macOS
-  provides the rest. On Windows:
-  Microsoft Visual C++ Redistributable (x64) and Node.js for both server products, and
-  .NET 10 Runtime plus Windows App Runtime for the host.
-  Packages record them in `files.json`; launchers check them and say what to install.
-- A packaging option includes the runtime installers (pinned, hash-verified downloads)
-  with the package. The host package may also bundle Node.js as plain files used only
-  by the native host, never as a Node.js installer.
+- Both platforms bundle Node.js as private plain files in every server product.
+  Windows still requires Microsoft Visual C++ Redistributable (x64), plus .NET 10
+  Runtime and Windows App Runtime for the host. No Windows package bundles prerequisite
+  installers or depends on a separately installed Node.js.
 - Users never install GStreamer SDKs, npm packages, compilers or development tools.
 - Resolve bundled binaries/assets/libraries relative to the installed bundle, never
   a source checkout, developer PATH or global npm installation.
-  The only PATH lookup is the CLI launcher finding the Node.js prerequisite.
+  Windows CLI always runs its bundled runtime/node/node.exe, without PATH lookup.
 - Include required native libraries/plugins and their transitive dependencies; do
   not ship the entire development SDK as a substitute for a verified runtime bundle.
 - Install/run with smart defaults and existing onboarding: connection addresses,
@@ -86,9 +81,9 @@ of shared protocol logic.
 Structural preparation now lives under `packaging/windows`, `packaging/macos` and
 `packaging/shared`. `packaging/targets.json` records all six products and reusable
 payload membership. The Windows CLI bundle (`npm run package:cli`, unsigned ZIP) and
-the Windows server/host package (`npm run package:app`, MSIX signed with a self-signed
-development certificate) have working builders, and `npm run package` builds all of their
-variants. On macOS, `npm run package:macos` builds the VidVNC app as a DMG and the CLI
+the Windows server/host package (`npm run package:app`, unsigned MSI) have working
+builders. `npm run package` builds exactly these two bundled-Node products;
+`npm run package:msix` explicitly creates an unsigned MSIX outside the defaults. On macOS, `npm run package:macos` builds the VidVNC app as a DMG and the CLI
 bundle as a ZIP, both with Node.js bundled, signed with the owner's Developer ID and
 notarized ([packaging/macos](../packaging/macos/README.md)). The native viewers are still
 definitions and ownership guides, not working installer recipes.
@@ -114,8 +109,10 @@ these builds and assemble artifacts, but must not replace them with source dupli
    Review redistribution/plugin/codec licensing before choosing the final payload.
 7. Confirm client-only packages contain no unintended server/capture services.
 
-The Windows host uses MSIX (selected 2026-09-15). Other installer technology,
-auto-update mechanism and precise macOS universal targets are not selected yet. Research those during packaging design; the current migration
-establishes module ownership, not production packaging. Debug-launch contracts and
-target definitions are in `tools/debug`; executable IDE launch integration is still
-pending. Missing native applications have ownership guides, not fake build projects.
+The Windows host defaults to one MSI from pinned winbuildtools v0.5.0-beta.1, offering
+Just me (default) or All users in its native scope chooser. Scope changes require
+uninstalling the existing copy first.
+An explicitly requested unsigned MSIX remains available for preparation/inspection;
+proper signing and direct installation are deferred. See
+[Windows packaging](../packaging/windows/README.md) for permanent identities, servicing,
+legacy MSIX transition, inspection and installed-lifecycle acceptance requirements.

@@ -15,7 +15,7 @@ export class VirtualTerminal extends Writable {
 
   _write(chunk, encoding, callback) {
     const text = String(chunk);
-    for (let index = 0; index < text.length;) {
+    for (let index = 0; index < text.length; ) {
       const escape = /^\x1b\[(\d*)([A-Za-z])/.exec(text.slice(index));
       if (escape) {
         this.#control(escape[1] === '' ? undefined : Number(escape[1]), escape[2]);

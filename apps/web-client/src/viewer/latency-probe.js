@@ -527,7 +527,7 @@ export async function runLatencyProbe({
     const points = [];
     stroke = { ...planned, points, handArrived: null, settled: false };
     const start = performance.now();
-    for (let t = 0; t < 1;) {
+    for (let t = 0; t < 1; ) {
       await nextFrame();
       if (signal.aborted) return 'cancelled';
       if (!canControl()) return 'control-lost';

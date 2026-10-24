@@ -14,6 +14,12 @@ static class JobTests
     public static async Task<bool> RunMode(string[] args)
     {
         if (args.Length == 0) return false;
+        if (args[0] == "--shutdown")
+        {
+            if (Console.ReadLine() != "{\"type\":\"stop\"}") throw new Exception("Expected orderly stop command");
+            Console.WriteLine("stopped");
+            return true;
+        }
         if (args[0] == "--sleep") { await Task.Delay(TimeSpan.FromMinutes(1)); return true; }
         if (args[0] == "--child")
         {
@@ -38,6 +44,17 @@ static class JobTests
 
     public static async Task VerifyCleanup()
     {
+        if (SessionShutdown.IsCommitted(0x11, new IntPtr(1)) ||
+            SessionShutdown.IsCommitted(0x16, IntPtr.Zero) ||
+            !SessionShutdown.IsCommitted(0x16, new IntPtr(1)))
+            throw new Exception("Session shutdown must distinguish query, cancellation and commitment");
+        using (var orderly = Launch("--shutdown"))
+        {
+            SessionShutdown.StopServer(orderly);
+            if (!orderly.HasExited || orderly.ExitCode != 0 || orderly.StandardOutput.ReadToEnd().Trim() != "stopped")
+                throw new Exception("Committed shutdown did not stop the server gracefully");
+        }
+        Console.WriteLine("PASS session shutdown consent/cancellation and synchronous orderly server stop");
         using var unrelated = Launch("--sleep");
         using var owner = Launch("--owner");
         Process? child = null, leaf = null;

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { sourceFiles } from '../format.mjs';
 import { format as clangFormat } from '@wasm-fmt/clang-format';
-import { format as prettierFormat } from 'prettier';
+import { formatWebSource } from '../web-format.mjs';
 
 test('formatting scope excludes native host and generated/dependency directories', async () => {
   const files = await sourceFiles(fileURLToPath(new URL('../..', import.meta.url)), 'web');
@@ -32,10 +32,20 @@ test('pinned formatters format source consistently without reordering native inc
   assert.notEqual(output, input);
   assert.ok(output.indexOf('windows.h') < output.indexOf('algorithm'));
   assert.equal(clangFormat(output, 'test.cpp', config), output);
-  const prettierConfig = JSON.parse(
-    await readFile(new URL('../../.prettierrc.json', import.meta.url), 'utf8'),
-  );
-  const web = await prettierFormat('const x={a:1};', { ...prettierConfig, filepath: 'test.js' });
+  const web = formatWebSource('const x={a:1};', 'test.js');
   assert.equal(web, 'const x = { a: 1 };\n');
-  assert.equal(await prettierFormat(web, { ...prettierConfig, filepath: 'test.js' }), web);
+  assert.equal(formatWebSource(web, 'test.js'), web);
+});
+
+test('web formatter preserves HTML, CSS and JSON support and rejects invalid source', () => {
+  for (const [file, source] of [
+    ['test.html', '<main><p>Hello</p></main>'],
+    ['test.css', 'body{color:red}'],
+    ['test.json', '{"value":1}'],
+  ]) {
+    const formatted = formatWebSource(source, file);
+    assert.notEqual(formatted, source);
+    assert.equal(formatWebSource(formatted, file), formatted);
+  }
+  assert.throws(() => formatWebSource('const = ;', 'test.js'), /Biome failed/);
 });

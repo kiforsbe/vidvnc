@@ -34,6 +34,16 @@ the licenses of those components.
 The [website](site/README.md) uses the Instrument Sans and JetBrains Mono fonts under the SIL
 Open Font License 1.1; their license texts are next to them in `site/fonts/`.
 
+All Windows and Mac products bundle Node.js 24.22.1. Its complete LICENSE, including
+third-party terms, is retained in product notices; the top-level MIT label does not
+replace those terms. Windows build-time tools are the MIT-licensed
+[winbuildtools v0.5.0-beta.1](external/winbuildtools/LICENSE) submodule; their scripts/platform
+tools are not copied into application packages. Installed Windows/SDK/PowerShell
+components retain their own terms. Development-only Biome WebAssembly (MIT OR Apache-2.0) and clang-format also
+contain separately licensed code; see the
+[formatter review](docs/security/formatter-remediation-2026-10-23.md). They are excluded
+from all shipped payloads; their upstream licenses do not relicense embedded libraries.
+
 ## Commercial licensing
 
 If the AGPL does not suit your use, for example because you want to distribute or host

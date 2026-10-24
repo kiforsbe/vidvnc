@@ -48,7 +48,7 @@
       "architecture": "x64",
       "product": "server-host",
       "payloadGroups": ["server-common", "windows-media", "windows-host"],
-      "status": "self-signed-development-build"
+      "status": "unsigned-development-build"
     },
     {
       "id": "windows-client",

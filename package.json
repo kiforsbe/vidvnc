@@ -10,7 +10,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
-    "node": ">=20.6"
+    "node": "^24.22.1 || ^26.12.1"
   },
   "scripts": {
     "build": "npm run build:native && npm run build:host",
@@ -39,10 +39,11 @@
     "format:native": "node tools/format.mjs native",
     "format:web": "node tools/format.mjs web",
     "test": "node tools/test.mjs",
-    "test:hardware": "node tools/test.mjs hardware"
+    "test:hardware": "node tools/test.mjs hardware",
+    "package:msix": "node packaging/windows/build.mjs windows-server --msix"
   },
   "devDependencies": {
-    "@wasm-fmt/clang-format": "23.1.0",
-    "prettier": "3.9.6"
+    "@biomejs/wasm-nodejs": "2.6.2",
+    "@wasm-fmt/clang-format": "23.1.1"
   }
 }

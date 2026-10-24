@@ -19,17 +19,19 @@ async function checkout(t, { manifest, lock, installed = {} }) {
   }
   return directory;
 }
-const manifest = { devDependencies: { prettier: '3.9.6' } };
+const manifest = { devDependencies: { formatterFixture: '3.9.6' } };
 const lock = {
   packages: {
-    '': { devDependencies: { prettier: '3.9.6' } },
-    'node_modules/prettier': { version: '3.9.6' },
+    '': { devDependencies: { formatterFixture: '3.9.6' } },
+    'node_modules/formatterFixture': { version: '3.9.6' },
   },
 };
 
 test('matching packages are up to date', async (t) => {
   assert.equal(
-    jsDependencyProblem(await checkout(t, { manifest, lock, installed: { prettier: '3.9.6' } })),
+    jsDependencyProblem(
+      await checkout(t, { manifest, lock, installed: { formatterFixture: '3.9.6' } }),
+    ),
     null,
   );
 });
@@ -37,21 +39,23 @@ test('matching packages are up to date', async (t) => {
 test('a missing, outdated or unlocked package is reported', async (t) => {
   assert.match(
     jsDependencyProblem(await checkout(t, { manifest, lock })),
-    /prettier is not installed/,
+    /formatterFixture is not installed/,
   );
   assert.match(
-    jsDependencyProblem(await checkout(t, { manifest, lock, installed: { prettier: '3.8.0' } })),
-    /prettier is 3\.8\.0, the lockfile pins 3\.9\.6/,
+    jsDependencyProblem(
+      await checkout(t, { manifest, lock, installed: { formatterFixture: '3.8.0' } }),
+    ),
+    /formatterFixture is 3\.8\.0, the lockfile pins 3\.9\.6/,
   );
   assert.match(
     jsDependencyProblem(
       await checkout(t, {
-        manifest: { devDependencies: { prettier: '3.10.0' } },
+        manifest: { devDependencies: { formatterFixture: '3.10.0' } },
         lock,
-        installed: { prettier: '3.9.6' },
+        installed: { formatterFixture: '3.9.6' },
       }),
     ),
-    /disagree about prettier/,
+    /disagree about formatterFixture/,
   );
   assert.match(
     jsDependencyProblem(await checkout(t, { manifest })),

@@ -21,15 +21,15 @@ on a phone, tablet or another computer.
   </picture>
 </p>
 
-|                    | Windows                                                                      | Mac                                                                                |
-| ------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Runs on            | Windows 11 25H2 (build 26200) or later, x64                                  | macOS 27 or later, Apple Silicon                                                   |
-| Capture            | DXGI desktop duplication, WASAPI desktop audio                               | ScreenCaptureKit, a Core Audio tap for desktop audio                               |
-| Hardware encoding  | H.264, H.265 and AV1 on NVIDIA, Intel and AMD graphics                       | H.264 and H.265 with VideoToolbox                                                  |
-| Keyboard and mouse | `SendInput`, when the host grants control                                    | `CGEventPost`, when the host grants control                                        |
-| The VidVNC app     | WinUI 3; [how to use it](apps/windows-host/README.md#using-the-app)          | SwiftUI, in the menu bar; [how to use it](apps/macos-host/README.md#using-the-app) |
-| Packages           | MSIX app and ZIP, development-signed ([Windows packages](#windows-packages)) | DMG app and ZIP, Developer ID-signed and notarized ([Mac packages](#mac-packages)) |
-| Status             | Multi-session hardware acceptance in progress                                | Clean-Mac acceptance in progress                                                   |
+|                    | Windows                                                                                      | Mac                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Runs on            | Windows 11 25H2 (build 26200) or later, x64                                                  | macOS 27 or later, Apple Silicon                                                   |
+| Capture            | DXGI desktop duplication, WASAPI desktop audio                                               | ScreenCaptureKit, a Core Audio tap for desktop audio                               |
+| Hardware encoding  | H.264, H.265 and AV1 on NVIDIA, Intel and AMD graphics                                       | H.264 and H.265 with VideoToolbox                                                  |
+| Keyboard and mouse | `SendInput`, when the host grants control                                                    | `CGEventPost`, when the host grants control                                        |
+| The VidVNC app     | WinUI 3; [how to use it](apps/windows-host/README.md#using-the-app)                          | SwiftUI, in the menu bar; [how to use it](apps/macos-host/README.md#using-the-app) |
+| Packages           | Unsigned MSI app and CLI ZIP; explicit unsigned MSIX ([Windows packages](#windows-packages)) | DMG app and ZIP, Developer ID-signed and notarized ([Mac packages](#mac-packages)) |
+| Status             | Multi-session hardware acceptance in progress                                                | Clean-Mac acceptance in progress                                                   |
 
 On Windows: Windows 11 **25H2/build 26200 or newer**, x64, hardware
 H.264/H.265/AV1 encoding on NVIDIA, Intel and AMD graphics, selectable-monitor DXGI
@@ -52,7 +52,7 @@ first release. Native viewer clients are planned, not implemented.
 > Nothing is published yet; the first release built from this repository will come later.
 > Until then, build the packages yourself: on Windows (see
 > [Windows packages](#windows-packages)) the VidVNC Server ZIP is unsigned and the VidVNC
-> app package is signed with a self-signed development certificate; on a Mac, see
+> app MSI is unsigned; on a Mac, see
 > [Mac packages](#mac-packages). Or run from source: [Build and run (Windows)](#build-and-run-windows),
 > [Build and run (Mac)](#build-and-run-mac).
 
@@ -80,29 +80,21 @@ so you never install GStreamer or developer tools. Both need:
 **How to use it:** the [VidVNC app for Windows guide](apps/windows-host/README.md#using-the-app)
 walks through every page with screenshots.
 
-Also needs the [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0),
-the [Windows App Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads)
-2.2 or later, and [Node.js](https://nodejs.org/) 24 or later. A package that
-includes Node.js does not need Node.js installed.
+Also needs the [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+and the [Windows App Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads)
+2.2 or later. Node.js is included in both Windows packages.
 
-1. The development build is signed with a self-signed certificate, so trust it
-   once per PC. Open PowerShell as administrator in the folder with the package and run:
+1. If you installed an older VidVNC MSIX, uninstall it first to avoid duplicate apps.
+2. Open the `.msi` file and choose **Just me** (the default) or **All users**.
+   Just me uses your local application/program-menu folders; All users uses Program
+   Files and the shared Start menu, with administrator approval.
+3. Open **VidVNC** from the Start menu. The app runs as your user, without elevation.
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\VidVNC-Development-Certificate.ps1 install
-   ```
-
-   It shows the certificate's thumbprint and asks you to confirm it: compare it with the
-   thumbprint published with the release, and trust it only if they match (or pass the
-   published one with `-Thumbprint`). Run it with `uninstall` to stop trusting the
-   certificate.
-
-2. Open the `.msix` file and choose **Install**. It installs for your account only.
-3. Open **VidVNC** from the Start menu.
-
-A ZIP with a `prerequisites` folder also contains the runtime installers, and its
-`INSTALL.txt` lists these steps. To remove VidVNC, uninstall it from
-**Settings > Apps > Installed apps**.
+These are unsigned development builds. Check their source and SHA-256 sidecar before
+installation; Windows policy may warn or block unsigned installers. To remove VidVNC,
+uninstall it from **Settings > Apps > Installed apps**. Your settings are preserved.
+When upgrading, choose the same scope as the installed copy. Uninstall that copy before
+changing scope; choosing Just me does not migrate an older All users installation.
 
 VidVNC starts sharing and shows the address and password. On another device on
 your network, open the address in a browser and enter the password. If Windows
@@ -133,7 +125,7 @@ first, and check its fingerprint against the one the host shows.
 
 ### VidVNC Server (command line)
 
-Also needs [Node.js](https://nodejs.org/) 24 or later.
+Node.js is included; no separate Node.js installation is needed.
 
 Extract the VidVNC Server ZIP to any folder, then run this in that folder:
 
@@ -141,8 +133,8 @@ Extract the VidVNC Server ZIP to any folder, then run this in that folder:
 VidVNC.Server.cmd
 ```
 
-If something is missing, it tells you what to install. A ZIP that includes a
-`prerequisites` folder contains the Visual C++ Redistributable installer.
+If the Visual C++ runtime is missing, the launcher links to its installer. The ZIP
+always uses its own Node.js, including when another Node.js is on PATH.
 
 The server prints the address and password. Manage it by typing commands in the
 same window; type `help` to list them (see
@@ -213,8 +205,8 @@ so that is the app to allow.
 The Windows app's own README, [apps/windows-host](apps/windows-host/README.md), explains how
 to use it and what its folder holds.
 
-Prerequisites: Node.js 20.6+ (use a maintained LTS), npm, Visual Studio 2022 C++
-desktop tools/Windows SDK, a current GPU driver, and GStreamer **1.28.6 MSVC x86_64
+Prerequisites: Node.js 24.22.1+ in the 24 LTS line (or 26.12.1+ in the 26 line), npm,
+Visual Studio 2022 C++ desktop tools/Windows SDK, a current GPU driver, and GStreamer **1.28.6 MSVC x86_64
 development SDK**. The optional WinUI host also requires .NET 10.
 
 From the repository root:
@@ -229,8 +221,8 @@ npm start
 
 `npm run deps` ([tools/deps.mjs](tools/deps.mjs)) sets up everything the checkout needs in
 `.deps/`, skipping what is already there: the npm packages, the GStreamer SDK, portable
-CMake 3.31.6 in `.deps/cmake`, the packaging installers in `.deps/downloads` and the
-[development certificate](#development-certificate). Each download is checked against its
+CMake 3.31.6 in `.deps/cmake` and the bundled Node.js archive in `.deps/downloads`.
+Each download is checked against its
 SHA-256 pin before it is used. Run it again in each new checkout, for example a second one
 for a branch. Builds and tests never download anything.
 
@@ -376,89 +368,58 @@ npm run build
 npm run package
 ```
 
-`npm run package` builds every Windows package: it runs `package:prepare`, then writes
-the CLI ZIP with and without the prerequisite installers, and the VidVNC app MSIX with
-and without bundled Node.js, each also as a ZIP with the prerequisite installers. It
-lists the files when it finishes. The commands below build one package at a time.
-
-```powershell
-npm run package:cli
-```
-
-This builds the Release worker, then writes the unsigned development ZIP to
-`out/installers/windows-cli/<version>/`. It bundles the worker, the allowlisted
-GStreamer plugins and their SDK DLLs, license notices and `files.json`. It never
-copies files from outside the project. Node.js and the Visual C++ Redistributable
-are prerequisites. To add the pinned Visual C++ Redistributable installer to the
-ZIP, run `npm run package:prepare` once (it downloads the installer and checks its
-hash), then `node packaging/windows/build.mjs windows-cli --include-runtime-installers`.
+`npm run package` prepares verified downloads, then builds exactly the unsigned host MSI
+and CLI ZIP. Both include Node.js. Build a single product with:
 
 ```powershell
 npm run package:prepare
 npm run package:app
+npm run package:cli
 ```
 
-`package:app` writes the VidVNC app MSIX to `out/installers/windows-server/<version>/`
-with `VidVNC-Development.cer` and `VidVNC-Development-Certificate.ps1` beside it.
-`package:prepare` creates the [development certificate](#development-certificate) and
-downloads the pinned installers. The app is published framework-dependent: .NET,
-the Windows App Runtime, Node.js and the Visual C++ Redistributable are prerequisites.
-Add `--include-node` (`node packaging/windows/build.mjs windows-server --include-node`)
-to package Node.js as plain files used only by the app, and `--include-runtime-installers`
-to also write a ZIP with the MSIX, certificate, installers and `INSTALL.txt`.
+The MSI is `out/installers/windows-server/<version>/VidVNC-<version>-windows-x64-unsigned.msi`;
+the ZIP is `out/installers/windows-cli/<version>/VidVNC-Server-<version>-windows-x64-unsigned.zip`.
+Each has a `.json` sidecar recording the final SHA-256, signature status, source commit
+and dirty state. These hashes identify bytes; they are not signed attestations.
 
-`node packaging/windows/tests/cli-bundle-check.mjs [zip] [node.exe]` extracts a ZIP
-outside the checkout and runs it with a minimal environment on real GPU hardware.
-`node packaging/windows/tests/server-package-check.mjs [msix] [--register]` checks
-the MSIX files and signature and runs the unpacked app from a relocated folder;
-`--register` also installs it with Developer Mode, checks it, then removes it.
-Plugin allowlist, license mapping, prerequisites and MSIX identity live in
-`packaging/windows/inputs.json`.
+Packaging uses the pinned [winbuildtools](external/winbuildtools/README.md) v0.5.0-beta.1
+submodule (the latest tag, a prerelease; v0.4.0 remains stable). Initialize it with `git submodule update --init --recursive`. PowerShell
+7.4+ (`pwsh`) is required. The shared tools create and inspect the MSI; VidVNC owns the
+approved payload, prerequisites and licenses. Native CMake and WinUI/MSBuild remain
+responsible for building the application. Packages include only approved project files,
+media libraries/plugins, Node.js and license notices, with `files.json` inventory.
 
-#### Development certificate
+The host is framework-dependent: .NET, Windows App Runtime and Visual C++ remain installed
+prerequisites; CLI needs Visual C++. No package contains their installers. Node.js is
+always bundled. `--include-node` and `--include-runtime-installers` are no longer supported.
 
-`npm run package:prepare` creates the certificate if it is missing
-([prepare.mjs](packaging/windows/prepare.mjs)). It builds it with .NET's
-`CertificateRequest` in Windows PowerShell, keeps the private key in your own certificate
-store, `Cert:\CurrentUser\My`, and writes only the public
-`.deps/signing/vidvnc-development.cer`. It prints the certificate's thumbprint.
-
-- Subject `CN=VidVNC Development`, which must match `msix.publisher` in
-  `packaging/windows/inputs.json`
-- RSA 3072-bit key, SHA-256, code signing only, not a certificate authority
-- Valid for two years from when it is created
-
-`package:app` signs the MSIX with the key in the store whose thumbprint matches the `.cer`
-(`signtool sign /fd SHA256 /sha1 <thumbprint> /s My`, no timestamp) and copies the `.cer`
-beside the package. An older checkout kept the key in a passwordless
-`.deps/signing/vidvnc-development.pfx`; `package:prepare` moves that key into the store and
-deletes the file, so the certificate and its thumbprint stay the same.
-
-The name in the certificate proves nothing, since anyone can make one with the same name.
-Publish the thumbprint with each release (for example in its notes) and give it to the
-people who install the package. `development-certificate.ps1 install` shows the thumbprint
-and trusts the certificate only after it is confirmed, or with
-`-Thumbprint <published thumbprint>` once it matches. It imports the `.cer` into **Local
-Machine > Trusted People**, from an administrator PowerShell; `uninstall` removes it again.
-
-The key is exportable, so you can back it up or move it to another PC. Export it with a
-password and keep the file somewhere safe, never in the repository:
+For an explicitly requested unsigned MSIX, outside the default outputs:
 
 ```powershell
-Export-PfxCertificate -Cert Cert:\CurrentUser\My\<thumbprint> -FilePath vidvnc-signing.pfx -Password (Read-Host -AsSecureString)
+npm run package:msix
 ```
 
-On the other PC, import it and copy the `.cer` into `.deps/signing`:
+This needs Windows SDK 10.0.26100.0+ MakeAppx. It packs and inspects the same host/runtime
+payload and product-owned MSIX manifest. Proper signing and direct MSIX installation are
+future work. Building never creates keys, migrates PFX files, signs or changes trust.
 
-```powershell
-Import-PfxCertificate -FilePath vidvnc-signing.pfx -CertStoreLocation Cert:\CurrentUser\My -Exportable -Password (Read-Host -AsSecureString)
-```
+`node packaging/windows/tests/cli-bundle-check.mjs [zip]` checks the relocated ZIP on GPU
+hardware without PATH Node.js. After `package:msix`,
+`node packaging/windows/tests/server-package-check.mjs [msix]` compares it with the staged
+payload and independently generated manifest, then exercises the relocated host and
+canceled/committed session shutdown. `--register` is an explicit Developer Mode test
+that changes the current machine; it is not part of default checks.
 
-To replace the certificate, for example before it expires, first run `uninstall` on each
-PC that trusts it. Then delete `.deps/signing/vidvnc-development.cer`, remove the old
-certificate from `Cert:\CurrentUser\My`, run `npm run package:prepare`, rebuild the MSIX
-and publish the new thumbprint. Because the MSIX is not timestamped, packages signed with
-an expired certificate cannot be installed.
+See [Windows packaging](packaging/windows/README.md) for identity and lifecycle limits.
+
+<a id="development-certificate"></a>
+
+#### Legacy development certificate
+
+Older packages used self-signed MSIX certificates. New builds do not need them and leave
+existing keys/CER files untouched. To remove trust for an old package, use the legacy
+`packaging/windows/development-certificate.ps1 uninstall -Thumbprint <old-thumbprint>`
+from an administrator PowerShell. Do not delete signing keys merely to build the MSI.
 
 ### Mac packages
 
@@ -524,7 +485,8 @@ globally.
 The Mac app's own README, [apps/macos-host](apps/macos-host/README.md), explains how to use
 it and how it is built and tested.
 
-Prerequisites: macOS 27 on Apple Silicon, Node.js 20.6+ and npm, Xcode, CMake 3.25 or newer,
+Prerequisites: macOS 27 on Apple Silicon, Node.js 24.22.1+ in the 24 LTS line
+(or 26.12.1+ in the 26 line) and npm, Xcode, CMake 3.25 or newer,
 and the GStreamer 1.28.6 framework's runtime and development packages (see
 [SDK and build locations](#sdk-and-build-locations)). From the repository root:
 

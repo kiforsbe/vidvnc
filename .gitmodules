@@ -1,0 +1,3 @@
+[submodule "external/winbuildtools"]
+	path = external/winbuildtools
+	url = https://github.com/kiforsbe/winbuildtools.git

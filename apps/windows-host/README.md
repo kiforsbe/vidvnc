@@ -166,7 +166,16 @@ sharing when the window closes**; right-click its icon for **Quit VidVNC**.
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VidVnc.Host.csproj`     | The app project; `npm run build:host` builds it                                                                                                |
 | `HostWindow*.cs`         | The window, one file per page or concern (Overview, Displays, Profiles, Sessions, Clients, Access, TLS, the notification-area icon and others) |
+| `SessionShutdown.cs`     | Committed session shutdown requests orderly server cleanup; query/cancellation leaves sharing intact                                           |
 | `ServerJob.cs`           | The job object that ends the server's processes with the host, even on a forced exit                                                           |
 | `RuntimeManifest.cs`     | Reads the runtime manifest: where Node.js, the server and the media worker are, and the prerequisites                                          |
 | `tests/Navigation/`      | The WinUI navigation regression ([README](tests/Navigation/README.md))                                                                         |
 | `tests/RuntimeContract/` | Runtime manifest and job object checks (`npm run test:host`)                                                                                   |
+
+Distribution defaults to one unsigned MSI with bundled Node.js and a Just me / All
+users scope choice (Just me by default). An unsigned
+MSIX is an explicit build option, not the default installer. See
+[Windows packaging](../../packaging/windows/README.md) for prerequisites, identity and
+installer acceptance limits. Runtime-contract tests also cover session-ending consent,
+cancellation and orderly server stop; the relocated MSIX check sends those messages to
+its own spawned host without installing anything.

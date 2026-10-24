@@ -1,8 +1,9 @@
 # Distribution scaffolding
 
 Status: Windows development builds, the CLI server ZIP (unsigned) and the server/host
-MSIX (self-signed); and the macOS server/host DMG and CLI ZIP, signed with the owner's
-Developer ID and notarized. Nothing is published yet.
+MSI (unsigned), with an optional explicitly built unsigned MSIX; and the macOS server/host DMG and CLI ZIP, signed with the owner's
+Developer ID and notarized. Nothing is published yet. Every server product bundles Node.js. Windows defaults to
+MSI plus CLI ZIP; see [Windows packaging](windows/README.md).
 
 `targets.json` defines the six products and reusable payload groups. Paths are
 repository-relative source ownership locations, not installed bundle paths. The

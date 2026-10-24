@@ -36,7 +36,7 @@ Implemented:
 - A WinUI 3 app for the host and a command-line server that can change the same
   settings.
 - Windows development packages: the VidVNC Server ZIP (unsigned) and the VidVNC app
-  MSIX (signed with a self-signed development certificate).
+  MSI (unsigned); both include Node.js. An unsigned MSIX is an explicit build option.
 
 Still open in 0.1.0:
 
@@ -241,8 +241,15 @@ links and revoked credentials fail safely.
 ### Distribution and macOS
 
 Windows development builds exist: the VidVNC Server ZIP (unsigned) and the VidVNC app
-MSIX (self-signed). Both bundle VidVNC's own components and media libraries; general
-runtimes are prerequisites the user installs. See [PACKAGING.md](PACKAGING.md).
+MSI (unsigned). Both bundle Node.js, VidVNC components and media libraries; Visual C++,
+.NET and Windows App Runtime remain declared prerequisites as applicable. MSI and
+optional unsigned MSIX pass byte/content inspection. The latest tagged winbuildtools
+v0.5.0-beta.1 provides native setup/repair/remove, Just me / All users choice and
+completion Details. Optional branding/Browse/links/launch have a
+[new proposal](superpowers/specs/2026-10-24-winbuildtools-presentation-design.md);
+those opt-ins remain disabled. Scope and identity are checked in inactive preview;
+installed MSI lifecycle and ICE
+validation remain release gates. See [PACKAGING.md](PACKAGING.md).
 Remaining for Windows: clean-machine acceptance, trusted signing, upgrade and uninstall
 checks, published releases with license notices and source for the bundled LGPL
 libraries, and the native viewer package.

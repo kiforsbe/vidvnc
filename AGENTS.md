@@ -50,8 +50,9 @@ editing an old one.
   security analysis's verification record.
 - **Style.** Plain, direct sentences, matching the spelling and terms of the surrounding
   text; wrap Markdown at about 95 columns. Markdown is not covered by `npm run format`,
-  so align any table you add or edit with `npx prettier --write <file>` and check the
-  diff touches only your section.
+  so align Markdown tables manually and check the diff touches only your section.
+  Do not download Prettier to format documentation; see the
+  [formatter review](docs/security/formatter-remediation-2026-10-23.md).
 - **Don't duplicate.** Each fact has one home (see the document map at the top of the
   security architecture). Link to it instead of copying it.
 
@@ -174,10 +175,10 @@ Only cut a release when the owner asks for one. The owner decides the version nu
    it `VidVNC 0.9.2`, paste that version's changelog section as the notes, and mark it as a
    pre-release while the version is below 1.0.0. Attach packages only if they were built
    from the tagged commit, and say in the notes that the Windows ones are unsigned development
-   builds (the MSIX is signed with a self-signed development certificate); the Mac packages
-   are signed with a Developer ID and notarized. When an MSIX is attached, give the
-   development certificate's thumbprint in the notes (`npm run package:prepare` prints it),
-   so people can check the certificate before they trust it.
+   builds (MSI and CLI ZIP are defaults; optional MSIX is unsigned until proper signing
+   is configured); the Mac packages are signed with a Developer ID and notarized.
+   Do not present an unsigned MSIX as directly installable. Signing policy and final
+   signed-artifact validation must be defined before distributing a signed MSIX.
 
 9. **Open the next cycle** by adding an empty `## [Unreleased]` heading above the new
    version in the changelog, in the next change that adds an entry.

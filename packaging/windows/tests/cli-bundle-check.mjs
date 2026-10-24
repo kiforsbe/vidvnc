@@ -1,8 +1,8 @@
 // Opt-in hardware check for the portable CLI ZIP. Extracts it outside the checkout into a path
 // with spaces and non-ASCII characters, then runs it from an unrelated working directory with a
 // minimal environment: no SDK or developer paths and a fresh LOCALAPPDATA (so a fresh GStreamer
-// registry). Requires the declared prerequisites (Node.js, VC++ runtime) and NVIDIA hardware.
-//   node packaging/windows/tests/cli-bundle-check.mjs [zip] [node.exe to run the package with]
+// registry). Requires the VC++ runtime and NVIDIA hardware; Node.js is bundled.
+//   node packaging/windows/tests/cli-bundle-check.mjs [zip]
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -32,7 +32,7 @@ const zip = path.resolve(
       `out/installers/windows-cli/${version}/VidVNC-Server-${version}-windows-x64-unsigned.zip`,
     ),
 );
-const node = path.resolve(process.argv[3] || process.execPath);
+const node = process.execPath;
 const system = process.env.SystemRoot;
 const cmd = path.join(system, 'System32/cmd.exe');
 const powershell = path.join(system, 'System32/WindowsPowerShell/v1.0/powershell.exe');
@@ -45,7 +45,7 @@ mkdirSync(workingDirectory);
 mkdirSync(localAppData);
 
 // What a clean Windows session plus the installed prerequisites provides, and nothing else.
-function environment({ withNode = true, extra = {} } = {}) {
+function environment({ withNode = false, extra = {} } = {}) {
   return {
     SystemRoot: system,
     windir: system,
@@ -63,6 +63,7 @@ function environment({ withNode = true, extra = {} } = {}) {
       path.join(system, 'System32'),
       system,
       path.join(system, 'System32/Wbem'),
+      path.join(system, 'System32/WindowsPowerShell/v1.0'),
       ...(withNode ? [path.dirname(node)] : []),
     ].join(';'),
     // The launcher must neutralize inherited Node.js options.
@@ -178,9 +179,9 @@ try {
   result = launchSync('config no-such-command');
   assert.equal(result.status, 2, `usage errors propagate the server exit code: ${result.stderr}`);
   result = launchSync('config help', environment({ withNode: false }));
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /needs Node\.js \d+ or newer/);
-  console.log('PASS: config passthrough, exit codes and missing-Node.js message');
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.trim());
+  console.log('PASS: config passthrough and exit codes using bundled Node without PATH Node.js');
 
   const port = await freePort();
   const tlsPort = await freePort();
@@ -221,10 +222,10 @@ try {
   const page = await fetchAcrossRedirect(`http://127.0.0.1:${port}/`, tlsPort);
   assert.equal(page.status, 200);
   assert.match(page.text, /<html/i);
-  const connect = await fetchAcrossRedirect(`http://127.0.0.1:${port}/api/connect`, tlsPort, {
+  const connect = await fetchAcrossRedirect(`http://127.0.0.1:${port}/api/key-start`, tlsPort, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: ready.password }),
+    body: JSON.stringify({ key: ready.password }),
   });
   assert.ok(connect.status < 400, `connect returned ${connect.status}`);
 
@@ -256,11 +257,30 @@ try {
 
   server.stdin.end('{"type":"stop"}\n');
   assert.equal(await exited, 0, stderr);
-  // A successful TLS bind logs exactly one line (tls/listener.mjs); anything else here would
-  // be a stray, unexpected message. The optional " — ..." clause is the coverage warning the
+  // A successful TLS bind logs exactly one line (tls/listener.mjs). The optional
+  // " — ..." clause is the coverage warning the
   // fixture certificate (SANs: vidvnc-test.invalid, 127.0.0.1, 203.0.113.25) legitimately
   // triggers on real hardware, whose own hostname/LAN address it was never meant to cover.
-  assert.match(stderr, /^TLS ready on port \d+ \(strategy: provided\)(?: — .*)?\.\r?\n$/, stderr);
+  const diagnosticLines = stderr.trim().split(/\r?\n/).filter(Boolean);
+  assert.equal(diagnosticLines.filter((line) => /^TLS ready on port /.test(line)).length, 1);
+  for (const line of diagnosticLines) {
+    // GIO's installed-app enumeration can encounter an unrelated protected
+    // WindowsApps manifest. Retain the diagnostic, accepting only access denied;
+    // library/plugin load failures and all other warnings still fail below.
+    if (
+      /^\(media-worker\.exe:\d+\): GLib-GIO-WARNING \*\*: [\d:.]+: Failed to open application manifest `[^\r\n]+\\WindowsApps\\[^\r\n]+\\AppxManifest\.xml' for package #\d+ \(\x60[^'\r\n]+'\): error code 0x5$/.test(
+        line,
+      )
+    ) {
+      console.warn(`Platform diagnostic: ${line}`);
+      continue;
+    }
+    assert.match(
+      line,
+      /^(?:TLS ready on port \d+ \(strategy: provided\)(?: — .*)?\.|Media relay listening on UDP \d+ \(ipv6, ipv4\)\.|Private physical LAN detected for local standing passwords\.)$/,
+      stderr,
+    );
+  }
   console.log(
     'PASS: desktop start (worker probe with bundled plugins), web client, connect, clean stop',
   );
@@ -317,6 +337,17 @@ try {
     `PASS: worker self-test captured and encoded; ${modules.length} modules, all from the package or Windows:\n  ${directories.sort().join('\n  ')}`,
   );
 } finally {
-  for (const child of children) if (child.exitCode === null) child.kill();
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  for (const child of children)
+    if (child.exitCode === null) {
+      spawnSync(
+        path.join(system, 'System32/taskkill.exe'),
+        ['/pid', String(child.pid), '/t', '/f'],
+        { stdio: 'ignore' },
+      );
+    }
+  try {
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  } catch (error) {
+    console.warn(`Could not remove ${scratch}: ${error.message}`);
+  }
 }

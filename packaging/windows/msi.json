@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "identityNamespace": "{DA5F64E8-0DD2-439C-B975-B488EDC23D67}",
+  "product": {
+    "id": "vidvnc",
+    "name": "VidVNC",
+    "manufacturer": "github.com/kiforsbe"
+  },
+  "installation": {
+    "scope": "choice",
+    "defaultScope": "user",
+    "directoryName": "VidVNC",
+    "menuDirectoryName": "VidVNC",
+    "restartManager": "graceful",
+    "minimumWindowsBuild": 26200
+  },
+  "application": { "executable": "VidVnc.Host.exe", "icon": "Assets/VidVnc.ico" },
+  "shortcuts": [{ "name": "VidVNC", "location": "startMenu" }],
+  "payload": {
+    "requiredFiles": [
+      "VidVnc.Host.pri",
+      "runtime.json",
+      "runtime/node/node.exe",
+      "runtime/media/bin/media-worker.exe",
+      "files.json"
+    ],
+    "allowedExtensions": [],
+    "allowedFiles": []
+  }
+}

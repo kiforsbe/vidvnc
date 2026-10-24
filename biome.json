@@ -1,0 +1,29 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
+  "vcs": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single"
+    }
+  },
+  "html": {
+    "formatter": {
+      "enabled": true,
+      "selfCloseVoidElements": "always"
+    }
+  }
+}

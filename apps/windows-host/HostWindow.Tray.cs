@@ -214,6 +214,16 @@ public sealed partial class HostWindow
 
     IntPtr TrayWindowProc(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
     {
+        if (message == 0x11) return new IntPtr(1); // WM_QUERYENDSESSION: consent without stopping.
+        if (SessionShutdown.IsCommitted(message, wParam))
+        {
+            quitting = true;
+            closing = true;
+            SessionShutdown.StopServer(server);
+            Quit();
+            return IntPtr.Zero;
+        }
+        if (message == 0x16) return IntPtr.Zero; // Canceled WM_ENDSESSION: remain usable.
         if (message == TrayMessage)
         {
             // NOTIFYICON_VERSION_4: the event is in lParam's low word, the anchor point in wParam.

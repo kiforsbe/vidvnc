@@ -43,31 +43,29 @@ test('cancelling the watch stops it', () => {
 });
 
 // The real thing: a child watching its parent notices when that parent is killed.
-test(
-  'an orphaned process notices its parent has gone',
-  { skip: process.platform === 'win32' && 'Windows never re-parents a process' },
-  async () => {
-    const watcher = `
+test('an orphaned process notices its parent has gone', {
+  skip: process.platform === 'win32' && 'Windows never re-parents a process',
+}, async () => {
+  const watcher = `
       const { watchParent } = await import(${JSON.stringify(new URL('../src/parent-watch.mjs', import.meta.url).href)});
       watchParent(() => { process.stdout.write('stopped'); process.exit(0); }, { intervalMs: 20 });
       process.stdout.write('watching\\n');
       setTimeout(() => process.exit(2), 10000);
     `;
-    // A parent shell that starts the watcher in the background and then is killed.
-    const parent = spawn(
-      'sh',
-      ['-c', `"${process.execPath}" --input-type=module -e "$0" & wait`, watcher],
-      { stdio: ['ignore', 'pipe', 'inherit'] },
-    );
-    let output = '';
-    const done = new Promise((resolve) => {
-      parent.stdout.on('data', (data) => {
-        output += data;
-        if (output.includes('watching') && !parent.killed) parent.kill('SIGKILL');
-        if (output.includes('stopped')) resolve();
-      });
+  // A parent shell that starts the watcher in the background and then is killed.
+  const parent = spawn(
+    'sh',
+    ['-c', `"${process.execPath}" --input-type=module -e "$0" & wait`, watcher],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  let output = '';
+  const done = new Promise((resolve) => {
+    parent.stdout.on('data', (data) => {
+      output += data;
+      if (output.includes('watching') && !parent.killed) parent.kill('SIGKILL');
+      if (output.includes('stopped')) resolve();
     });
-    await done;
-    assert.match(output, /stopped/);
-  },
-);
+  });
+  await done;
+  assert.match(output, /stopped/);
+});

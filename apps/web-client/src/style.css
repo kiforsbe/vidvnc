@@ -190,7 +190,7 @@ button:disabled {
 .secondary:hover {
   background: #edf3ff;
 }
-.secondary[aria-pressed='true'] {
+.secondary[aria-pressed="true"] {
   background: #e2edff;
   border-color: #78a1f4;
   color: #174eb4;

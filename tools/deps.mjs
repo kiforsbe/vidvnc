@@ -8,8 +8,7 @@
 //   - portable CMake in .deps/cmake (tools/deps.json), which build-native.cmd prefers;
 //   - on macOS, nothing in .deps: it checks the user's GStreamer framework, Xcode and CMake
 //     instead, and says what to install;
-//   - the packaging inputs in .deps/downloads and the development certificate in
-//     .deps/signing (packaging/windows/prepare.mjs).
+//   - the bundled Node.js archive in .deps/downloads (packaging/windows/prepare.mjs).
 // Every download is checked against its pinned SHA-256 before it is used, and every step is
 // skipped when what it would produce is already there. Builds and tests still never
 // download anything themselves (tools/dependencies.mjs only checks).

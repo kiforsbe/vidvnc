@@ -459,6 +459,95 @@ the public host avoids the rest.
 
 ## Verification record
 
+- **2026-10-24, latest tagged presentation engine:** integrate explicitly requested
+  winbuildtools v0.5.0-beta.1 at `d9ec7c72cdabfc65b85c61e4cf2f055b75a444a9`.
+  This is a prerelease; v0.4.0 remains stable. The source-only MIT update adds no
+  registry package or binary dependency. Its non-installing verification passed
+  68 configuration, 157 v1, 151 v2, 433 wizard and 972 presentation checks, plus
+  shared/MSIX/signing/certificate/.NET/repository checks. VidVNC default MSI/CLI ZIP
+  and explicit unsigned MSIX rebuilt and passed shared inspection. The consumer
+  checker passed both scopes, Just me default, unsuffixed folders, 273 persistent
+  component identities and the new Details/operation-specific completion UI; optional
+  launch/links/Browse remain absent. Six actual pages rendered in inactive preview.
+  Portable tests passed 1089 with 4 skipped, and formatting passed. Relocated CLI
+  and unpackaged MSIX-host checks served HTTP/TLS, used bundled Node and stopped
+  cleanly; hardware encoding/module isolation and canceled/committed host shutdown
+  were exercised. A GIO protected-WindowsApps-manifest access-denied diagnostic is
+  retained and narrowly accepted by the CLI check; other unexpected diagnostics fail.
+  No product was installed/registered and no certificate trust was imported.
+  The [new proposal](../superpowers/specs/2026-10-24-winbuildtools-presentation-design.md)
+  defers optional presentation changes; installed lifecycle/UAC/ICE, launch privilege,
+  Browse/link navigation and accessibility/DPI acceptance remain unverified.
+
+- **2026-10-23, stable tooling and formatter remediation:** pin winbuildtools stable
+  v0.4.0 at `9d5729f6e6d3f7563d57494f968fef1a67f65a59`, promoted from beta without
+  executable changes. Remove Prettier and its embedded advisory/deprecated modules.
+  Use Biome WebAssembly 2.6.2 directly; the alpha JS wrapper and full native CLI are
+  not installed. The [review](formatter-remediation-2026-10-23.md) records npm/Cargo
+  versions, licenses, advisory scope and the Rand feature-based non-applicability
+  assessment; it does not claim complete security. Formatter checks and 1089 portable
+  tests passed, with 4 skipped. Hardware tests passed 22 tests, with 3 skipped;
+  Windows host runtime-contract checks and the Windows build passed. HTML formatting
+  remains upstream experimental. Real MSI lifecycle/UAC/ICE validation, MSIX signing
+  and macOS runtime validation remain open.
+
+- **2026-10-23, install-folder names:** removed the architecture suffix from new MSI
+  install and Start-menu folders; both are now named VidVNC. Just me remains the
+  default. The rebuilt MSI passed shared user/machine preflight and inspection; the
+  consumer check confirmed the per-user default, both exact unsuffixed folder names
+  and all 273 legacy component identities. Format checks and 1088 portable tests
+  passed (4 skipped). Existing installed development packages can retain their
+  remembered destination; applying the new default requires uninstall/reinstall.
+  No product was installed during this verification.
+
+- **2026-10-23, MSI install scope:** migrated VidVNC's resolved MSI configuration to
+  schema v2 with a native Just me / All users choice, defaulting to Just me. Consumer
+  GUIDs reproduce the previous v1 product/upgrade/component identities and preserve
+  the machine install/menu folder names. The rebuilt MSI passed shared inspection,
+  including isolated native costing in both user and machine contexts. The consumer's
+  read-only `msi-package-check.ps1` checked both native radio options/events, default
+  context/least-privilege summary and all 273 component identities, then compared the
+  upgrade family, surviving components and folder against the previous actual MSI.
+  The scope page rendered in inactive preview; real installation/UAC, same-context
+  servicing, cross-scope uninstall/reinstall and ICE105 still need a disposable host.
+  Portable tests passed: 1088 tests, 4 skipped, no failures. No product was installed
+  and no certificate trust changed. Switching scope is explicitly a removal/reinstall
+  operation, not an automatic migration.
+
+- **2026-10-23, latest winbuildtools tag:** upgraded the submodule from v0.3.0 to
+  v0.4.0-beta.1, exact commit `23aaea448133df02d182a8e5702d8c7680a99496`, at the
+  owner's request for the newest tag. This is a prerelease; stable remains v0.3.0.
+  [The upgrade review](winbuildtools-review-2026-10-23.md) records source/license/
+  dependency checks, native wizard/registration changes and acceptance limits.
+  Upstream non-installing verification passed, including 389 wizard/registration
+  assertions. VidVNC's format check and portable suite passed: 1085 tests, 4 skipped,
+  no failures. Default MSI/CLI ZIP and explicit unsigned MSIX rebuilt successfully;
+  shared inspection checked the MSI tables/registry/actions/cabinet and the MSIX
+  manifest/payload. Six actual VidVNC MSI dialogs rendered in inactive read-only
+  preview. These checks did not install products, import trust or exercise real
+  UAC/Start-menu/upgrade/repair/rollback/uninstall. Those disposable-host acceptance
+  gaps remain open, as do MSIX signing and the previously noted Mac runtime check.
+
+- **2026-10-23, Windows packaging and Node/npm review:** default unsigned MSI and
+  bundled-Node CLI ZIP built using pinned winbuildtools v0.3.0. Shared MSI inspection
+  compared identity/scope/servicing tables and cabinet bytes against the approved
+  payload. Explicit unsigned MSIX passed manifest/payload roundtrip inspection. The
+  relocated CLI ran without PATH Node, served HTTP/TLS enrolment, stopped cleanly and
+  encoded on NVIDIA hardware with libraries loaded only from its package or Windows.
+  The relocated MSIX host used bundled Node and passed canceled/committed session
+  shutdown with child-process cleanup. Neither check installed or registered a package.
+  Host runtime-contract checks and upstream non-installing verification passed.
+  Portable checks on Node.js 24.22.1 passed 1085 tests, with 4 skipped and no failures;
+  the format check passed. A lockfile newline change from npm initially failed the
+  version-tool regression; normalizing the lockfile to repository LF resolved it.
+  Publication rollback also passed a Windows file-lock test that fails the second
+  promotion and checks both previous artifact/metadata files are restored.
+  Node/npm changes and remaining embedded formatter advisories/deprecations are in
+  the [dependency review](node-dependency-review-2026-10-23.md); a clean npm advisory
+  scan does not establish complete security. ICE validation and actual MSI
+  install/repair/upgrade/uninstall on a disposable host, MSIX signing/direct install,
+  and the updated macOS Node runtime's execution remain unvalidated.
+
 - **2026-10-16, `main`, certificates and signing (F9 to F11), owner's Windows 11 PC:**
   - Portable tests: `npm test` 1079 passed, 0 failed (4 skipped), including the new strategy
     selection tests (`auto` never consults mkcert; `mkcert` mode never falls back) and the

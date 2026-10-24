@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../../RuntimeManifest.cs" Link="RuntimeManifest.cs" />
     <Compile Include="../../ServerJob.cs" Link="ServerJob.cs" />
+    <Compile Include="../../SessionShutdown.cs" Link="SessionShutdown.cs" />
     <Compile Include="../../ProfileOrderStore.cs" Link="ProfileOrderStore.cs" />
   </ItemGroup>
 </Project>

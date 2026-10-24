@@ -1,6 +1,7 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { formatWebSource } from './web-format.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 export const excluded = new Set([
@@ -40,9 +41,7 @@ export async function formatSources(scope, check = false) {
       const config = await readFile(path.join(root, '.clang-format'), 'utf8');
       format = (source, file) => clang.format(source, file, config);
     } else {
-      const prettier = await import('prettier');
-      const config = JSON.parse(await readFile(path.join(root, '.prettierrc.json'), 'utf8'));
-      format = (source, file) => prettier.format(source, { ...config, filepath: file });
+      format = formatWebSource;
     }
     const directories =
       part === 'native'
@@ -62,7 +61,7 @@ export async function formatSources(scope, check = false) {
     if (part === 'web')
       files.push(
         path.join(root, 'package.json'),
-        path.join(root, '.prettierrc.json'),
+        path.join(root, 'biome.json'),
         path.join(root, 'CMakePresets.json'),
       );
     for (const file of files) {

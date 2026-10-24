@@ -5,6 +5,36 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Changed
+
+- The Windows MSI now offers **Just me** (default) or **All users** installation in one
+  wizard, using `VidVNC` folders without an architecture suffix; changing scope requires
+  uninstalling first
+  ([scope and deployment](packaging/windows/README.md#msi-identity-and-installation)).
+- Windows packaging defaults to one unsigned MSI and one CLI ZIP, both including Node.js;
+  `npm run package:msix` builds an unsigned MSIX explicitly ([Windows packages](README.md#windows-packages)).
+- Windows builds use pinned winbuildtools v0.5.0-beta.1 (prerelease), adding native setup,
+  repair/remove and installation Details pages without creating signing keys or prerequisite-installer variants ([packaging](packaging/windows/README.md)).
+
+### Fixed
+
+- The Windows app honors committed installer shutdown even when it is in the notification
+  area; canceling shutdown leaves it running.
+
+### Security
+
+- Windows and Mac packages bundle Node.js 24.22.1 with upstream security fixes; source
+  builds require a patched supported Node version ([review](docs/security/node-dependency-review-2026-10-23.md)).
+- Development formatting replaces Prettier and its affected embedded modules with
+  Biome WebAssembly ([review and limits](docs/security/formatter-remediation-2026-10-23.md)).
+
+### Known limitations
+
+- The MSI still needs ICE validation and installed upgrade/repair/uninstall checks on
+  a disposable Windows host before distribution; Windows packages remain unsigned.
+
 ## [0.12.1] - 2026-10-16
 
 ### Fixed

@@ -1,7 +1,7 @@
-// Opt-in hardware check for the VidVNC MSIX (self-signed development build).
+// Opt-in hardware check for the unsigned VidVNC MSIX; no signing identity is used.
 //   node packaging/windows/tests/server-package-check.mjs [msix] [--register]
 // Without --register nothing is installed: the MSIX is unpacked with the project's MakeAppx,
-// every file is checked against files.json and the signer against the development certificate.
+// every file is checked against the staged payload and product-generated manifest.
 // The unpacked host then runs unpackaged (Windows App Runtime bootstrapper) from a path with
 // spaces and non-ASCII characters, an unrelated working directory and a fresh LOCALAPPDATA,
 // starts its server with the installed Node.js (or the bundled one, when the package has it) and
@@ -11,6 +11,8 @@
 // removes the registration. That run uses the real %LOCALAPPDATA%\VidVNC and port 4382.
 // Requires the declared prerequisites and NVIDIA hardware.
 import assert from 'node:assert/strict';
+import { invokeBuildTools } from '../build-tools.mjs';
+import { fillManifest, msixVersion } from '../msix.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -42,10 +44,10 @@ const msixFile = path.resolve(
   args.find((arg) => arg !== '--register') ||
     path.join(
       root,
-      `out/installers/windows-server/${version}/VidVNC-${version}-windows-x64-selfsigned.msix`,
+      `out/installers/windows-server/${version}/VidVNC-${version}-windows-x64-unsigned.msix`,
     ),
 );
-const certificate = path.join(root, inputs.msix.certificate);
+
 const system = process.env.SystemRoot;
 const powershell = path.join(system, 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -156,9 +158,34 @@ async function fetchAcrossRedirect(url, tlsPort, init = {}) {
 }
 
 // Closes the host window the way a user does, then checks its server and worker are gone.
-async function closeHost(hostPid, root) {
+async function closeHost(hostPid, root, healthCheck) {
   const children = processes(`ParentProcessId=${hostPid}`);
-  ps(`[void](Get-Process -Id $env:HOST_PID).CloseMainWindow()`, { HOST_PID: String(hostPid) });
+  const handle = ps(`(Get-Process -Id $env:HOST_PID).MainWindowHandle.ToInt64()`, {
+    HOST_PID: String(hostPid),
+  });
+  assert.notEqual(handle, '0', 'test host has a window');
+  const send = (code) =>
+    ps(
+      `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ShutdownMessages { [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command); [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window); }'; $window = [IntPtr]::new([long]$env:WINDOW); ${code}`,
+      { WINDOW: handle },
+    );
+  for (const hidden of [false, true]) {
+    if (hidden)
+      send(
+        `[void][ShutdownMessages]::ShowWindow($window, 0); if ([ShutdownMessages]::IsWindowVisible($window)) { throw 'Host did not hide' }`,
+      );
+    send(
+      `if ([ShutdownMessages]::SendMessage($window, 0x11, [IntPtr]::Zero, [IntPtr]::new(1)).ToInt64() -ne 1) { throw 'Host refused session query' }; [void][ShutdownMessages]::SendMessage($window, 0x16, [IntPtr]::Zero, [IntPtr]::new(1))`,
+    );
+    assert.ok(processes(`ProcessId=${hostPid}`).length, 'canceled shutdown preserves host');
+    for (const child of children)
+      assert.ok(
+        processes(`ProcessId=${child.ProcessId}`).length,
+        'canceled shutdown preserves server',
+      );
+    if (healthCheck) await healthCheck();
+  }
+  send(`[void][ShutdownMessages]::SendMessage($window, 0x16, [IntPtr]::new(1), [IntPtr]::new(1))`);
   await waitFor(() => processes(`ProcessId=${hostPid}`).length === 0, 'the host to exit', 20000);
   await waitFor(
     () => children.every((child) => processes(`ProcessId=${child.ProcessId}`).length === 0),
@@ -171,19 +198,6 @@ async function closeHost(hostPid, root) {
   assert.deepEqual(leftovers, [], 'package processes left running');
 }
 
-const makeappx = (() => {
-  const assets = readJson(
-    path.join(root, path.dirname(inputs.host.project), 'obj/project.assets.json'),
-  );
-  const key = Object.keys(assets.libraries).find((name) =>
-    name.startsWith('Microsoft.Windows.SDK.BuildTools/'),
-  );
-  const bin = path.join(Object.keys(assets.packageFolders)[0], assets.libraries[key].path, 'bin');
-  return readdirSync(bin)
-    .map((sdk) => path.join(bin, sdk, 'x64/makeappx.exe'))
-    .find(existsSync);
-})();
-
 const scratch = mkdtempSync(path.join(tmpdir(), 'vidvnc-server-check-'));
 const unpacked = path.join(scratch, 'VidVNC Å 測試');
 const workingDirectory = path.join(scratch, 'unrelated cwd');
@@ -193,18 +207,53 @@ mkdirSync(localAppData);
 const started = [];
 let registered;
 try {
-  // 1. Contents and signature, without installing.
-  const unpack = spawnSync(makeappx, ['unpack', '/o', '/p', msixFile, '/d', unpacked], {
-    encoding: 'utf8',
-    windowsHide: true,
+  // Independent product expectations, not reconstructed from the package.
+  const assets = readJson(
+    path.join(root, path.dirname(inputs.host.project), 'obj/project.assets.json'),
+  );
+  const runtimeKey = Object.keys(assets.libraries).find((key) =>
+    key.startsWith('Microsoft.WindowsAppSDK.Runtime/'),
+  );
+  const info = readJson(
+    path.join(
+      Object.keys(assets.packageFolders)[0],
+      assets.libraries[runtimeKey].path,
+      'WindowsAppSDK-VersionInfo.json',
+    ),
+  );
+  const manifestPath = path.join(scratch, 'expected-AppxManifest.xml');
+  const { msix } = inputs;
+  writeFileSync(
+    manifestPath,
+    fillManifest(readFileSync(path.join(root, 'packaging/windows/msix/AppxManifest.xml'), 'utf8'), {
+      name: msix.name,
+      publisher: msix.publisher,
+      version: msixVersion(version),
+      displayName: msix.displayName,
+      publisherDisplayName: msix.publisherDisplayName,
+      description: msix.description,
+      minimumOSVersion: msix.minimumOSVersion,
+      windowsAppRuntimeName: info.Runtime.Packages.Framework.PackageFamilyName.split('_')[0],
+      windowsAppRuntimeVersion: info.Runtime.Version.DotQuadNumber,
+      windowsAppRuntimePublisher: info.Runtime.Identity.Publisher,
+      executable: inputs.host.executable,
+    }),
+  );
+  const inspection = invokeBuildTools({
+    operation: 'inspect-msix',
+    artifact: msixFile,
+    payload: path.join(root, 'out/packages/windows-server/Release'),
+    manifest: manifestPath,
+    output: path.join(scratch, 'inspection'),
   });
-  assert.equal(unpack.status, 0, unpack.stdout + unpack.stderr);
+  cpSync(path.join(inspection.InspectionDirectory, 'unpacked'), unpacked, { recursive: true });
   const inventory = readJson(path.join(unpacked, 'files.json'));
   const expected = new Map(
     inventory.files.map((file) => [file.path.replaceAll('/', '\\').toLowerCase(), file]),
   );
   const packagingFiles = [
     'files.json',
+    'appxmanifest.xml',
     'appxblockmap.xml',
     'appxsignature.p7x',
     '[content_types].xml',
@@ -229,22 +278,8 @@ try {
     [],
     'files listed in files.json but missing from the MSIX',
   );
-  const signature = JSON.parse(
-    ps(
-      `$s = Get-AuthenticodeSignature -LiteralPath $env:MSIX; $c = [Security.Cryptography.X509Certificates.X509Certificate2]::new($env:CER); @{ status = [string]$s.Status; message = $s.StatusMessage; signer = $s.SignerCertificate.Thumbprint; expected = $c.Thumbprint; subject = $c.Subject } | ConvertTo-Json -Compress`,
-      { MSIX: msixFile, CER: certificate },
-    ),
-  );
-  assert.equal(signature.signer, signature.expected, 'signed with the development certificate');
-  assert.ok(
-    ['Valid', 'UnknownError', 'NotTrusted'].includes(signature.status),
-    `signature ${signature.status}: ${signature.message}`,
-  );
-  const manifest = readFileSync(path.join(unpacked, 'AppxManifest.xml'), 'utf8');
-  assert.equal(/<Identity [^>]*Publisher="([^"]+)"/.exec(manifest)[1], signature.subject);
-  console.log(
-    `PASS: ${found.length} files match files.json; signed by ${signature.subject} (${signature.status}: ${signature.message})`,
-  );
+  assert.ok(!existsSync(path.join(unpacked, 'AppxSignature.p7x')), 'MSIX is unsigned');
+  console.log(`PASS: ${found.length} files and manifest match approved product inputs; unsigned`);
 
   // The enrolment page (Task 12) ships through @vidvnc/web-client's ordinary "files": ["src"]
   // package.json entry, copied by build.mjs's copyTree like every other package file — no
@@ -265,8 +300,9 @@ try {
   // 2. The unpacked host, not installed, relocated with a minimal environment. Installed Node.js
   // stays on PATH; a package that bundles Node.js must still run its own.
   const bundledNode = readJson(path.join(unpacked, 'runtime.json')).node;
-  const nodeKind = bundledNode ? 'bundled' : 'installed';
-  const node = bundledNode ? path.join(unpacked, bundledNode) : process.execPath;
+  assert.equal(bundledNode, 'runtime/node/node.exe');
+  const nodeKind = 'bundled';
+  const node = path.join(unpacked, bundledNode);
   const port = await freePort();
   const tlsPort = await freePort();
   // Same settings path a real server reads (paths.mjs: settingsFiles(dataDirectory()).tls),
@@ -390,7 +426,14 @@ try {
     ),
     'fresh registry cache in the given LOCALAPPDATA',
   );
-  await closeHost(host.pid, unpacked);
+  await closeHost(host.pid, unpacked, async () => {
+    const response = await fetchAcrossRedirect(`http://127.0.0.1:${port}/api/info`, tlsPort);
+    assert.equal(
+      response.status,
+      200,
+      'sharing remains operational after canceled shutdown, visible or hidden',
+    );
+  });
   console.log(
     `PASS: unpackaged host from ${unpacked} started its server on ${nodeKind} Node.js, served the web client and closed cleanly`,
   );

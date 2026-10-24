@@ -32,6 +32,22 @@ Don't open a public issue. Follow [SECURITY.md](SECURITY.md).
 
 ## Build and test your own copy
 
+Use Node.js 24.22.1+ in the 24 LTS line or 26.12.1+ in the 26 Current line. Initialize
+the pinned Windows tooling with `git submodule update --init --recursive`; Windows
+packaging requires PowerShell 7.4+ (`pwsh`). `npm run package` builds the MSI and CLI
+ZIP; `npm run package:msix` explicitly builds an unsigned MSIX. See
+[Windows packaging](packaging/windows/README.md) for prerequisites and acceptance gaps.
+
+Dependency upgrades require live registry/upstream/advisory/license review including
+transitives and bundled code, plus relevant tests. The
+[Node/npm review](docs/security/node-dependency-review-2026-10-23.md) and
+[formatter remediation](docs/security/formatter-remediation-2026-10-23.md) record bundled-code
+checks that npm audit alone does not cover. Formatting uses pinned Biome WebAssembly
+for JavaScript/JSON/CSS/HTML and clang-format WebAssembly for native sources.
+The existing `npm run format*` commands keep their scopes; Markdown tables are aligned
+manually. Biome HTML formatting is upstream experimental and requires review of markup
+diffs when upgrading.
+
 Follow [Build and run (Windows)](README.md#build-and-run-windows); on a Mac (macOS 27,
 Apple Silicon), install the tools in [SDK and build locations](README.md#sdk-and-build-locations)
 and use the same commands. These commands run from the repository root:

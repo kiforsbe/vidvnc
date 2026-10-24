@@ -1,15 +1,5 @@
-// Builds Windows packages from project inputs:
-//   node packaging/windows/build.mjs windows-cli [--include-runtime-installers]
-//   node packaging/windows/build.mjs windows-server [--include-runtime-installers] [--include-node]
-// Both bundle the Release worker, allowlisted GStreamer plugins and their SDK dependencies.
-// General runtimes are declared prerequisites and never copied from the build machine.
-// windows-cli is a portable ZIP; --include-runtime-installers puts the pinned installers in it.
-// windows-server adds the WinUI host and is an MSIX signed with the development certificate
-// from npm run package:prepare. MSIX cannot run installers, so --include-runtime-installers
-// writes a ZIP holding the MSIX, its certificate and the installers. --include-node bundles
-// the pinned Node.js, used only by the host.
-import { spawnSync } from 'node:child_process';
-import { X509Certificate, createHash, randomUUID } from 'node:crypto';
+// Windows product staging. Shared winbuildtools owns installer creation and inspection.
+import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -17,7 +7,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -28,23 +17,13 @@ import { loadRuntimeManifest } from '../../native/media-worker/runtime-manifest.
 import { resolveDependencies } from '../shared/pe-dependencies.mjs';
 import { outputLocations, replaceDirectory, siblingDirectory } from '../shared/staging.mjs';
 import { fillManifest, msixVersion, placeholderLogo } from './msix.mjs';
+import { packageOptions, launcher } from './launcher.mjs';
+import { invokeBuildTools } from './build-tools.mjs';
+import { publishArtifact } from './publish.mjs';
+import { resolveMsiConfiguration } from './msi.mjs';
 
-const FLAGS = { installers: '--include-runtime-installers', node: '--include-node' };
-const [target, ...flags] = process.argv.slice(2);
-const server = target === 'windows-server';
-if (
-  !['windows-cli', 'windows-server'].includes(target) ||
-  flags.some((flag) => !Object.values(FLAGS).includes(flag)) ||
-  new Set(flags).size !== flags.length ||
-  (!server && flags.includes(FLAGS.node))
-)
-  throw new Error(
-    `Usage: node packaging/windows/build.mjs windows-cli [${FLAGS.installers}]\n` +
-      `       node packaging/windows/build.mjs windows-server [${FLAGS.installers}] [${FLAGS.node}]`,
-  );
+const { target, server, format } = packageOptions(process.argv.slice(2));
 if (process.platform !== 'win32') throw new Error('Windows packages must be built on Windows');
-const includeInstallers = flags.includes(FLAGS.installers);
-const includeNode = flags.includes(FLAGS.node);
 const configuration = 'Release';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -61,25 +40,23 @@ const vc = prerequisites['vc-redist-x64'];
 const product = server ? msix.displayName : 'VidVNC Server';
 // This product's prerequisites; a bundled Node.js replaces the Node.js prerequisite.
 const declared = Object.entries(prerequisites).filter(
-  ([id, item]) => item.products.includes(target) && !(includeNode && id === 'nodejs'),
+  ([id, item]) => item.products.includes(target) && id !== 'nodejs',
 );
 const tar = path.join(process.env.SystemRoot, 'System32/tar.exe');
 const { stage, installers } = outputLocations(root, { target, configuration, version });
 const packageVersion = server ? msixVersion(version) : null;
 
-// quiet: keep the tool's output (MakeAppx lists every file) unless it fails.
-function run(command, args, { quiet = false } = {}) {
-  const result = spawnSync(command, args, {
-    cwd: root,
-    stdio: quiet ? 'pipe' : 'inherit',
-    encoding: 'utf8',
-    windowsHide: true,
+// Keep per-run diagnostics outside payloads, including failed packer output.
+const runRoot = fromRoot('out/packaging/windows', `${target}-${format}-${randomUUID()}`);
+mkdirSync(runRoot, { recursive: true });
+invokeBuildTools({ operation: 'preflight', format });
+function run(tool, args) {
+  invokeBuildTools({
+    operation: 'run',
+    tool,
+    arguments: args,
+    log: path.join(runRoot, 'tools.log'),
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    if (quiet) process.stderr.write(`${result.stdout}${result.stderr}`);
-    throw new Error(`${path.basename(command)} failed with exit code ${result.status}`);
-  }
 }
 // Scratch directories next to the stage, removed however the build ends.
 function scratchDirectory() {
@@ -147,16 +124,6 @@ function verified(item) {
     );
   return source;
 }
-const bundledInstallers = !includeInstallers
-  ? []
-  : declared
-      .filter(([, prerequisite]) => prerequisite.installer)
-      .map(([id, { installer }]) => ({
-        id,
-        source: verified(installer),
-        path: `prerequisites/${installer.file}`,
-      }));
-
 const prerequisiteDlls = Object.fromEntries(
   declared.filter(([, item]) => item.dlls).map(([id, item]) => [id, item.dlls]),
 );
@@ -201,7 +168,6 @@ const thirdParty = Object.entries(gstreamer.components).map(([id, component]) =>
 // Host: every published file must belong to the project or a NuGet package with a license.
 const hostFiles = [];
 let windowsAppRuntime;
-let tools, signingThumbprint;
 if (server) {
   const name = path.parse(host.executable).name;
   const { runtimeOptions } = readJson(path.join(hostPublish, `${name}.runtimeconfig.json`));
@@ -297,41 +263,10 @@ if (server) {
     throw new Error(
       `The host uses Windows App Runtime ${windowsAppRuntime.version}; update windows-app-runtime.minimumVersion in packaging/windows/inputs.json`,
     );
-  const toolsRoot = path.join(nugetPath('Microsoft.Windows.SDK.BuildTools'), 'bin');
-  const tool = (file) => {
-    const found = readdirSync(toolsRoot)
-      .map((sdkVersion) => path.join(toolsRoot, sdkVersion, 'x64', file))
-      .filter((candidate) => existsSync(candidate));
-    if (found.length !== 1) throw new Error(`Expected one ${file} under ${toolsRoot}`);
-    return found[0];
-  };
-  tools = { makeappx: tool('makeappx.exe'), signtool: tool('signtool.exe') };
-  if (!existsSync(fromRoot(msix.certificate)))
-    throw new Error(`Missing ${msix.certificate}; run npm run package:prepare`);
-  // signtool signs with the key in Cert:\CurrentUser\My that belongs to this certificate.
-  signingThumbprint = new X509Certificate(readFileSync(fromRoot(msix.certificate))).fingerprint
-    .replaceAll(':', '')
-    .toUpperCase();
-  // Through .NET's X509Store, not the Cert: drive: run from PowerShell 7, the inherited
-  // PSModulePath stops Windows PowerShell loading the module that provides that drive.
-  const check = spawnSync(
-    path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store 'My', 'CurrentUser'; $store.Open('ReadOnly'); $found = @($store.Certificates.Find('FindByThumbprint', $env:VIDVNC_THUMBPRINT, $false) | Where-Object HasPrivateKey).Count; $store.Close(); if (-not $found) { exit 1 }",
-    ],
-    { windowsHide: true, env: { ...process.env, VIDVNC_THUMBPRINT: signingThumbprint } },
-  );
-  if (check.status !== 0)
-    throw new Error(
-      `The signing key for ${msix.certificate} (thumbprint ${signingThumbprint}) is not in Cert:\\CurrentUser\\My; run npm run package:prepare`,
-    );
 }
 
 let nodeBundle;
-if (includeNode) {
+{
   const { bundle } = prerequisites.nodejs;
   const extracted = scratchDirectory();
   const top = bundle.file.replace(/\.zip$/, '');
@@ -393,11 +328,6 @@ try {
   );
   for (const file of hostFiles) place(file.source, file.name, file.component);
   if (nodeBundle) place(path.join(nodeBundle, 'node.exe'), 'runtime/node/node.exe', 'nodejs');
-  // An MSIX cannot run installers; the server product ships them beside the package instead.
-  if (!server)
-    for (const installer of bundledInstallers)
-      place(installer.source, installer.path, installer.id);
-
   const vidvncNotices = ['LICENSE', 'LICENSING.md'].map((file) => {
     const relative = `notices/vidvnc/${file === 'LICENSE' ? 'LICENSE.txt' : file}`;
     place(fromRoot(file), relative, 'vidvnc');
@@ -421,30 +351,18 @@ try {
     });
     components.push({ ...component, ...(notices.length && { notices }) });
   }
-  if (!server)
-    for (const { id } of bundledInstallers)
-      components.push({
-        id,
-        name: `${prerequisites[id].name} installer`,
-        license: prerequisites[id].installer.license,
-        origin: `${prerequisites[id].installer.url} (sha256 ${prerequisites[id].installer.sha256})`,
-      });
   const declaredRecords = declared.map(([id, prerequisite]) => ({
     id,
     name: prerequisite.name,
     minimumVersion: prerequisite.minimumVersion,
     download: prerequisite.download,
     ...(imports[id] && { imports: imports[id] }),
-    ...(!server &&
-      bundledInstallers.some((installer) => installer.id === id) && {
-        installer: `prerequisites/${prerequisite.installer.file}`,
-      }),
   }));
 
   write(
     'notices/THIRD-PARTY-NOTICES.txt',
     [
-      `${product} ${version} for Windows x64 (${server ? 'development build, self-signed' : 'unsigned development build'})`,
+      `${product} ${version} for Windows x64 (unsigned development build)`,
       '',
       'Generated from build inputs. This inventory supports review; it is not a legal approval.',
       '',
@@ -478,7 +396,7 @@ try {
         mode: 'packaged',
         configuration,
         architecture: 'x64',
-        ...(nodeBundle && { node: 'runtime/node/node.exe' }),
+        node: 'runtime/node/node.exe',
         server: 'app/node_modules/@vidvnc/server/src/main.mjs',
         worker: 'runtime/media/bin/media-worker.exe',
         mediaBin: 'runtime/media/bin',
@@ -498,14 +416,17 @@ try {
   );
   loadRuntimeManifest(path.join(built, 'runtime.json'));
   if (server) {
+    place(fromRoot('apps/windows-host/Assets/VidVnc.ico'), 'Assets/VidVnc.ico', 'vidvnc');
+  }
+  if (format === 'msix') {
     for (const [file, size] of [
       ['StoreLogo.png', 50],
       ['Square44x44Logo.png', 44],
       ['Square150x150Logo.png', 150],
     ])
       write(`Assets/${file}`, placeholderLogo(size), 'vidvnc');
-    write(
-      'AppxManifest.xml',
+    writeFileSync(
+      path.join(runRoot, 'AppxManifest.xml'),
       fillManifest(readFileSync(fromRoot('packaging/windows/msix/AppxManifest.xml'), 'utf8'), {
         name: msix.name,
         publisher: msix.publisher,
@@ -519,10 +440,10 @@ try {
         windowsAppRuntimePublisher: windowsAppRuntime.publisher,
         executable: host.executable,
       }),
-      'vidvnc',
     );
-  } else {
-    write('VidVNC.Server.cmd', launcher(), 'vidvnc');
+  }
+  if (!server) {
+    write('VidVNC.Server.cmd', launcher({ version, vc }), 'vidvnc');
   }
 
   const files = records
@@ -540,7 +461,7 @@ try {
         version,
         configuration,
         architecture: 'x64',
-        signature: server ? 'development-self-signed' : 'none',
+        signature: 'none',
         prerequisites: declaredRecords,
         components,
         files,
@@ -555,130 +476,44 @@ try {
   throw error;
 }
 
-// 4. Produce the artifacts, replacing any previous file only once it is complete.
-function publishFile(filename, create) {
-  const temporary = path.join(installers, `.${randomUUID()}${path.extname(filename)}`);
-  try {
-    create(temporary);
-    renameSync(temporary, filename);
-  } finally {
-    rmSync(temporary, { force: true });
-  }
-}
-const zipDirectory = (directory, zip) =>
-  publishFile(zip, (temporary) =>
-    run(tar, ['-a', '-c', '-f', temporary, '-C', directory, ...readdirSync(directory).sort()]),
-  );
-
+// 4. Inspect first, measure final bytes, then promote the artifact and metadata.
 const manifest = readJson(path.join(stage, 'files.json'));
 const bytes = manifest.files.reduce((total, file) => total + file.size, 0);
 console.log(
-  `\nStaged ${manifest.files.length} files (${(bytes / 2 ** 20).toFixed(1)} MiB): ${stage}`,
+  `Staged ${manifest.files.length} files (${(bytes / 2 ** 20).toFixed(1)} MiB): ${stage}`,
 );
-console.log(
-  `Prerequisites: ${manifest.prerequisites.map((item) => `${item.name} ${item.minimumVersion}+`).join(', ')}`,
-);
-if (!server) {
-  const zip = path.join(
-    installers,
-    `VidVNC-Server-${version}-windows-x64-unsigned${includeInstallers ? '-with-installers' : ''}.zip`,
-  );
-  zipDirectory(stage, zip);
-  console.log(`Unsigned development ZIP: ${zip}\nSHA-256: ${sha256(zip)}`);
+const filename = `${server ? 'VidVNC' : 'VidVNC-Server'}-${version}-windows-x64-unsigned.${format}`;
+const artifact = path.join(runRoot, filename);
+if (format === 'zip') {
+  run(tar, ['-a', '-c', '-f', artifact, '-C', stage, ...readdirSync(stage).sort()]);
 } else {
-  const base = `VidVNC-${version}-windows-x64-selfsigned${nodeBundle ? '-with-node' : ''}`;
-  const msixFile = path.join(installers, `${base}.msix`);
-  publishFile(msixFile, (temporary) => {
-    run(tools.makeappx, ['pack', '/o', '/h', 'SHA256', '/d', stage, '/p', temporary], {
-      quiet: true,
+  const request = { operation: format, payload: stage, output: path.join(runRoot, 'installer') };
+  if (format === 'msix') request.manifest = path.join(runRoot, 'AppxManifest.xml');
+  else {
+    const config = resolveMsiConfiguration(readJson(fromRoot('packaging/windows/msi.json')), {
+      version,
+      files: [...manifest.files.map((file) => file.path), 'files.json'],
     });
-    run(
-      tools.signtool,
-      ['sign', '/fd', 'SHA256', '/sha1', signingThumbprint, '/s', 'My', temporary],
-      { quiet: true },
-    );
-  });
-  const certificateFile = path.join(installers, 'VidVNC-Development.cer');
-  copyFileSync(fromRoot(msix.certificate), certificateFile);
-  // Trusts or removes the certificate beside it.
-  const certificateScript = path.join(installers, 'VidVNC-Development-Certificate.ps1');
-  copyFileSync(fromRoot('packaging/windows/development-certificate.ps1'), certificateScript);
-  console.log(`Self-signed development MSIX: ${msixFile}\nSHA-256: ${sha256(msixFile)}`);
-  console.log(`Development certificate: ${certificateFile} (trust it with ${certificateScript})`);
-  console.log(`Certificate thumbprint: ${signingThumbprint} (publish it with the release)`);
-  if (includeInstallers) {
-    const bundle = scratchDirectory();
-    for (const file of [msixFile, certificateFile, certificateScript])
-      copyFileSync(file, path.join(bundle, path.basename(file)));
-    mkdirSync(path.join(bundle, 'prerequisites'));
-    for (const installer of bundledInstallers)
-      copyFileSync(installer.source, path.join(bundle, installer.path));
-    writeFileSync(path.join(bundle, 'INSTALL.txt'), installText(path.basename(msixFile)));
-    const zip = path.join(installers, `${base}-with-installers.zip`);
-    zipDirectory(bundle, zip);
-    console.log(`MSIX with prerequisite installers: ${zip}\nSHA-256: ${sha256(zip)}`);
+    request.config = path.join(runRoot, 'msi.json');
+    request.version = version;
+    writeFileSync(request.config, JSON.stringify(config, null, 2));
   }
+  const packed = invokeBuildTools(request);
+  copyFileSync(packed.Artifact, artifact);
 }
-
-function installText(msixName) {
-  const steps = declared.map(([id, item]) => {
-    if (!item.installer)
-      return `   - ${item.name} ${item.minimumVersion} or newer: ${item.download}`;
-    const file = `prerequisites\\${item.installer.file}`;
-    return item.installer.file.endsWith('.msix')
-      ? `   - ${item.name}: Add-AppxPackage -Path .\\${file}`
-      : `   - ${item.name}: run ${file}`;
-  });
-  return [
-    `VidVNC ${version} for Windows x64 - development build, self-signed`,
-    '',
-    '1. Once per PC, trust the development certificate. In an administrator PowerShell',
-    '   opened in this folder:',
-    '   powershell -ExecutionPolicy Bypass -File .\\VidVNC-Development-Certificate.ps1 install',
-    '   It shows the certificate thumbprint. Trust it only if it matches the thumbprint',
-    '   published with this VidVNC release (where you got this file is not proof enough).',
-    '2. Install what this PC does not have yet:',
-    ...steps,
-    `3. Open ${msixName} to install VidVNC, then open VidVNC from the Start menu.`,
-    '',
-    'Uninstall VidVNC from Settings > Apps. Your settings in %LOCALAPPDATA%\\VidVNC are kept.',
-    'To stop trusting the certificate, run the same command with uninstall instead of install.',
-    '',
-  ].join('\r\n');
-}
-
-// Checks prerequisites, then runs the server with the installed Node.js. Arguments pass through
-// untouched; `where $PATH:` ignores a node.exe in the current directory.
-function launcher() {
-  const node = prerequisites.nodejs;
-  const vcMinor = Number(vc.minimumVersion.split('.')[1]);
-  // Joined outside the raw template: a backslash there would escape the interpolation.
-  const bundledInstaller = ['prerequisites', vc.installer.file].join(path.win32.sep);
-  const text = String.raw`@echo off
-setlocal EnableExtensions DisableDelayedExpansion
-rem VidVNC Server ${version}. Uses the installed Node.js; changes no system settings.
-set "NODE_OPTIONS="
-set "VIDVNC_RUNTIME_MANIFEST=%~dp0runtime.json"
-set "NODE="
-for /f "delims=" %%n in ('where $PATH:node.exe 2^>nul') do if not defined NODE set "NODE=%%n"
-if not defined NODE goto need_node
-"%NODE%" -e "process.exit(Number(process.versions.node.split('.')[0]) >= ${node.minimumVersion} ? 0 : 1)"
-if errorlevel 1 goto need_node
-for %%k in ("HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "HKLM\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64") do for /f "tokens=3" %%v in ('reg query "%%~k" /v Minor 2^>nul ^| findstr /c:"REG_DWORD"') do if %%v GEQ ${vcMinor} goto run
->&2 echo VidVNC Server needs the ${vc.name} ${vc.minimumVersion} or newer.
-if exist "%~dp0${bundledInstaller}" goto bundled_vc
->&2 echo Install it from ${vc.download}, then run this command again.
-exit /b 1
-:bundled_vc
->&2 echo Run ${bundledInstaller} from this folder, then run this command again.
-exit /b 1
-:need_node
->&2 echo VidVNC Server needs ${node.name} ${node.minimumVersion} or newer. Install it from ${node.download}, then run this command again.
-exit /b 1
-:run
-"%NODE%" "%~dp0app\node_modules\@vidvnc\server\src\main.mjs" %*
-exit /b %ERRORLEVEL%
-`;
-  if (text.includes('${')) throw new Error('Launcher template left a placeholder unexpanded');
-  return text.split('\n').join('\r\n');
-}
+const metadata = path.join(runRoot, `${filename}.json`);
+const measured = invokeBuildTools({ operation: 'metadata', artifact, output: metadata, version });
+const destination = path.join(installers, filename);
+// Both files are on this volume. Publish only the completed artifact.
+publishArtifact(artifact, metadata, destination);
+// Clean only known obsolete current-version variants, after successful replacement.
+const obsolete = server
+  ? [
+      `VidVNC-${version}-windows-x64-selfsigned.msix`,
+      `VidVNC-${version}-windows-x64-selfsigned-with-node.msix`,
+      `VidVNC-${version}-windows-x64-selfsigned-with-installers.zip`,
+      `VidVNC-${version}-windows-x64-selfsigned-with-node-with-installers.zip`,
+    ]
+  : [`VidVNC-Server-${version}-windows-x64-unsigned-with-installers.zip`];
+for (const name of obsolete) rmSync(path.join(installers, name), { force: true });
+console.log(`Unsigned ${format.toUpperCase()}: ${destination}\nSHA-256: ${measured.SHA256}`);
