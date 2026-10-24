@@ -1654,6 +1654,7 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T28 | Trust anchor (B3)         | S, I   | Use a certificate a device installed to impersonate other websites to it                                                         | `auto` never hands out a CA: the self-signed leaf has critical `CA:FALSE` and no certificate-signing key usage; mkcert's CA is used only after `tls-mode mkcert`, and its warning says it can sign for any site                                                                                                                                            | A device that trusts mkcert's CA trusts whoever holds that CA's key                                                                    |
 | T29 | Windows packages          | S, T   | Substitute an unsigned installer or build-tool checkout                                                                          | Pin winbuildtools v0.5.0-beta.1 by gitlink, inspect MSI/MSIX against approved inputs and record final hashes/source state. Builds never create keys or import trust.                                                                                                                                                                                       | Unsigned artifacts and unsigned sidecars do not establish publisher authenticity. Legacy MSIX trust persists until explicitly removed. |
 | T30 | MSI installation metadata | T, E   | Substitute the remembered destination or elevated setup properties                                                               | Shared inspection allows only the expected install-location registry record and exact declarative property setters, secures UI-to-server properties, and uses fresh synthetic registry paths for non-installing preflight. Machine-scope installation needs administrator approval.                                                                        | Installed UAC, upgrade and rollback acceptance remains pending; properties are data, not a sandbox boundary.                           |
+| T31 | MSI completion            | E      | Start the remote-access host with installer privileges                                                                           | Run is unchecked, full-UI success only and targets the installed host File key without arguments. No launch occurs during build or inspection.                                                                                                                                                                                                             | Elevated/all-users launch identity and privileges require disposable-host validation; no de-elevation guarantee.                       |
 
 ### Residual risk and open items
 
@@ -1978,6 +1979,12 @@ switching to MSI. No build changes certificate stores; legacy trust removal is s
 The selected beta's native MSI wizard adds a setup and maintenance flow. VidVNC keeps
 the destination display fixed and does not configure a license page. The native scope
 chooser runs before discovery/costing and is skipped in maintenance.
+The compact wizard displays the existing app icon. Completion Details and destination
+editing/Browse are disabled. Successful full-UI install/update can offer an unchecked
+Run VidVNC checkbox; Finish launches only the configured installed host File key,
+without arguments, after explicit selection and only when no restart is detected.
+Repair/removal and basic/reduced/silent UI do not offer launch. The engine does not
+guarantee launch de-elevation; actual post-setup identity/privileges remain unverified.
 Installed UI, cancellation, UAC and rollback still need disposable-host acceptance.
 
 ```mermaid
@@ -1994,6 +2001,8 @@ flowchart LR
     Maintenance --> Confirm[Confirm maintenance]
     Confirm --> Progress
     Progress --> Result[Completed canceled or failed]
+    Result --> Choice{Successful full UI install or update without restart}
+    Choice -->|User selects Run and finishes| Launch[Launch installed host file]
 ```
 
 ## Build, dependencies, and tests

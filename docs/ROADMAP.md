@@ -244,11 +244,10 @@ Windows development builds exist: the VidVNC Server ZIP (unsigned) and the VidVN
 MSI (unsigned). Both bundle Node.js, VidVNC components and media libraries; Visual C++,
 .NET and Windows App Runtime remain declared prerequisites as applicable. MSI and
 optional unsigned MSIX pass byte/content inspection. The latest tagged winbuildtools
-v0.5.0-beta.1 provides native setup/repair/remove, Just me / All users choice and
-completion Details. Optional branding/Browse/links/launch have a
-[new proposal](superpowers/specs/2026-10-24-winbuildtools-presentation-design.md);
-those opt-ins remain disabled. Scope and identity are checked in inactive preview;
-installed MSI lifecycle and ICE
+v0.5.0-beta.1 provides native setup/repair/remove and Just me / All users choice.
+The [selected presentation](superpowers/specs/2026-10-24-winbuildtools-selected-presentation.md)
+adds the app logo and unchecked Run option, with Details/destination editing disabled;
+scope and identity are checked in inactive preview. Installed MSI lifecycle and ICE
 validation remain release gates. See [PACKAGING.md](PACKAGING.md).
 Remaining for Windows: clean-machine acceptance, trusted signing, upgrade and uninstall
 checks, published releases with license notices and source for the bundled LGPL

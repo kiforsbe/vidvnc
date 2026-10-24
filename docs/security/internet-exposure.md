@@ -459,6 +459,21 @@ the public host avoids the rest.
 
 ## Verification record
 
+- **2026-10-24, owner-selected MSI presentation:** the rebuilt 0.12.2 MSI uses the
+  existing app logo, disables destination editing/Browse and completion Details,
+  and offers an initially unchecked Run VidVNC choice. Shared byte/table inspection
+  and the consumer checker passed: icon controls, absence of Details/Browse buttons,
+  read-only destination, exact installed-host File key without arguments, unchecked
+  launch property and full-UI/success/no-restart conditions. Both scopes, Just me
+  default, unsuffixed folders and all 273 component identities still pass. Five actual
+  dialogs rendered in inactive preview; the normal success state shows the unchecked
+  Run choice and no Details button. No app launch or installation was executed.
+  The [approved selection](../superpowers/specs/2026-10-24-winbuildtools-selected-presentation.md)
+  explicitly supersedes the earlier defer-launch recommendation. Post-elevation launch
+  identity/privileges, installed lifecycle/UAC/ICE and accessibility/DPI remain unverified;
+  no de-elevation guarantee is made. The earlier record below describes the previous
+  engine-default presentation, not the selected configuration.
+
 - **2026-10-24, latest tagged presentation engine:** integrate explicitly requested
   winbuildtools v0.5.0-beta.1 at `d9ec7c72cdabfc65b85c61e4cf2f055b75a444a9`.
   This is a prerelease; v0.4.0 remains stable. The source-only MIT update adds no

@@ -14,8 +14,16 @@
     "restartManager": "graceful",
     "minimumWindowsBuild": 26200
   },
-  "application": { "executable": "VidVnc.Host.exe", "icon": "Assets/VidVnc.ico" },
-  "shortcuts": [{ "name": "VidVNC", "location": "startMenu" }],
+  "application": {
+    "executable": "VidVnc.Host.exe",
+    "icon": "Assets/VidVnc.ico"
+  },
+  "shortcuts": [
+    {
+      "name": "VidVNC",
+      "location": "startMenu"
+    }
+  ],
   "payload": {
     "requiredFiles": [
       "VidVnc.Host.pri",
@@ -26,5 +34,15 @@
     ],
     "allowedExtensions": [],
     "allowedFiles": []
+  },
+  "ui": {
+    "layout": "compactHeader",
+    "logo": "Assets/VidVnc.ico",
+    "allowDirectoryChange": false,
+    "showBrowseButton": false,
+    "completion": {
+      "showDetails": false,
+      "launchApplication": true
+    }
   }
 }

@@ -92,13 +92,19 @@ not create those installation records on the build machine.
 
 ## Optional wizard configuration
 
-The latest engine adds operation-specific result text and selectable installation
-Details by default. VidVNC keeps the compact layout, fixed destination, no custom
-artwork, no launch checkbox, no external links and no agreement gate.
+VidVNC uses compact headers with its app logo. Destination editing/Browse and
+completion Details are explicitly disabled. The Options page still shows its read-only
+destination because the engine cannot hide that page. Failure/cancellation retain log
+information. After successful full-UI install/update, an initially unchecked Run VidVNC
+checkbox can launch the installed host when the user selects it and clicks Finish.
+It is absent for repair/removal, basic/reduced/silent UI and detected restart states.
+Actual identity/privileges after elevated setup remain unvalidated; no unelevated-launch
+guarantee is made. External links and the agreement page remain disabled.
 
-The [2026-10-24 presentation proposal](../../docs/superpowers/specs/2026-10-24-winbuildtools-presentation-design.md)
-compares the new options, recommends a staged selection and records acceptance gates.
-It supersedes the older design's tag/UI description without changing historical files.
+The [selected design](../../docs/superpowers/specs/2026-10-24-winbuildtools-selected-presentation.md)
+records the owner's choices and supersedes the earlier
+[presentation proposal](../../docs/superpowers/specs/2026-10-24-winbuildtools-presentation-design.md).
+
 The [upstream contract](../../external/winbuildtools/msi/README.md#native-setup-and-maintenance)
 owns exact fields, defaults and image/URL limits. Additional Start-menu shortcuts,
 AppUserModelID and agreement text remain available but are not selected.

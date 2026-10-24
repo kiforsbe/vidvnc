@@ -18,6 +18,9 @@ settings still need an authorized disposable Windows host before shipping.
 
 msi-package-check.ps1 reads the actual built MSI without installing: both scope radio
 options/events, per-user defaults, least-privilege summary and legacy persistent GUIDs.
+It also checks the logo, read-only destination, disabled Details/Browse, and an initially
+unchecked Run option targeting the installed host File key with every launch gate.
+Actual launch identity/privileges remain unverified.
 An optional previous MSI allows direct identity/folder comparison. Shared build-time
 inspection performs read-only costing of fresh synthetic copies in both contexts.
 Actual per-user/no-UAC and all-users/elevated installation, same-context upgrades,

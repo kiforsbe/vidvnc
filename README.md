@@ -379,6 +379,11 @@ npm run package:cli
 
 The MSI is `out/installers/windows-server/<version>/VidVNC-<version>-windows-x64-unsigned.msi`;
 the ZIP is `out/installers/windows-cli/<version>/VidVNC-Server-<version>-windows-x64-unsigned.zip`.
+Setup displays the app logo and offers an initially unchecked Run VidVNC option after
+successful interactive install/update. Destination editing and completion Details are
+disabled. See the [selected setup behavior](packaging/windows/README.md#optional-wizard-configuration),
+including the remaining elevated-launch validation limit.
+
 Each has a `.json` sidecar recording the final SHA-256, signature status, source commit
 and dirty state. These hashes identify bytes; they are not signed attestations.
 

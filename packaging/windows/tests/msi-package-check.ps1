@@ -27,11 +27,20 @@ Check ($snapshot.Properties.UpgradeCode -ceq (Get-MsiGuid $namespace 'x64/upgrad
 Check ($snapshot.Properties.ProductCode -ceq (Get-MsiGuid $namespace "x64/product/$version")) 'legacy versioned product identity retained'
 Check ((@($snapshot.Directories | Where-Object Directory -ceq INSTALLFOLDER)[0].DefaultDir -split '\|')[-1] -ceq 'VidVNC') 'installation folder has no architecture suffix'
 Check ((@($snapshot.Directories | Where-Object Directory -ceq APPMENUDIR)[0].DefaultDir -split '\|')[-1] -ceq 'VidVNC') 'Start-menu folder has no architecture suffix'
-Check (@($ui.Dialogs | Where-Object Dialog -ceq WbtInstallDetails).Count -eq 1) 'native installation Details is available'
+Check (@($ui.Dialogs | Where-Object Dialog -ceq WbtInstallDetails).Count -eq 0) 'installation Details is disabled'
+Check (@($ui.Controls | Where-Object { $_.Control -ceq 'Details' -and $_.Type -ceq 'PushButton' }).Count -eq 0) 'Details buttons are absent'
+Check (@($ui.Controls | Where-Object { $_.Dialog_ -ceq 'WbtOptions' -and $_.Control -ceq 'Path' -and $_.Type -ceq 'Text' }).Count -eq 1) 'destination remains read-only'
+Check (@($ui.Controls | Where-Object { $_.Control -ceq 'HeaderLogo' -and $_.Type -ceq 'Icon' -and $_.Text -ceq 'WbtUiLogo' }).Count -gt 0) 'native header uses the app logo'
 foreach ($operation in @('Installed','Updated','Repaired','Removed')) {
     Check (@($ui.Controls | Where-Object { $_.Dialog_ -ceq 'WbtExit' -and $_.Control -ceq "Heading$operation" }).Count -eq 1) "operation-specific completion: $operation"
 }
-Check (@($ui.Events | Where-Object Event -ceq MsiLaunchApp).Count -eq 0) 'post-install launch remains disabled'
+$launch = @($ui.Events | Where-Object Event -ceq MsiLaunchApp)
+$hostFile = Get-MsiId F ([guid]$snapshot.Properties.UpgradeCode) 'x64/VidVnc.Host.exe'
+Check ($launch.Count -eq 1 -and $launch[0].Argument -ceq ('"[#' + $hostFile + ']"')) 'launch targets only the installed host executable'
+Check (!$snapshot.Properties.ContainsKey('WBTLAUNCHAPP')) 'Run VidVNC is initially unchecked'
+foreach ($condition in @('UILevel = 5','WBTLAUNCHAPP = 1','NOT Installed','NOT REMOVE','NOT REINSTALL','NOT MsiSystemRebootPending','NOT ReplacedInUseFiles')) {
+    Check ($launch[0].Condition.Contains($condition)) "launch condition: $condition"
+}
 Check (@($ui.Controls | Where-Object Type -ceq Hyperlink).Count -eq 0) 'external completion links remain disabled'
 Check (@($ui.Dialogs | Where-Object Dialog -ceq WbtBrowse).Count -eq 0) 'custom destination browsing remains disabled'
 
