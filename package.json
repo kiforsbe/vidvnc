@@ -1,6 +1,6 @@
 {
   "name": "vidvnc",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "workspaces": [
     "apps/server",
     "apps/web-client",
