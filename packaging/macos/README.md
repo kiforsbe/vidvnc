@@ -32,7 +32,7 @@ VidVNC.app/Contents/
   Resources/server/node_modules/  @vidvnc/server, @vidvnc/web-client, @vidvnc/media-worker
   Resources/notices/              THIRD-PARTY-NOTICES.txt and every license text
 
-VidVNC-Server-<version>-macos-arm64/
+VidVNC-CLI-<version>-macos-arm64/
   vidvnc  runtime.json  runtime/VidVNC Server  runtime/VidVNC Capture.app/  app/  notices/
 ```
 

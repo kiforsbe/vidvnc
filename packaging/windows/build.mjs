@@ -482,7 +482,7 @@ const bytes = manifest.files.reduce((total, file) => total + file.size, 0);
 console.log(
   `Staged ${manifest.files.length} files (${(bytes / 2 ** 20).toFixed(1)} MiB): ${stage}`,
 );
-const filename = `${server ? 'VidVNC' : 'VidVNC-Server'}-${version}-windows-x64-unsigned.${format}`;
+const filename = `${server ? 'VidVNC' : 'VidVNC-CLI'}-${version}-windows-x64-unsigned.${format}`;
 const artifact = path.join(runRoot, filename);
 if (format === 'zip') {
   run(tar, ['-a', '-c', '-f', artifact, '-C', stage, ...readdirSync(stage).sort()]);
@@ -514,6 +514,6 @@ const obsolete = server
       `VidVNC-${version}-windows-x64-selfsigned-with-installers.zip`,
       `VidVNC-${version}-windows-x64-selfsigned-with-node-with-installers.zip`,
     ]
-  : [`VidVNC-Server-${version}-windows-x64-unsigned-with-installers.zip`];
+  : [`VidVNC-CLI-${version}-windows-x64-unsigned-with-installers.zip`];
 for (const name of obsolete) rmSync(path.join(installers, name), { force: true });
 console.log(`Unsigned ${format.toUpperCase()}: ${destination}\nSHA-256: ${measured.SHA256}`);

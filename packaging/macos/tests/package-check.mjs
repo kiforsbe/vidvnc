@@ -42,7 +42,7 @@ const version = JSON.parse(
   readFileSync(path.join(root, 'apps/server/package.json'), 'utf8'),
 ).version;
 const installers = path.join(root, 'out/installers', target, version);
-const base = server ? `VidVNC-${version}-macos-arm64` : `VidVNC-Server-${version}-macos-arm64`;
+const base = server ? `VidVNC-${version}-macos-arm64` : `VidVNC-CLI-${version}-macos-arm64`;
 const extension = server ? '.dmg' : '.zip';
 const file = path.resolve(
   given ??

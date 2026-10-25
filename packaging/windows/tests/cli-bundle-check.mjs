@@ -29,7 +29,7 @@ const zip = path.resolve(
   process.argv[2] ||
     path.join(
       root,
-      `out/installers/windows-cli/${version}/VidVNC-Server-${version}-windows-x64-unsigned.zip`,
+      `out/installers/windows-cli/${version}/VidVNC-CLI-${version}-windows-x64-unsigned.zip`,
     ),
 );
 const node = process.execPath;

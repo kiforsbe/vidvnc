@@ -5,6 +5,13 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Changed
+
+- The command-line-only packages are now named `VidVNC-CLI-<version>-windows-x64-unsigned.zip`
+  and `VidVNC-CLI-<version>-macos-arm64.zip`, instead of `VidVNC-Server-…`.
+
 ## [0.12.3] - 2026-10-25
 
 ### Changed

@@ -180,7 +180,7 @@ Developer ID and notarized by Apple.
   password if that folder isn't yours; `vidvnc` then works like the command-line server
   below, with the app's settings. To remove VidVNC, quit it and delete it from
   Applications; remove the command first if you installed it.
-- **The command-line server:** unzip `VidVNC-Server-<version>-macos-arm64.zip` anywhere and
+- **The command-line server:** unzip `VidVNC-CLI-<version>-macos-arm64.zip` anywhere and
   run `./vidvnc` in its folder (`./vidvnc config <command>` while it is stopped). The first
   time, macOS checks with Apple's servers that it is notarized, because a ticket can't be
   attached to a command-line program, so that first run needs an internet connection.
@@ -382,7 +382,7 @@ npm run package:cli
 ```
 
 The MSI is `out/installers/windows-server/<version>/VidVNC-<version>-windows-x64-unsigned.msi`;
-the ZIP is `out/installers/windows-cli/<version>/VidVNC-Server-<version>-windows-x64-unsigned.zip`.
+the ZIP is `out/installers/windows-cli/<version>/VidVNC-CLI-<version>-windows-x64-unsigned.zip`.
 Setup displays the app logo and offers an initially checked Launch VidVNC option after
 successful interactive install/update. Destination editing and completion Details are
 disabled; setup shows the destination once on the final Install review. An unrelated

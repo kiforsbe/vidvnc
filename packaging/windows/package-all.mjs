@@ -26,6 +26,6 @@ const version = JSON.parse(
 ).version;
 console.log('\nDefault Windows packages built:');
 for (const [target] of VARIANTS) {
-  const filename = `${target === 'windows-server' ? 'VidVNC' : 'VidVNC-Server'}-${version}-windows-x64-unsigned.${target === 'windows-server' ? 'msi' : 'zip'}`;
+  const filename = `${target === 'windows-server' ? 'VidVNC' : 'VidVNC-CLI'}-${version}-windows-x64-unsigned.${target === 'windows-server' ? 'msi' : 'zip'}`;
   console.log(`  ${path.join('out/installers', target, version, filename)}`);
 }

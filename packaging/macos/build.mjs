@@ -252,8 +252,8 @@ const layout = server
       manifestRoot: '..',
     }
   : {
-      top: `VidVNC-Server-${version}-macos-arm64`,
-      contents: `VidVNC-Server-${version}-macos-arm64`,
+      top: `VidVNC-CLI-${version}-macos-arm64`,
+      contents: `VidVNC-CLI-${version}-macos-arm64`,
       node: `runtime/${app.server}`,
       launcher: 'vidvnc',
       helper: `runtime/${helperName}`,
