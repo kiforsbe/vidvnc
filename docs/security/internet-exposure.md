@@ -459,6 +459,104 @@ the public host avoids the rest.
 
 ## Verification record
 
+- **2026-10-25, published tooling and selected launch default:** winbuildtools v0.5.0
+  was published as a non-beta release before consumer integration. The fetched tag
+  resolves to `bdcc64f1afc515a4676f75da1a6a8eb473b032a5`. Source review found no added
+  package dependency or platform-binary redistribution; both MIT license files retain
+  their previous hashes. The live upstream GitHub advisory endpoint listed no published
+  advisories; that is not a complete security assessment. The actual consumer MSI
+  authors WBTLAUNCHAPP=1, and its read-only condition check confirms that clearing it
+  prevents launch while preserving full-UI/success/restart gates. The check failed
+  against the earlier unchecked MSI and passed against the new package. Upgrade family
+  and all 273 persistent component identities remain unchanged. All seven native launch
+  cases passed against the published source, including preselection and a real checkbox
+  click clearing the choice. Format checks and 1089 portable tests passed, with 4 skipped;
+  hardware checks passed 22 tests, with 3 macOS-only skips, and host checks passed.
+  Launch privileges after
+  elevated setup and broader disposable-host lifecycle/ICE acceptance remain unverified.
+
+- **2026-10-25, native Finish launch correction:** local winbuildtools candidate
+  `634ec1a85e814b71746bfd5ebbe78878aaca93c5` removes quotes around the native
+  MsiLaunchApp file-key token. The regression failed on the previous source and passed
+  after that change. Native selected, machine-pending, unchecked and transaction-restart
+  cases pass, including a payload path with spaces. The rebuilt VidVNC MSI passes
+  independent actual-package checks, including its raw host File key and all 273
+  component identities. This does not establish actual VidVNC launch identity after
+  installation. The installed launch-fixed candidate still lacks Start-menu
+  Uninstall; source/table inspection and a Shell refresh notification did not fix it.
+  An owner-authorized controlled repair then applied ARPNOMODIFY=1: installation
+  returned 0 and Windows registered `/X`, but the exact installed app catalog entry
+  still omitted Uninstall. A restore repair returned 0 and restored `/I`; Windows left
+  the temporary NoModify flags behind. Narrow administrator-consented cleanup removed
+  only those flags from the two verified product registration locations, restoring
+  their original absence. This rules out that proposed workaround on this installation.
+  A diagnostic MSI copy then removed only the explicit shortcut uninstall-command row,
+  with a fresh PackageCode and otherwise identical semantic tables. SecureRepair
+  rejected its changed unsigned source hash until normal Windows administrator consent;
+  no repair policy was weakened. After consent the repair returned 0 and the actual
+  shortcut property was absent, but the app catalog still omitted Uninstall. The
+  launch-fixed baseline was restored with consent and its exact PackageCode verified.
+  Nine isolated fresh per-user MSI registrations then all exposed Uninstall in the
+  app catalog: the four combinations of explicit uninstall metadata and NoModify,
+  three product/component UUID-v4/v8 controls, and two complete VidVNC payload clones
+  using ICO and PE icons. All installs/removals returned 0;
+  exact package identities and removal of each owned install/menu folder were verified.
+  Explicit AppUserModel.ID, non-advertised shortcuts and a PE icon also failed to
+  restore Uninstall on the existing product; each diagnostic was reverted to the
+  exact baseline. An owner-authorized clean uninstall/reinstall then returned 0 for
+  both transactions and preserved all 33 application data files byte-for-byte, but
+  the catalog still lacked Uninstall and retained the existing Start pin. The owner
+  manually unpinned VidVNC; the subsequent catalog check still failed. Neither clean
+  reinstall nor unpinning immediately resolved this case. An owner-authorized Explorer
+  restart also left the immediate check failing. The owner subsequently reported
+  Uninstall visible, and the same exact-package read-only checker then passed.
+  Recovery is confirmed; its cause and the necessary steps remain unproven.
+  Read-only registration checks found one VidVNC
+  uninstall entry, an installed Main feature, and no NoRemove, NoModify or
+  SystemComponent flag in either registration location.
+  No fixture executable was launched. These controls do not reproduce the existing
+  VidVNC failure and do not justify changing its persistent GUIDs or maintenance policy.
+  No speculative ARP or shortcut policy change was made. Published release artifacts
+  and tags are unchanged; the new MSI remains unsigned and marked dirty-source.
+
+- **2026-10-24, installed launch and Start-menu failures:** the owner installed the
+  corrective candidate and selected Launch VidVNC, but Finish did not launch the app.
+  Read-only inspection confirms the exact candidate PackageCode was installed,
+  WBTLAUNCHAPP=1, full UI and engine exit 0. The installed advertised shortcut resolves
+  through Windows Installer to the existing host executable and installed feature,
+  and carries its MSI uninstall command. Windows' app catalog nevertheless exposes
+  no Uninstall verb. The new read-only `msi-installed-check.ps1` reproduces that
+  failure; the authored-table/condition checks did not detect either installed issue.
+  Native winbuildtools experiments identified the launch defect: quoting the file-key
+  token silently fails, while the unquoted token launches, including paths with spaces.
+  Event order does not change that result. Start-menu registration remains unresolved;
+  working MSI comparisons correlate its absence with repair-enabled ARP registration,
+  but do not prove a cause. No installer transaction,
+  shortcut repair, registry change or real application launch was performed by this check.
+
+- **2026-10-24, installed-feedback wizard corrections:** the published 0.12.2 MSI
+  incorrectly treated MsiSystemRebootPending as its own restart requirement. Read-only
+  inspection of successful local installation logs showed native exit 0 and no
+  ReplacedInUseFiles flag. A consumer native-condition regression reproduced the
+  missing launch option before the fix. Local reviewed winbuildtools candidate
+  `9f23eaefb1533c2f438788d1541caacf597e7205` removes that false positive, retains
+  transaction in-use-file restart handling, selects the canonical 256px ICO frame,
+  skips the fixed-folder Options page, and moves modeless progress before costing
+  with retention across later prompts. It also uses concise conventional MSI text.
+  No external string collection, dependency, runtime binary or license change was added.
+  Shared full integration verification passed 68 configuration, 157 v1, 151 v2,
+  465 wizard and 980 presentation checks, plus common/MSIX/signing/certificate/.NET/
+  repository checks. Its exact committed consumer passed. VidVNC's rebuilt MSI passed
+  shared inspection and independent scope/folder/GUID/logo/flow checks, including
+  all 273 component identities. Native conditions prove that machine-pending alone
+  leaves Launch and normal success visible and hides restart text; actual in-use
+  replacement reverses those states. All later modal prompts retain modeless progress.
+  Three actual VidVNC native pages rendered with machine-pending deliberately set.
+  Format checks and 1089 portable tests passed, with 4 skipped. The local candidate
+  is unsigned and dirty-source marked; published v0.12.2 artifacts/tags are unchanged.
+  No product was installed, no launch executed and no trust imported. Actual interactive
+  transition timing, lifecycle/UAC/launch privileges and ICE remain unvalidated.
+
 - **2026-10-24, owner-selected MSI presentation:** the rebuilt 0.12.2 MSI uses the
   existing app logo, disables destination editing/Browse and completion Details,
   and offers an initially unchecked Run VidVNC choice. Shared byte/table inspection

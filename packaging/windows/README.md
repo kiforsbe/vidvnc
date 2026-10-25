@@ -5,13 +5,19 @@
 an unsigned MSIX outside those defaults. No optional Node or runtime-installer variants
 remain. The native viewer (`windows-client` in `../targets.json`) is still planned.
 
-Initialize the pinned submodule with `git submodule update --init --recursive`.
-[winbuildtools v0.5.0-beta.1](../../external/winbuildtools/README.md), commit
-`d9ec7c72cdabfc65b85c61e4cf2f055b75a444a9`, owns MSI/MSIX packing and inspection,
-native-process diagnostics, SDK discovery and final artifact metadata. PowerShell 7.4+
-(`pwsh`) is required; optional MSIX additionally requires Windows SDK 10.0.26100.0+
-MakeAppx. This is the newest published tag and is a prerelease; v0.4.0 remains
-the latest stable release. See the [tag review and proposed features](../../docs/superpowers/specs/2026-10-24-winbuildtools-presentation-design.md).
+The submodule pins the published non-beta
+[winbuildtools v0.5.0 release](https://github.com/kiforsbe/winbuildtools/releases/tag/v0.5.0).
+It owns MSI/MSIX packing/inspection, native diagnostics and final metadata. Published
+VidVNC v0.12.2 remains on its original tag and artifacts. The
+[correction design](../../docs/superpowers/specs/2026-10-24-msi-wizard-corrections.md)
+records the installed feedback; the
+[launch-default release design](../../docs/superpowers/specs/2026-10-25-msi-launch-default-release.md)
+records the subsequent default and release requirements.
+
+Ordinary published checkouts initialize with `git submodule update --init --recursive`.
+PowerShell 7.4+ (`pwsh`) is required; optional MSIX additionally needs Windows SDK
+10.0.26100.0+ MakeAppx. The tooling update has no added package dependency, license change,
+platform binary redistribution, signing action or install-time executable custom action.
 Builds never download tooling, create keys, sign or import certificate trust.
 `prepare.mjs` downloads only the pinned Node archive and verifies its SHA-256.
 
@@ -77,7 +83,11 @@ agreement page. Scope selection is enabled through the shared schema-v2 chooser.
 Cancel disabled, so use /qb or /qf for interactive cancellation.
 
 New MSIs include ARP location/icon and Start-shortcut native uninstall metadata.
-Start right-click Uninstall still needs installed Windows acceptance. The engine also
+The owner reproduced missing Start right-click Uninstall despite this metadata being
+present. It appeared after reinstalling, unpinning and restarting Explorer, with a delay
+after the restart; both the owner and the read-only installed checker confirmed it.
+The exact cause and which steps were necessary remain unproven.
+The engine also
 owns an InstallLocation registry value under the installation context's
 Software/winbuildtools/Installations/{UpgradeCode}, tied to the executable component.
 It remembers the destination for subsequent same-context upgrades. Packages built with
@@ -92,12 +102,20 @@ not create those installation records on the build machine.
 
 ## Optional wizard configuration
 
-VidVNC uses compact headers with its app logo. Destination editing/Browse and
-completion Details are explicitly disabled. The Options page still shows its read-only
-destination because the engine cannot hide that page. Failure/cancellation retain log
-information. After successful full-UI install/update, an initially unchecked Run VidVNC
-checkbox can launch the installed host when the user selects it and clicks Finish.
-It is absent for repair/removal, basic/reduced/silent UI and detected restart states.
+VidVNC uses compact headers with the canonical app logo's 256-pixel frame selected
+first in the embedded wizard resource. The installed ICO remains unchanged. Destination
+editing/Browse and completion Details are disabled. Fixed-folder setup skips the duplicate
+Options page and shows the read-only destination on the final Install review. Progress
+appears immediately after consent, before native discovery/costing, and is retained
+across later confirmation/error dialogs. Failure/cancellation retain log information.
+After successful full-UI install/update, an initially checked Launch VidVNC checkbox
+launches the installed host when left selected and the user clicks Finish.
+Clear the checkbox to finish without opening the app.
+It is absent for repair/removal, basic/reduced/silent UI and a transaction that replaced
+files in use. A pre-existing machine-wide pending reboot neither overrides normal success
+nor suppresses Run. Genuine transaction restart state displays a direct restart-required
+message; the engine does not infer the result by parsing logs. Its bounded action policy
+excludes general reboot actions and executable custom actions.
 Actual identity/privileges after elevated setup remain unvalidated; no unelevated-launch
 guarantee is made. External links and the agreement page remain disabled.
 

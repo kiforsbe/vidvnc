@@ -42,7 +42,8 @@
     "showBrowseButton": false,
     "completion": {
       "showDetails": false,
-      "launchApplication": true
+      "launchApplication": true,
+      "launchApplicationChecked": true
     }
   }
 }

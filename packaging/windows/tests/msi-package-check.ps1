@@ -29,18 +29,71 @@ Check ((@($snapshot.Directories | Where-Object Directory -ceq INSTALLFOLDER)[0].
 Check ((@($snapshot.Directories | Where-Object Directory -ceq APPMENUDIR)[0].DefaultDir -split '\|')[-1] -ceq 'VidVNC') 'Start-menu folder has no architecture suffix'
 Check (@($ui.Dialogs | Where-Object Dialog -ceq WbtInstallDetails).Count -eq 0) 'installation Details is disabled'
 Check (@($ui.Controls | Where-Object { $_.Control -ceq 'Details' -and $_.Type -ceq 'PushButton' }).Count -eq 0) 'Details buttons are absent'
-Check (@($ui.Controls | Where-Object { $_.Dialog_ -ceq 'WbtOptions' -and $_.Control -ceq 'Path' -and $_.Type -ceq 'Text' }).Count -eq 1) 'destination remains read-only'
+Check (@($ui.Controls | Where-Object { $_.Type -in @('Edit','PathEdit') -and $_.Property -in @('WBTINSTALLPATH','INSTALLFOLDER') }).Count -eq 0) 'destination remains read-only'
+Check (@($ui.Dialogs | Where-Object Dialog -ceq WbtOptions).Count -eq 0) 'fixed destination does not add a redundant Options page'
+Check (@($ui.Events | Where-Object { $_.Dialog_ -ceq 'WbtScope' -and $_.Control_ -ceq 'Continue' -and $_.Event -ceq 'NewDialog' -and $_.Argument -ceq 'WbtReady' }).Count -eq 1) 'scope proceeds to one final Install review'
+$progress = @($ui.InstallUi | Where-Object Action -ceq WbtProgress)
+Check ($progress.Count -eq 1 -and [int]$progress[0].Sequence -gt 5 -and [int]$progress[0].Sequence -lt 25) 'progress starts immediately after consent before discovery and costing'
+foreach ($name in @('WbtMaintenance','WbtRemove','WbtRepair','WbtUpgrade','WbtCancelConfirm',$snapshot.Properties.ErrorDialog)) {
+    $dialog = @($ui.Dialogs | Where-Object Dialog -ceq $name)
+    Check ($dialog.Count -eq 1 -and ([int]$dialog[0].Attributes -band 16) -eq 16) "later prompt retains modeless progress: $name"
+}
+Check (@($ui.Events | Where-Object { $_.Dialog_ -ceq 'WbtReady' -and $_.Control_ -ceq 'Next' -and $_.Event -ceq 'EndDialog' -and $_.Argument -ceq 'Return' }).Count -eq 1) 'installation retains an explicit final Install action'
 Check (@($ui.Controls | Where-Object { $_.Control -ceq 'HeaderLogo' -and $_.Type -ceq 'Icon' -and $_.Text -ceq 'WbtUiLogo' }).Count -gt 0) 'native header uses the app logo'
+$iconPath = Join-Path $root 'apps/windows-host/Assets/VidVnc.ico'
+$iconBytes = Get-MsiBrandingBytes $iconPath
+Check ($iconBytes[6] -eq 0 -and $iconBytes[7] -eq 0) 'wizard selects the canonical 256-pixel logo frame'
+$iconHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($iconBytes))
+Check ((Get-MsiBrandingHash ([IO.Path]::GetFullPath($Artifact)) WbtUiLogo) -ceq $iconHash) 'embedded high-resolution logo matches approved derived bytes'
 foreach ($operation in @('Installed','Updated','Repaired','Removed')) {
     Check (@($ui.Controls | Where-Object { $_.Dialog_ -ceq 'WbtExit' -and $_.Control -ceq "Heading$operation" }).Count -eq 1) "operation-specific completion: $operation"
 }
 $launch = @($ui.Events | Where-Object Event -ceq MsiLaunchApp)
 $hostFile = Get-MsiId F ([guid]$snapshot.Properties.UpgradeCode) 'x64/VidVnc.Host.exe'
-Check ($launch.Count -eq 1 -and $launch[0].Argument -ceq ('"[#' + $hostFile + ']"')) 'launch targets only the installed host executable'
-Check (!$snapshot.Properties.ContainsKey('WBTLAUNCHAPP')) 'Run VidVNC is initially unchecked'
-foreach ($condition in @('UILevel = 5','WBTLAUNCHAPP = 1','NOT Installed','NOT REMOVE','NOT REINSTALL','NOT MsiSystemRebootPending','NOT ReplacedInUseFiles')) {
+Check ($launch.Count -eq 1 -and $launch[0].Argument -ceq ('[#' + $hostFile + ']')) 'launch uses the native unquoted installed-host File key'
+Check ($snapshot.Properties.WBTLAUNCHAPP -ceq '1') 'Launch VidVNC is initially checked'
+foreach ($condition in @('UILevel = 5','WBTLAUNCHAPP = 1','NOT Installed','NOT REMOVE','NOT REINSTALL','NOT ReplacedInUseFiles')) {
     Check ($launch[0].Condition.Contains($condition)) "launch condition: $condition"
 }
+# Evaluate only in-memory conditions on an isolated, unregistered copy. No action,
+# installer navigation or application launch occurs during this regression check.
+$stateRoot = Join-Path $root 'out/packaging/windows'
+$fixture = Join-Path $stateRoot ('wizard-state-' + [guid]::NewGuid().ToString('N'))
+$null = New-Item -ItemType Directory -Path $fixture
+$stateMsi = Join-Path $fixture 'conditions.msi'
+$installer=$null; $session=$null; $database=$null; $previousUi=$null
+try {
+    New-MsiPreflightCopy ([IO.Path]::GetFullPath($Artifact)) $stateMsi
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $database = $installer.OpenDatabase([IO.Path]::GetFullPath($Artifact),0)
+    $conditions = @(Get-MsiRows $database ControlCondition @('Dialog_','Control_','Action','Condition'))
+    Close-MsiCom $database; $database=$null
+    $previousUi = $installer.UILevel; $installer.UILevel=2
+    $session = $installer.OpenPackage($stateMsi,0)
+    foreach ($property in @('Installed','REMOVE','REINSTALL','ReplacedInUseFiles')) { $session.Property($property)='' }
+    $session.Property('UILevel')='5'; $session.Property('WBTLAUNCHAPP')='1'
+    $session.Property('MsiSystemRebootPending')='1'
+    Check ($session.EvaluateCondition($launch[0].Condition) -eq 1) 'unrelated machine pending reboot does not block Run'
+    $session.Property('WBTLAUNCHAPP')=''
+    Check ($session.EvaluateCondition($launch[0].Condition) -eq 0) 'clearing Launch VidVNC prevents launch'
+    $session.Property('WBTLAUNCHAPP')='1'
+    foreach ($expected in @(@('Launch',1),@('MessageInstalled',1),@('Restart',0))) {
+        $show = @($conditions | Where-Object { $_.Dialog_ -ceq 'WbtExit' -and $_.Control_ -ceq $expected[0] -and $_.Action -ceq 'Show' })
+        Check ($show.Count -eq 1 -and $session.EvaluateCondition($show[0].Condition) -eq $expected[1]) "machine pending reboot: visibility $($expected[0])=$($expected[1])"
+    }
+    $session.Property('ReplacedInUseFiles')='1'
+    Check ($session.EvaluateCondition($launch[0].Condition) -eq 0) 'a real in-use replacement still blocks launch'
+    foreach ($expected in @(@('Launch',0),@('MessageInstalled',0),@('Restart',1))) {
+        $show = @($conditions | Where-Object { $_.Dialog_ -ceq 'WbtExit' -and $_.Control_ -ceq $expected[0] -and $_.Action -ceq 'Show' })
+        Check ($show.Count -eq 1 -and $session.EvaluateCondition($show[0].Condition) -eq $expected[1]) "transaction restart: visibility $($expected[0])=$($expected[1])"
+    }
+} finally {
+    Close-MsiCom $database; Close-MsiCom $session
+    if ($installer -and $null -ne $previousUi) { $installer.UILevel=$previousUi }
+    Close-MsiCom $installer
+    # Retain the synthetic copy in ignored out/ with the other diagnostic inputs.
+}
+Check (@($ui.Controls | Where-Object { $_.Dialog_ -ceq 'WbtWelcome' -and $_.Text -like '*Close the application before continuing*' }).Count -eq 0) 'welcome does not claim the app is running'
 Check (@($ui.Controls | Where-Object Type -ceq Hyperlink).Count -eq 0) 'external completion links remain disabled'
 Check (@($ui.Dialogs | Where-Object Dialog -ceq WbtBrowse).Count -eq 0) 'custom destination browsing remains disabled'
 

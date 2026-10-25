@@ -5,6 +5,24 @@ All notable changes to VidVNC are listed here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, any release
 may include breaking changes.
 
+## [Unreleased]
+
+### Changed
+
+- Launch VidVNC is selected by default on setup's final page; clear it to finish
+  without opening the app.
+- Windows packaging uses the published, non-beta winbuildtools v0.5.0 release.
+
+### Fixed
+
+- Windows setup no longer treats an unrelated pending Windows reboot as a VidVNC
+  restart requirement or hides the Launch VidVNC option after a successful installation.
+- Windows setup uses the high-resolution app icon, removes the duplicate fixed-folder
+  Options page and displays progress before installation preparation.
+- Windows setup uses concise, conventional wording without blanket close-app instructions.
+- Selecting Launch VidVNC on setup's final page now uses the correct native MSI file
+  reference; the previous quoted reference silently failed to launch.
+
 ## [0.12.2] - 2026-10-24
 
 ### Changed

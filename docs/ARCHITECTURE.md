@@ -1652,9 +1652,9 @@ register in the [security analysis](security/internet-exposure.md#findings-regis
 | T26 | Latency results (B1)      | T      | A viewer sends forged or hostile results for a latency measurement                                                               | Accepted only for the session's active measurement id, learned from the server; fixed fields, bounded numbers, 8 KiB, a 200-character browser string shown as text; memory only ([latency-probes.mjs](../apps/server/src/latency-probes.mjs))                                                                                                              | Misleading numbers in Diagnostics                                                                                                      |
 | T27 | Diagnostics bearer (B6)   | E      | A stolen diagnostics bearer makes a controlling viewer send probe input                                                          | The viewer runs only while it already holds keyboard and mouse control, through the normal input path (lease, allow-lists, rate limit); it shows a banner with Cancel, and stops within about 2 seconds of the probe page leaving the screen; the bearer is short-lived, issued only by the host and the local CLI, and sent only to `127.0.0.1`           | Up to about 100 seconds of pointer moves and L presses on the host (usually about 30), visible on the viewer                           |
 | T28 | Trust anchor (B3)         | S, I   | Use a certificate a device installed to impersonate other websites to it                                                         | `auto` never hands out a CA: the self-signed leaf has critical `CA:FALSE` and no certificate-signing key usage; mkcert's CA is used only after `tls-mode mkcert`, and its warning says it can sign for any site                                                                                                                                            | A device that trusts mkcert's CA trusts whoever holds that CA's key                                                                    |
-| T29 | Windows packages          | S, T   | Substitute an unsigned installer or build-tool checkout                                                                          | Pin winbuildtools v0.5.0-beta.1 by gitlink, inspect MSI/MSIX against approved inputs and record final hashes/source state. Builds never create keys or import trust.                                                                                                                                                                                       | Unsigned artifacts and unsigned sidecars do not establish publisher authenticity. Legacy MSIX trust persists until explicitly removed. |
+| T29 | Windows packages          | S, T   | Substitute an unsigned installer or build-tool checkout                                                                          | Pin reviewed winbuildtools source by gitlink, inspect MSI/MSIX against approved inputs and record final hashes/source state. Builds never create keys or import trust.                                                                                                                                                                                     | Unsigned artifacts and unsigned sidecars do not establish publisher authenticity. Legacy MSIX trust persists until explicitly removed. |
 | T30 | MSI installation metadata | T, E   | Substitute the remembered destination or elevated setup properties                                                               | Shared inspection allows only the expected install-location registry record and exact declarative property setters, secures UI-to-server properties, and uses fresh synthetic registry paths for non-installing preflight. Machine-scope installation needs administrator approval.                                                                        | Installed UAC, upgrade and rollback acceptance remains pending; properties are data, not a sandbox boundary.                           |
-| T31 | MSI completion            | E      | Start the remote-access host with installer privileges                                                                           | Run is unchecked, full-UI success only and targets the installed host File key without arguments. No launch occurs during build or inspection.                                                                                                                                                                                                             | Elevated/all-users launch identity and privileges require disposable-host validation; no de-elevation guarantee.                       |
+| T31 | MSI completion            | E      | Start the remote-access host with installer privileges                                                                           | Run is preselected and can be cleared, full-UI success only and targets the installed host File key without arguments. No launch occurs during build or inspection.                                                                                                                                                                                        | Elevated/all-users launch identity and privileges require disposable-host validation; no de-elevation guarantee.                       |
 
 ### Residual risk and open items
 
@@ -1937,7 +1937,8 @@ unchanged. Modules resolve resources relative to their own location, not launch 
 
 [build.mjs](../packaging/windows/build.mjs) owns payload approval and inventories.
 [build-tools.ps1](../packaging/windows/build-tools.ps1) delegates mechanisms to the
-pinned MIT winbuildtools v0.5.0-beta.1 checkout. Product build settings remain authoritative
+reviewed MIT winbuildtools v0.5.0 release described in the packaging README.
+Product build settings remain authoritative
 in CMake and WinUI; current WinUI resource/obj layout is retained rather than adopting
 the shared .NET helper without compatible committed project locks.
 
@@ -1962,12 +1963,15 @@ matching the original v1 machine identities and preserving the upgrade family
 ([msi.mjs](../packaging/windows/msi.mjs)). Scope changes require uninstall first;
 same-context upgrades retain their registration and remembered folder. Fresh install
 and Start-menu folders are simply named VidVNC; existing development installs need
-uninstall/reinstall to apply that renamed default. The beta toolkit also owns
+uninstall/reinstall to apply that renamed default. The pinned v0.5.0 toolkit also owns
 native setup/maintenance pages and an
 executable-component-owned install-location registry record. Exact declarative
 property setters, registry and shortcut metadata are checked before costing; no
 executable/script custom actions are allowed. Details and compatibility limits live
 in [Windows packaging](../packaging/windows/README.md#native-setup-and-maintenance).
+The read-only [installed Start-menu check](../packaging/windows/tests/msi-installed-check.ps1)
+binds the app catalog entry to the exact installed MSI and executable/advertised shortcut
+before requiring Uninstall; authored tables alone do not prove shell integration.
 Restart Manager can request normal shutdown: the host consents to
 WM_QUERYENDSESSION without changing sharing, ignores canceled WM_ENDSESSION, and on
 committed WM_ENDSESSION requests synchronous server shutdown before quitting even in
@@ -1976,13 +1980,16 @@ object remains the fallback for child-tree cleanup. Real installer lifecycle and
 validation remain release gates. Existing MSIX installations need manual removal before
 switching to MSI. No build changes certificate stores; legacy trust removal is separate.
 
-The selected beta's native MSI wizard adds a setup and maintenance flow. VidVNC keeps
+The selected toolkit's native MSI wizard adds a setup and maintenance flow. VidVNC keeps
 the destination display fixed and does not configure a license page. The native scope
 chooser runs before discovery/costing and is skipped in maintenance.
-The compact wizard displays the existing app icon. Completion Details and destination
-editing/Browse are disabled. Successful full-UI install/update can offer an unchecked
-Run VidVNC checkbox; Finish launches only the configured installed host File key,
-without arguments, after explicit selection and only when no restart is detected.
+The compact wizard embeds the existing ICO with its 256-pixel frame first, preserving
+all encoded frames and the installed source file. Completion Details and destination
+editing/Browse are disabled. Successful full-UI install/update offers an initially checked
+Launch VidVNC checkbox; Finish uses the native unquoted installed host File key,
+without arguments, when the user leaves it selected and this transaction did not replace
+files in use. Machine-wide pre-existing pending-reboot state does not suppress Run or
+replace normal success; genuine in-use-file replacement retains restart handling.
 Repair/removal and basic/reduced/silent UI do not offer launch. The engine does not
 guarantee launch de-elevation; actual post-setup identity/privileges remain unverified.
 Installed UI, cancellation, UAC and rollback still need disposable-host acceptance.
@@ -1992,17 +1999,19 @@ flowchart LR
     Open[Open MSI] --> State{Already installed}
     State -->|No| Welcome
     Welcome --> Scope[Just me or All users]
-    Scope --> Destination[Fixed destination in selected context]
-    Destination --> Ready
-    Ready --> Cost[Native discovery and costing]
-    Cost --> Upgrade[Upgrade confirmation when required]
-    Upgrade --> Progress[Engine progress]
-    State -->|Yes| Maintenance[Repair or remove]
+    Scope --> Ready[Review destination and select Install]
+    Ready --> Progress[Visible modeless progress]
+    Progress --> Cost[Native discovery and costing]
+    State -->|Yes| Progress
+    Cost --> Mode{Installed product}
+    Mode -->|No| Upgrade[Upgrade confirmation when required]
+    Upgrade --> Execute[Engine execution]
+    Mode -->|Yes| Maintenance[Repair or remove]
     Maintenance --> Confirm[Confirm maintenance]
-    Confirm --> Progress
-    Progress --> Result[Completed canceled or failed]
+    Confirm --> Execute
+    Execute --> Result[Completed canceled or failed]
     Result --> Choice{Successful full UI install or update without restart}
-    Choice -->|User selects Run and finishes| Launch[Launch installed host file]
+    Choice -->|User leaves Run selected and finishes| Launch[Launch installed host file]
 ```
 
 ## Build, dependencies, and tests

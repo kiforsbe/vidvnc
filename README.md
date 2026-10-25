@@ -379,16 +379,19 @@ npm run package:cli
 
 The MSI is `out/installers/windows-server/<version>/VidVNC-<version>-windows-x64-unsigned.msi`;
 the ZIP is `out/installers/windows-cli/<version>/VidVNC-Server-<version>-windows-x64-unsigned.zip`.
-Setup displays the app logo and offers an initially unchecked Run VidVNC option after
+Setup displays the app logo and offers an initially checked Launch VidVNC option after
 successful interactive install/update. Destination editing and completion Details are
-disabled. See the [selected setup behavior](packaging/windows/README.md#optional-wizard-configuration),
+disabled; setup shows the destination once on the final Install review. An unrelated
+Windows pending-reboot flag does not hide Run or change the successful result. See the
+[selected setup behavior](packaging/windows/README.md#optional-wizard-configuration),
 including the remaining elevated-launch validation limit.
 
 Each has a `.json` sidecar recording the final SHA-256, signature status, source commit
 and dirty state. These hashes identify bytes; they are not signed attestations.
 
-Packaging uses the pinned [winbuildtools](external/winbuildtools/README.md) v0.5.0-beta.1
-submodule (the latest tag, a prerelease; v0.4.0 remains stable). Initialize it with `git submodule update --init --recursive`. PowerShell
+Packaging uses pinned [winbuildtools v0.5.0](https://github.com/kiforsbe/winbuildtools/releases/tag/v0.5.0);
+see the [tooling boundary](packaging/windows/README.md).
+Published checkouts initialize with `git submodule update --init --recursive`. PowerShell
 7.4+ (`pwsh`) is required. The shared tools create and inspect the MSI; VidVNC owns the
 approved payload, prerequisites and licenses. Native CMake and WinUI/MSBuild remain
 responsible for building the application. Packages include only approved project files,

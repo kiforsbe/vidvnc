@@ -109,7 +109,7 @@ these builds and assemble artifacts, but must not replace them with source dupli
    Review redistribution/plugin/codec licensing before choosing the final payload.
 7. Confirm client-only packages contain no unintended server/capture services.
 
-The Windows host defaults to one MSI from pinned winbuildtools v0.5.0-beta.1, offering
+The Windows host defaults to one MSI from reviewed winbuildtools source, offering
 Just me (default) or All users in its native scope chooser. Scope changes require
 uninstalling the existing copy first.
 An explicitly requested unsigned MSIX remains available for preparation/inspection;
