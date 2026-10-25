@@ -86,6 +86,60 @@ cannot be stapled to a bare program, so its first run checks with Apple online.
 Notarization reads the profile from the keychain, which macOS keeps closed while the Mac
 is locked: run the build while you are logged in and the screen is unlocked.
 
+### Choosing the identity
+
+Use a **Developer ID Application** certificate: it is the one Apple requires for apps
+distributed outside the App Store, and the only kind notarization accepts. Apple
+Development and Apple Distribution certificates cannot be used, and Developer ID Installer
+is only for `.pkg` installers, which these packages are not.
+
+`VIDVNC_SIGN_IDENTITY` is a prefix of the identity's name, not necessarily the whole name.
+[build.mjs](build.mjs) lists the identities from
+`security find-identity -v -p codesigning` and keeps the ones whose names start with it.
+The build fails unless exactly one matches and it is a `Developer ID Application:`
+identity. It then reads the team from that name and passes the full name, such as
+`Developer ID Application: Your Name (TEAMID)`, to every `codesign` call. A short value
+therefore signs exactly as the full name would.
+
+`VIDVNC_SIGN_IDENTITY="Developer ID Application"` is enough when the keychain holds one
+Developer ID Application identity. With more than one, for example for several teams, or
+an old and a renewed certificate that are both still valid, that prefix matches all of
+them and the build stops. Set the full name as `find-identity` prints it instead:
+
+```sh
+VIDVNC_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" npm run package:macos
+```
+
+The repository's examples use the short form so that no name or team is written into
+them.
+
+### Creating the notary profile
+
+`VIDVNC_NOTARY_PROFILE` is the name of a `notarytool` keychain profile, which you choose
+when you create it. The build passes it to `xcrun notarytool submit --keychain-profile`
+and `notarytool log`; `notarytool` reads the credentials from the keychain, so the build
+never sees them. Create the profile once per Mac, for example as `vidvnc-notary`:
+
+```sh
+xcrun notarytool store-credentials vidvnc-notary --apple-id you@example.com --team-id TEAMID
+```
+
+It asks for an app-specific password, not the Apple Account password; create one at
+[account.apple.com](https://account.apple.com) under Sign-In and Security. The team ID is
+the code in brackets at the end of the Developer ID Application identity. `notarytool`
+checks the credentials with Apple before it saves them in the login keychain. On a build
+machine, an App Store Connect API key can be used instead of an Apple Account:
+
+```sh
+xcrun notarytool store-credentials vidvnc-notary --key AuthKey_KEYID.p8 --key-id KEYID --issuer ISSUER
+```
+
+Then name the profile when you build:
+
+```sh
+VIDVNC_SIGN_IDENTITY="Developer ID Application" VIDVNC_NOTARY_PROFILE=vidvnc-notary npm run package:macos
+```
+
 ## Checks
 
 [tests/package-check.mjs](tests/package-check.mjs) is run by hand after a build (it is not

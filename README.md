@@ -436,7 +436,8 @@ from an administrator PowerShell. Do not delete signing keys merely to build the
 ### Mac packages
 
 On a Mac with the tools for [building on macOS](#sdk-and-build-locations), a Developer ID
-Application certificate in your login keychain and a `notarytool` keychain profile:
+Application certificate in your login keychain and a `notarytool` keychain profile
+([creating it](packaging/macos/README.md#creating-the-notary-profile)):
 
 ```sh
 npm run package:prepare:macos
@@ -449,7 +450,10 @@ app, signs every program inside out with the hardened runtime, has Apple notariz
 staples the app and the DMG, and writes `out/installers/macos-cli/<version>/` and
 `out/installers/macos-server/<version>/`. `npm run package:macos:cli` and
 `package:macos:app` build one; add `-- --no-notarize` to stop after signing (the names then
-say `not-notarized`). The signing identity and profile only come from the environment;
+say `not-notarized`). The signing identity and profile only come from the environment.
+`VIDVNC_SIGN_IDENTITY` is a prefix that must match exactly one Developer ID Application
+identity; with several, give the full name
+([choosing the identity](packaging/macos/README.md#choosing-the-identity));
 `VIDVNC_APP_PROFILE` and `VIDVNC_CAPTURE_PROFILE` can name Developer ID provisioning
 profiles to embed once persistent content capture is approved. Signing many files asks
 for keychain access per file unless the key allows `codesign`
