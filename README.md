@@ -9,10 +9,11 @@ on a phone, tablet or another computer.
 
 > **Windows and Mac are both in this repository.** Each has the VidVNC app and a
 > command-line server; see how to use the app on [Windows](apps/windows-host/README.md) and
-> on a [Mac](apps/macos-host/README.md). You can build either from source today: see
+> on a [Mac](apps/macos-host/README.md). **Download the
+> [latest release](https://github.com/kiforsbe/vidvnc/releases/latest)** for Windows or Mac
+> (see [Install and run](#install-and-run)), or build either from source: see
 > [Build and run (Windows)](#build-and-run-windows) and [Build and run (Mac)](#build-and-run-mac).
-> No compiled release has been published yet; the first one will come later. VidVNC is a
-> development preview, **not** production-ready.
+> VidVNC is a development preview, **not** production-ready.
 
 <p align="center">
   <picture>
@@ -49,12 +50,14 @@ first release. Native viewer clients are planned, not implemented.
 
 ## Install and run
 
-> Nothing is published yet; the first release built from this repository will come later.
-> Until then, build the packages yourself: on Windows (see
-> [Windows packages](#windows-packages)) the VidVNC Server ZIP is unsigned and the VidVNC
-> app MSI is unsigned; on a Mac, see
-> [Mac packages](#mac-packages). Or run from source: [Build and run (Windows)](#build-and-run-windows),
-> [Build and run (Mac)](#build-and-run-mac).
+> **Download:** the [latest release](https://github.com/kiforsbe/vidvnc/releases/latest) has
+> the Windows packages (the unsigned VidVNC app MSI and VidVNC Server ZIP, each with a
+> SHA-256 `.json` sidecar) and the Mac packages (DMG and ZIP, signed and notarized). You can
+> also build the packages yourself ([Windows packages](#windows-packages),
+> [Mac packages](#mac-packages)) or run from source:
+> [Build and run (Windows)](#build-and-run-windows), [Build and run (Mac)](#build-and-run-mac).
+> Newer pre-release builds, when there are any, are on the
+> [Releases page](https://github.com/kiforsbe/vidvnc/releases); they are less tested.
 
 VidVNC comes in two Windows packages. Both include VidVNC's own media components,
 so you never install GStreamer or developer tools. Both need:
@@ -162,8 +165,9 @@ listener failure does not fall back to HTTP login or streaming. Only a valid, ex
 **How to use it:** the [VidVNC app for Mac guide](apps/macos-host/README.md#using-the-app)
 walks through every section with screenshots.
 
-> Not released yet. Both Mac packages can be built and notarized from a checkout (see
-> [Mac packages](#mac-packages)).
+> Download both Mac packages from the
+> [latest release](https://github.com/kiforsbe/vidvnc/releases/latest), or build and
+> notarize them from a checkout (see [Mac packages](#mac-packages)).
 
 The Mac packages need macOS 27 or later on Apple Silicon, and include everything else:
 Node.js, the media components and the server. Both are signed with the developer's
